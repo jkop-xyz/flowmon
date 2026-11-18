@@ -286,3 +286,51 @@ export const setClassification = (
 ) => putJSON<InterfacesResponse>(`${exporterPath(address)}/classification`, { classificationMode, roles })
 
 export const startReprocess = (address: string) => postJSON<ReprocessStatus>(`${exporterPath(address)}/reprocess`, {})
+
+export type SNMPConfig = {
+  enabled: boolean
+  version: "v2c" | "v3"
+  target: string
+  community?: string
+  user?: string
+  authProtocol?: string
+  authPassword?: string
+  privProtocol?: string
+  privPassword?: string
+  overhead: string
+  overheadBytes: number
+}
+
+export type SNMPView = {
+  config: SNMPConfig & { hasCommunity: boolean; hasAuthPassword: boolean; hasPrivPassword: boolean }
+  status: { lastPoll?: string; lastError?: string; interfaces: number }
+  overheadPresets: Record<string, number>
+}
+
+export const fetchSNMP = (address: string, signal?: AbortSignal) =>
+  getJSON<SNMPView>(`${exporterPath(address)}/snmp`, signal)
+
+export const saveSNMP = (address: string, config: SNMPConfig) =>
+  putJSON<SNMPView>(`${exporterPath(address)}/snmp`, { config })
+
+export const testSNMP = (address: string, config: SNMPConfig) =>
+  postJSON<{ interfaces: string[] }>(`${exporterPath(address)}/snmp/test`, { config })
+
+export type ReconDirection = { interfaceBytes: number; flowBytes: number; gap: number | null }
+
+export type ReconInterface = {
+  name: string
+  index: number
+  warning: boolean
+  hours: { hour: string; complete: boolean; in: ReconDirection; out: ReconDirection }[]
+}
+
+export type Reconciliation = {
+  overheadBytes: number
+  enabled: boolean
+  interfaces: ReconInterface[]
+  thresholds: { gap: number; sustainedHours: number; minBytesPerHour: number }
+}
+
+export const fetchReconciliation = (address: string, signal?: AbortSignal) =>
+  getJSON<Reconciliation>(`${exporterPath(address)}/reconciliation`, signal)

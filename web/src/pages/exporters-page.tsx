@@ -3,6 +3,7 @@ import { AlertTriangle, Cable, ChevronRight, Info, Radio } from "lucide-react"
 
 import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
 import { InterfacesSection } from "@/components/interfaces-section"
+import { SNMPSection } from "@/components/snmp-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -209,6 +210,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
         {exporter.deviations.length > 0 && <Deviations deviations={exporter.deviations} now={now} />}
 
         {exporter.approval === "approved" && <InterfacesSection address={exporter.address} />}
+        {exporter.approval === "approved" && <SNMPSection address={exporter.address} />}
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-medium">Templates</h3>

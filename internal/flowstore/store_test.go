@@ -195,3 +195,32 @@ func TestExporterRecords(t *testing.T) {
 		t.Errorf("after delete: %+v", got)
 	}
 }
+
+func TestSNMPStorage(t *testing.T) {
+	s := open(t)
+	if cfg, err := s.SNMPConfig(ctx, exporter); cfg != "" || err != nil {
+		t.Errorf("none yet: %q %v", cfg, err)
+	}
+	_ = s.SetSNMPConfig(ctx, exporter, `{"version":"v3"}`)
+	if cfg, _ := s.SNMPConfig(ctx, exporter); cfg != `{"version":"v3"}` {
+		t.Errorf("%q", cfg)
+	}
+	hour := t0.Truncate(time.Hour)
+	_ = s.AddSNMPDelta(ctx, exporter, "ether1", SNMPHour{Hour: hour, InOctets: 100, OutOctets: 10, InPackets: 2, OutPackets: 1, Complete: true})
+	_ = s.AddSNMPDelta(ctx, exporter, "ether1", SNMPHour{Hour: hour.Add(30 * time.Minute), InOctets: 50, Complete: true})
+	_ = s.AddSNMPDelta(ctx, exporter, "ether1", SNMPHour{Hour: hour.Add(time.Hour), InOctets: 7, Complete: false})
+	hs, err := s.SNMPHours(ctx, exporter, "ether1", hour, hour.Add(2*time.Hour))
+	if err != nil || len(hs) != 2 || hs[0].InOctets != 150 || !hs[0].Complete || hs[1].Complete {
+		t.Errorf("%+v %v", hs, err)
+	}
+
+	f := mkFlow(flow.DirectionInbound, t0, t0, 4000)
+	f.IngressInterface, f.EgressInterface = 1, 2
+	g := mkFlow(flow.DirectionOutbound, t0, t0, 1000)
+	g.IngressInterface, g.EgressInterface = 2, 1
+	_ = s.Write(ctx, []flow.Flow{f, g})
+	byHour, err := s.FlowBytesByInterface(ctx, exporter, 1, hour, hour.Add(time.Hour))
+	if err != nil || byHour[hour].InBytes != 4000 || byHour[hour].OutBytes != 1000 {
+		t.Errorf("%+v %v", byHour, err)
+	}
+}

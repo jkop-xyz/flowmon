@@ -30,7 +30,9 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/internal/interfaces"
 	"github.com/jkop-xyz/flowmon/internal/reprocess"
+	"github.com/jkop-xyz/flowmon/internal/secret"
 	"github.com/jkop-xyz/flowmon/internal/setup"
+	"github.com/jkop-xyz/flowmon/internal/snmp"
 	"github.com/jkop-xyz/flowmon/web"
 )
 
@@ -176,6 +178,35 @@ func serve(stderr io.Writer) int {
 	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
 	reprocessor := reprocess.New(store, func(f *flow.Flow) { classifier.Classify(f, f.End) }, logger)
 
+	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
+	if err != nil {
+		logger.Error("secret key", "err", err)
+		return 1
+	}
+	snmpSettings := snmp.NewSettings(store, box)
+	snmpConfigs, unreadable, err := snmpSettings.All(ctx)
+	if err != nil {
+		// SNMP is optional; collection starts regardless.
+		logger.Error("snmp settings unavailable; SNMP polling is off", "err", err)
+	}
+	for _, a := range unreadable {
+		logger.Error("stored SNMP credentials can't be decrypted; SNMP is off for this Exporter until they are re-entered", "exporter", a.String())
+	}
+	wanInterfaces := func(a netip.Addr) map[string]uint32 {
+		out := map[string]uint32{}
+		for _, i := range ifaceRegistry.Current(a) {
+			if i.Role == interfaces.RoleWAN {
+				out[i.Name] = i.Index
+			}
+		}
+		return out
+	}
+	poller := snmp.NewPoller(nil, snmpSink{ifaces: ifaceRegistry, store: store, wan: wanInterfaces, logger: logger}, snmpConfigs, logger, nil)
+	for _, a := range unreadable {
+		poller.MarkUnreadable(a)
+	}
+	go poller.Run(pipelineCtx)
+
 	gate := collector.GateFunc(func(a netip.Addr) collector.Admission {
 		switch registry.Status(a) {
 		case exporters.StatusApproved:
@@ -261,6 +292,7 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
 		},
+		SNMP: &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
 	}))
 
 	errCh := make(chan error, 1)
@@ -297,6 +329,26 @@ func (i interfaceClassification) ByInterface(a netip.Addr) bool { return i.expor
 
 func (i interfaceClassification) Role(a netip.Addr, idx uint32, at time.Time) classify.InterfaceRole {
 	return i.interfaces.RoleAt(a, idx, at)
+}
+
+// snmpSink sends what SNMP polling learns to the interfaces registry and Flow Store.
+type snmpSink struct {
+	ifaces *interfaces.Registry
+	store  *flowstore.Store
+	wan    func(netip.Addr) map[string]uint32
+	logger *slog.Logger
+}
+
+func (s snmpSink) Name(a netip.Addr, idx uint32, name string, at time.Time) {
+	if _, err := s.ifaces.SetName(context.Background(), a, idx, name, interfaces.SourceSNMP, at); err != nil {
+		s.logger.Warn("saving an interface name from SNMP", "exporter", a.String(), "err", err)
+	}
+}
+
+func (s snmpSink) WANInterfaces(a netip.Addr) map[string]uint32 { return s.wan(a) }
+
+func (s snmpSink) AddSNMPDelta(ctx context.Context, a netip.Addr, name string, d flowstore.SNMPHour) error {
+	return s.store.AddSNMPDelta(ctx, a, name, d)
 }
 
 // expireSessions deletes expired sessions every hour.

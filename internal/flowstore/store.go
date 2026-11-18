@@ -119,6 +119,20 @@ var migrations = []string{
 	`CREATE TABLE interface_roles (exporter VARCHAR NOT NULL, name VARCHAR NOT NULL, role VARCHAR NOT NULL, PRIMARY KEY (exporter, name))`,
 	// 6: when an Exporter's classification changed, for chart markers.
 	`CREATE TABLE classification_changes (exporter VARCHAR NOT NULL, changed_at TIMESTAMP NOT NULL, description VARCHAR NOT NULL)`,
+	// 7: SNMP settings per Exporter, as JSON with secrets encrypted.
+	`CREATE TABLE snmp_configs (exporter VARCHAR PRIMARY KEY, config VARCHAR NOT NULL)`,
+	// 8: SNMP interface counter deltas per hour, for Reconciliation.
+	`CREATE TABLE snmp_hours (
+		exporter VARCHAR NOT NULL,
+		if_name VARCHAR NOT NULL,
+		hour TIMESTAMP NOT NULL,
+		in_octets UBIGINT NOT NULL,
+		out_octets UBIGINT NOT NULL,
+		in_packets UBIGINT NOT NULL,
+		out_packets UBIGINT NOT NULL,
+		complete BOOLEAN NOT NULL,
+		PRIMARY KEY (exporter, if_name, hour)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
