@@ -18,6 +18,7 @@ import (
 	duckdb "github.com/duckdb/duckdb-go/v2"
 
 	"github.com/jkop-xyz/flowmon/internal/flow"
+	"github.com/jkop-xyz/flowmon/internal/rollup"
 )
 
 // Options configure the store.
@@ -42,6 +43,9 @@ type Store struct {
 	rollups map[string]bool   // Rollup tables that exist, by name
 	dirty   map[string]bool   // Rollup tables written since the last compaction
 	asns    map[uint32]string // ASN Owner names, as stored in asn_names
+
+	topBuilt map[period]bool // Top Remote IPs periods built
+	topDirty map[period]bool // built periods that Flows were added to since
 }
 
 // Open opens (or creates) the Flow Store at path and applies pending migrations.
@@ -66,7 +70,8 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
 	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
-		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{}}
+		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
+		topBuilt: map[period]bool{}, topDirty: map[period]bool{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
@@ -76,6 +81,10 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, err
 	}
 	if err := s.loadASNNames(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := s.loadTopRemoteBuilt(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -184,6 +193,15 @@ var migrations = []migration{
 		}
 		_, err = tx.ExecContext(ctx, `CREATE TABLE asn_names (asn UINTEGER PRIMARY KEY, name VARCHAR NOT NULL, updated TIMESTAMP NOT NULL)`)
 		return err
+	},
+	// 10: Top Remote IPs, per hour and per day, and which periods have been built.
+	func(ctx context.Context, tx *sql.Tx) error {
+		for _, q := range []string{topRemoteMigration, topRemoteBuiltMigration} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
 	},
 }
 
@@ -375,8 +393,26 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 		if err := s.writeRollups(ctx, dc.(driver.Conn), flows, time.Time{}); err != nil {
 			return err
 		}
+		s.markTopDirty(remoteSpans(flows))
 		return s.saveASNNames(ctx, flows)
 	})
+}
+
+// remoteSpans returns the time each Flow with a Remote IP is spread over.
+func remoteSpans(flows []flow.Flow) []rollupSpan {
+	var out []rollupSpan
+	for i := range flows {
+		f := &flows[i]
+		if f.Direction != flow.DirectionInbound && f.Direction != flow.DirectionOutbound {
+			continue
+		}
+		start, end := f.Start.UTC(), f.End.UTC()
+		if d := end.Sub(start); d <= 0 || d > rollup.MaxSpread {
+			start = end
+		}
+		out = append(out, rollupSpan{start, end})
+	}
+	return out
 }
 
 func (s *Store) loadASNNames(ctx context.Context) error {

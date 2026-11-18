@@ -93,6 +93,8 @@ func (s *Store) Reprocess(ctx context.Context, exporter netip.Addr, from time.Ti
 			progress(day, n)
 		}
 	}
+	// Top Remote IPs from the window on are built again from the reprocessed Flows.
+	s.markTopDirtyFrom(window)
 	return total, window, nil
 }
 

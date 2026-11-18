@@ -15,6 +15,8 @@ export const timeRangePresets: TimeRangePreset[] = [
   { value: "6h", label: "Last 6 hours", ms: 6 * hour },
   { value: "24h", label: "Last 24 hours", ms: 24 * hour },
   { value: "7d", label: "Last 7 days", ms: 7 * 24 * hour },
+  { value: "30d", label: "Last 30 days", ms: 30 * 24 * hour },
+  { value: "90d", label: "Last 90 days", ms: 90 * 24 * hour },
 ]
 
 export const defaultTimeRange = "1h"

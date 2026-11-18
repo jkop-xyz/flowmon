@@ -73,7 +73,9 @@ func TestGeoColumnsAddedToExistingDayTables(t *testing.T) {
 		`ALTER TABLE flows_20261118 DROP COLUMN peer_country`,
 		`ALTER TABLE flows_20261118 DROP COLUMN peer_asn`,
 		`DROP TABLE asn_names`,
-		`DELETE FROM flowmon_migrations WHERE version = 9`,
+		`DROP TABLE top_remote`,
+		`DROP TABLE top_remote_built`,
+		`DELETE FROM flowmon_migrations WHERE version >= 9`,
 	} {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			t.Fatal(q, err)

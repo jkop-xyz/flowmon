@@ -310,8 +310,9 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
 		},
-		SNMP:  &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
-		GeoIP: geo,
+		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		GeoIP:  geo,
+		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver},
 	}))
 
 	errCh := make(chan error, 1)
@@ -386,13 +387,18 @@ func expireSessions(ctx context.Context, logger *slog.Logger, s *appstore.Store)
 	}
 }
 
-// maintain compacts Rollups and applies retention every ten minutes.
+// maintain compacts Rollups, builds Top Remote IPs and applies retention every ten minutes.
 func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, r flowstore.Retention) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for {
 		if err := store.Compact(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("compacting rollups", "err", err)
+		}
+		if n, err := store.BuildTopRemote(ctx, time.Now(), pipeline.MaxWatermark()); err != nil && ctx.Err() == nil {
+			logger.Error("building Top Remote IPs", "err", err)
+		} else if n > 0 {
+			logger.Debug("Top Remote IPs built", "periods", n)
 		}
 		dropped, err := store.ApplyRetention(ctx, r, time.Now(), pipeline.MaxWatermark())
 		if err != nil && ctx.Err() == nil {

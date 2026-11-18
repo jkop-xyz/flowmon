@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { lazy, Suspense, type ReactNode } from "react"
-import { Link } from "react-router"
+import { Link, useLocation } from "react-router"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   ChartContainer,
   ChartLegend,
@@ -25,6 +25,7 @@ import {
 import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
+import { RemoteIPLink } from "@/components/remote"
 import { countryName } from "@/lib/countries"
 import {
   formatBitsPerSecond,
@@ -47,6 +48,7 @@ const chartConfig = {
 } satisfies ChartConfig
 
 export function OverviewPage() {
+  const { search } = useLocation()
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const query = useQuery({
@@ -96,10 +98,23 @@ export function OverviewPage() {
               description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
             />
             <TopCard
+              dimension="remotes"
+              title="Remote IPs"
+              what="Remote IPs"
+              description="The busiest addresses on the internet side, by bytes sent and received."
+              action={
+                <Link to={{ pathname: "/remote", search }} className="text-sm underline-offset-4 hover:underline">
+                  All Remote IPs
+                </Link>
+              }
+            />
+          </div>
+          <div className="grid gap-6 lg:grid-cols-3">
+            <TopCard
               dimension="asns"
               title="ASN Owners"
               what="ASN Owners"
-              description="The organisations announcing the Remote IPs, by bytes sent and received."
+              description="The organisations announcing the Remote IPs."
               mono={false}
               footer={<GeoIPNote />}
             />
@@ -250,6 +265,8 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
   switch (dimension) {
     case "hosts":
       return item.host ?? ""
+    case "remotes":
+      return item.remoteIp ?? ""
     case "protocols":
       return protocolName(item.protocol)
     case "ports":
@@ -341,6 +358,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
           max={items[0].totalBytes}
           mono={mono}
           exporterHost={dimension === "hosts" && item.localIsExporterHost}
+          remote={dimension === "remotes"}
         />
       ))}
     </ol>
@@ -354,6 +372,7 @@ function TopCard({
   description,
   mono = true,
   footer,
+  action,
 }: {
   dimension: TopDimension
   title: string
@@ -363,9 +382,12 @@ function TopCard({
   /** Addresses and ports read best in a monospace font; names don't. */
   mono?: boolean
   footer?: ReactNode
+  /** A link in the header, e.g. to the full list. */
+  action?: ReactNode
 }) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
+  const { search } = useLocation()
   const query = useQuery({
     queryKey: ["top", dimension, preset.value, exporter],
     queryFn: ({ signal }) => fetchTop(dimension, { ...resolveRange(preset), exporter }, signal),
@@ -378,6 +400,7 @@ function TopCard({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
+        {action && <CardAction>{action}</CardAction>}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {query.isPending ? (
@@ -386,6 +409,14 @@ function TopCard({
           <QueryError title={`Couldn't load the busiest ${what}`} error={query.error} />
         ) : (
           <TopList dimension={dimension} items={query.data.result.items} mono={mono} />
+        )}
+        {query.data?.result.approximate && (
+          <CardFooterNote>
+            Approximate: from hourly lists of the busiest Remote IPs per Local Host.{" "}
+            <Link to={{ pathname: "/remote", search }} className="underline underline-offset-4">
+              Details
+            </Link>
+          </CardFooterNote>
         )}
         {footer && <CardFooterNote>{footer}</CardFooterNote>}
       </CardContent>
@@ -399,12 +430,15 @@ function TopRow({
   max,
   mono,
   exporterHost,
+  remote,
 }: {
   label: string
   item: TopItem
   max: number
   mono: boolean
   exporterHost?: boolean
+  /** The label is a Remote IP: link to its page. */
+  remote?: boolean
 }) {
   const width = max > 0 ? Math.max(2, (item.totalBytes / max) * 100) : 0
   const received = item.receivedBytes
@@ -413,9 +447,13 @@ function TopRow({
     <li className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">
-          <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={label}>
-            {label}
-          </span>
+          {remote ? (
+            <RemoteIPLink ip={label} className="truncate font-mono text-xs underline-offset-4 hover:underline" />
+          ) : (
+            <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={label}>
+              {label}
+            </span>
+          )}
           {exporterHost && <Badge variant="outline">Exporter Host</Badge>}
         </span>
         <span className="shrink-0 tabular-nums">{formatBytes(item.totalBytes)}</span>

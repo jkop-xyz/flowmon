@@ -253,6 +253,27 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 	}
 	s.mu.Unlock()
 
+	// A raw day's daily Top Remote IPs are built before its Flows go.
+	for _, v := range victims {
+		if v.catalog != "flow_days" {
+			continue
+		}
+		if day, err := time.Parse("20060102", v.name[len("flows_"):]); err == nil {
+			p := period{"day", day.Unix()}
+			s.mu.Lock()
+			built := s.topBuilt[p] && !s.topDirty[p]
+			s.mu.Unlock()
+			if !built {
+				if err := s.buildTopRemote(ctx, p); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if err := s.applyTopRemoteRetention(ctx, now, r.Hour); err != nil {
+		return nil, err
+	}
+
 	var dropped []string
 	for _, v := range victims {
 		s.writeMu.Lock()
