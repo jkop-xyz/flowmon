@@ -2,7 +2,7 @@
 
 A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow from your router (MikroTik first, but any exporter that follows the standard), and shows where traffic goes and who is on the other end: country, ASN owner, reverse DNS and registration details.
 
-> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows in an embedded DuckDB under `/data`, and shows bandwidth on the Overview and each Exporter with its Templates on the Exporters page. Rollups and the other dashboards are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
+> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data`, and shows bandwidth and top Local Hosts, protocols and Service Ports on the Overview, and each Exporter with its Templates on the Exporters page. GeoIP enrichment and the other screens are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
 
 ## Run it
 
@@ -25,6 +25,10 @@ Then open <http://localhost:8080>. Host networking is how Flowmon will run once 
 | `FLOWMON_LOCAL_NETWORKS` | none | Extra Local Networks (comma-separated CIDRs) on top of the defaults: RFC 1918, ULA and link-local. 100.64.0.0/10 isn't a default; add it if you run Tailscale or similar |
 | `FLOWMON_FLOW_STORE_MEMORY_LIMIT` | `1GB` | DuckDB memory limit for the Flow Store |
 | `FLOWMON_FLOW_STORE_THREADS` | DuckDB's default | DuckDB threads for the Flow Store |
+| `FLOWMON_RETENTION_RAW` | `7d` | How long raw Flows are kept (whole days are dropped) |
+| `FLOWMON_RETENTION_MINUTE` | `90d` | How long minute Rollups are kept |
+| `FLOWMON_RETENTION_HOUR` | `730d` | How long hour Rollups are kept |
+| `FLOWMON_WATERMARK` | learned | Override the per-Exporter Watermark (how long after a minute its data may still change), e.g. `5m` |
 | `FLOWMON_MAX_EXPORTERS` | `64` | Most Exporters tracked; datagrams from further sources are ignored and counted |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |

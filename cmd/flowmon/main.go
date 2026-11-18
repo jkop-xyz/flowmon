@@ -124,7 +124,7 @@ func serve(stderr io.Writer) int {
 	}
 	defer store.Close()
 
-	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger})
+	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger, WatermarkOverride: cfg.WatermarkOverride})
 	pipelineCtx, stopPipeline := context.WithCancel(ctx)
 	var pipelineDone sync.WaitGroup
 	pipelineDone.Add(1)
@@ -138,6 +138,9 @@ func serve(stderr io.Writer) int {
 		stopPipeline()
 		pipelineDone.Wait()
 	}()
+
+	retention := flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour}
+	go maintain(pipelineCtx, logger, store, pipeline, retention)
 
 	coll := collector.New(collector.Options{
 		MaxExporters: cfg.MaxExporters,
@@ -159,6 +162,7 @@ func serve(stderr io.Writer) int {
 		Collector: coll,
 		Timing:    pipeline,
 		Flows:     store,
+		Watermark: pipeline,
 	}))
 
 	errCh := make(chan error, 1)
@@ -182,6 +186,29 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// maintain compacts Rollups and applies retention every ten minutes.
+func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, r flowstore.Retention) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := store.Compact(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("compacting rollups", "err", err)
+		}
+		dropped, err := store.ApplyRetention(ctx, r, time.Now(), pipeline.MaxWatermark())
+		if err != nil && ctx.Err() == nil {
+			logger.Error("applying retention", "err", err)
+		}
+		if len(dropped) > 0 {
+			logger.Info("retention dropped old data", "tables", dropped)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func check(stderr io.Writer) int {

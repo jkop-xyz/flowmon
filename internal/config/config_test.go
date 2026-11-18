@@ -33,6 +33,20 @@ func TestDefaults(t *testing.T) {
 	if cfg.MaxExporters != 64 {
 		t.Errorf("max exporters %d", cfg.MaxExporters)
 	}
+	if cfg.RetentionRaw != 7*24*time.Hour || cfg.RetentionMinute != 90*24*time.Hour || cfg.RetentionHour != 730*24*time.Hour || cfg.WatermarkOverride != 0 {
+		t.Errorf("retention %v %v %v, watermark %v", cfg.RetentionRaw, cfg.RetentionMinute, cfg.RetentionHour, cfg.WatermarkOverride)
+	}
+}
+
+func TestParseDuration(t *testing.T) {
+	for in, want := range map[string]time.Duration{"7d": 7 * 24 * time.Hour, "36h": 36 * time.Hour, "90m": 90 * time.Minute} {
+		if got, err := ParseDuration(in); err != nil || got != want {
+			t.Errorf("%s: %v %v", in, got, err)
+		}
+	}
+	if _, err := ParseDuration("xd"); err == nil {
+		t.Error("expected an error")
+	}
 }
 
 func TestOverrides(t *testing.T) {
@@ -74,6 +88,8 @@ func TestInvalidValues(t *testing.T) {
 		{"FLOWMON_MAX_EXPORTERS": "0"},
 		{"FLOWMON_DEBUG_CAPTURE_MAX_MB": "lots"},
 		{"FLOWMON_DEBUG_CAPTURE_MAX_DURATION": "-5m"},
+		{"FLOWMON_RETENTION_RAW": "forever"},
+		{"FLOWMON_WATERMARK": "0s"},
 	} {
 		if _, err := fromLookup(lookupFrom(env)); err == nil {
 			t.Errorf("%v: expected an error", env)

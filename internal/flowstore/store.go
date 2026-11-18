@@ -34,8 +34,13 @@ type Store struct {
 	db        *sql.DB
 	connector *duckdb.Connector
 
-	mu   sync.Mutex
-	days map[string]bool // day tables that exist, by name
+	// writeMu serialises writes with compaction and retention, which rewrite or drop tables.
+	writeMu sync.Mutex
+
+	mu      sync.Mutex
+	days    map[string]bool // raw day tables that exist, by name
+	rollups map[string]bool // Rollup tables that exist, by name
+	dirty   map[string]bool // Rollup tables written since the last compaction
 }
 
 // Open opens (or creates) the Flow Store at path and applies pending migrations.
@@ -59,7 +64,8 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
-	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector, days: map[string]bool{}}
+	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
+		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
@@ -86,6 +92,8 @@ func (s *Store) Close() error {
 var migrations = []string{
 	// 1: catalogue of day tables.
 	`CREATE TABLE flow_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`,
+	// 2: catalogue of Rollup tables (minute: one per day, hour: one per month).
+	`CREATE TABLE rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -127,21 +135,37 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 func (s *Store) loadDays(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT table_name FROM flow_days`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+	for query, into := range map[string]map[string]bool{
+		`SELECT table_name FROM flow_days`:         s.days,
+		`SELECT table_name FROM rollup_partitions`: s.rollups,
+	} {
+		rows, err := s.db.QueryContext(ctx, query)
+		if err != nil {
 			return err
 		}
-		s.days[name] = true
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				rows.Close()
+				return err
+			}
+			s.mu.Lock()
+			into[name] = true
+			s.mu.Unlock()
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
 	}
-	return rows.Err()
+	// Tables may hold uncompacted rows from before a restart.
+	s.mu.Lock()
+	for name := range s.rollups {
+		s.dirty[name] = true
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // dayTable names the table for the UTC day of t.
@@ -214,8 +238,11 @@ func nullableAddr(a netip.Addr) driver.Value {
 	return a.String()
 }
 
-// Write appends Flows. Each Flow goes into the table of the UTC day its End falls on.
+// Write appends Flows and their Rollup contributions. Each Flow goes into the table of
+// the UTC day its End falls on.
 func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	byDay := map[string][]*flow.Flow{}
 	var order []string
 	for i := range flows {
@@ -260,7 +287,7 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 				return fmt.Errorf("flushing %s: %w", name, err)
 			}
 		}
-		return nil
+		return s.writeRollups(ctx, dc.(driver.Conn), flows)
 	})
 }
 

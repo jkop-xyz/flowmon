@@ -153,7 +153,7 @@ func TestBandwidthExporterFilterAndEmpty(t *testing.T) {
 
 func TestInvalidRanges(t *testing.T) {
 	s := open(t)
-	for _, q := range []BandwidthQuery{{From: t0, To: t0}, {From: t0, To: t0.Add(30 * 24 * time.Hour)}} {
+	for _, q := range []BandwidthQuery{{From: t0, To: t0}, {From: t0, To: t0.Add(800 * 24 * time.Hour)}} {
 		if _, err := s.Bandwidth(ctx, q); err != ErrInvalidRange {
 			t.Errorf("%v → %v", q, err)
 		}

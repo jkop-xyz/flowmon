@@ -38,6 +38,10 @@ type Config struct {
 	FlowStoreMemoryLimit string
 	// FlowStoreThreads is DuckDB's thread count; 0 lets DuckDB decide.
 	FlowStoreThreads int
+	// Retention of raw Flows and of minute and hour Rollups.
+	RetentionRaw, RetentionMinute, RetentionHour time.Duration
+	// WatermarkOverride replaces the learned Watermark when set.
+	WatermarkOverride time.Duration
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -99,6 +103,24 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 
+	for _, r := range []struct {
+		key, def string
+		into     *time.Duration
+	}{
+		{"FLOWMON_RETENTION_RAW", "7d", &cfg.RetentionRaw},
+		{"FLOWMON_RETENTION_MINUTE", "90d", &cfg.RetentionMinute},
+		{"FLOWMON_RETENTION_HOUR", "730d", &cfg.RetentionHour},
+	} {
+		if *r.into, err = ParseDuration(get(r.key, r.def)); err != nil || *r.into <= 0 {
+			return Config{}, fmt.Errorf("%s: must be a positive duration such as 7d or 12h", r.key)
+		}
+	}
+	if s := get("FLOWMON_WATERMARK", ""); s != "" {
+		if cfg.WatermarkOverride, err = ParseDuration(s); err != nil || cfg.WatermarkOverride <= 0 {
+			return Config{}, fmt.Errorf("FLOWMON_WATERMARK: must be a positive duration such as 5m")
+		}
+	}
+
 	if err := cfg.LogLevel.UnmarshalText([]byte(get("FLOWMON_LOG_LEVEL", "info"))); err != nil {
 		return Config{}, fmt.Errorf("FLOWMON_LOG_LEVEL: %w", err)
 	}
@@ -114,4 +136,16 @@ func positiveInt(s string) (int, error) {
 		return 0, fmt.Errorf("must be a positive integer, got %q", s)
 	}
 	return n, nil
+}
+
+// ParseDuration accepts Go durations ("36h", "90m") plus whole days ("7d").
+func ParseDuration(s string) (time.Duration, error) {
+	if d, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(d)
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }
