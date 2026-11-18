@@ -118,8 +118,36 @@ export type ExporterStatus = {
   timing: TimingStatus | null
 }
 
+export type ListenerStatus = {
+  address: string
+  requestedBuffer: number
+  /** What the kernel granted; 0 when unknown. */
+  grantedBuffer: number
+  kernelDrops: number
+  /** False where the kernel can't report drops. */
+  dropsCounted: boolean
+  datagrams: number
+}
+
+export type PipelineStats = {
+  written: number
+  /** Flows that didn't fit in the write queue. */
+  dropped: number
+  late: number
+  writeErrors: number
+  noAddresses: number
+  optionsRecords: number
+  queued: number
+  queueCapacity: number
+  lastWrite?: string
+}
+
 export type CollectorStatus = {
-  listeners: string[]
+  listeners: ListenerStatus[]
+  started: string
+  lastAccepted?: string
+  lastAcceptedFrom?: string
+  pipeline?: PipelineStats
   droppedOverExporterLimit: number
   maxExporters: number
   droppedOverPendingLimit: number
@@ -698,8 +726,17 @@ export type AppStoreStatus = {
   driver?: "sqlite" | "postgres"
 }
 
+export type CollectionStatus = {
+  approvedExporters: number
+  lastFlow?: string
+  lastFlowFrom?: string
+  /** Approved Exporters exist but no Flows arrived for warnAfterSeconds. */
+  quiet: boolean
+  warnAfterSeconds: number
+}
+
 export function fetchStatus(signal?: AbortSignal) {
-  return getJSON<{ appStore?: AppStoreStatus }>("/api/status", signal)
+  return getJSON<{ appStore?: AppStoreStatus; collection?: CollectionStatus }>("/api/status", signal)
 }
 
 export type RetentionSetting = { seconds: number; locked: boolean; env: string }

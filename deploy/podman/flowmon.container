@@ -15,6 +15,9 @@ ContainerName=flowmon
 # Host networking keeps each Exporter's real source address and avoids the stale
 # conntrack problem of published UDP ports (netavark issue #1045).
 Network=host
+# Lets Flowmon force a UDP receive buffer larger than the host's net.core.rmem_max
+# (see docs/deploy.md). Optional.
+# AddCapability=NET_ADMIN
 # :U makes the volume owned by the image's user (10001) in rootless setups too.
 Volume=flowmon-data.volume:/data:U
 Environment=TZ=UTC

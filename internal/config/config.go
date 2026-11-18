@@ -66,6 +66,12 @@ type Config struct {
 	GeoIPDownload bool
 	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads.
 	MaxMindAccountID, MaxMindLicenseKey string
+	// UDPReceiveBuffer is the socket receive buffer the collector asks for, in bytes.
+	UDPReceiveBuffer int
+	// NoFlowsWarning is how long without Flows before the UI warns; 0 turns it off.
+	NoFlowsWarning time.Duration
+	// MetricsToken, when set, is required as a bearer token on /metrics.
+	MetricsToken string
 	// LocalDNSServer (host:port) answers reverse DNS for Local Hosts, such as the router
 	// or a Pi-hole. Empty uses the system resolver.
 	LocalDNSServer string
@@ -182,6 +188,26 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if (cfg.MaxMindAccountID == "") != (cfg.MaxMindLicenseKey == "") {
 		return Config{}, fmt.Errorf("FLOWMON_MAXMIND_ACCOUNT_ID and FLOWMON_MAXMIND_LICENSE_KEY must be set together")
+	}
+	mb, err := positiveInt(get("FLOWMON_UDP_RECEIVE_BUFFER_MB", "8"))
+	if err != nil || mb > 1024 {
+		return Config{}, fmt.Errorf("FLOWMON_UDP_RECEIVE_BUFFER_MB: must be between 1 and 1024")
+	}
+	cfg.UDPReceiveBuffer = mb << 20
+	switch s := strings.ToLower(get("FLOWMON_NO_FLOWS_WARNING", "5m")); s {
+	case "0", "off", "false":
+	default:
+		if cfg.NoFlowsWarning, err = ParseDuration(s); err != nil || cfg.NoFlowsWarning <= 0 {
+			return Config{}, fmt.Errorf("FLOWMON_NO_FLOWS_WARNING: must be a duration such as 5m, or off")
+		}
+	}
+	cfg.MetricsToken = get("FLOWMON_METRICS_TOKEN", "")
+	if f := get("FLOWMON_METRICS_TOKEN_FILE", ""); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return Config{}, fmt.Errorf("FLOWMON_METRICS_TOKEN_FILE: %w", err)
+		}
+		cfg.MetricsToken = strings.TrimSpace(string(b))
 	}
 	if s := strings.TrimSpace(get("FLOWMON_LOCAL_DNS_SERVER", "")); s != "" {
 		if cfg.LocalDNSServer, err = dnsServer(s); err != nil {

@@ -20,6 +20,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/geoip"
+	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/internal/services"
 	"github.com/jkop-xyz/flowmon/internal/settings"
 	"github.com/jkop-xyz/flowmon/internal/setup"
@@ -66,6 +67,10 @@ type Options struct {
 	Settings *settings.Manager
 	// AppStore reports App Store health for the outage banner.
 	AppStore AppStoreHolder
+	// NoFlowsWarning is how long without Flows before the UI warns; 0 turns it off.
+	NoFlowsWarning time.Duration
+	// Metrics wires /metrics and the pipeline counters on the Exporters page.
+	Metrics *MetricsOptions
 	// Explorer answers the Flow Explorer.
 	Explorer FlowStore
 	// Services names Service Ports.
@@ -90,23 +95,15 @@ func New(opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": opts.Version})
 	})
 	registerAuth(public, opts)
+	registerMetrics(public, opts)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/exporters", func(w http.ResponseWriter, _ *http.Request) {
-		if opts.Collector == nil {
-			writeJSON(w, http.StatusOK, collector.Status{Listeners: []string{}, Exporters: []collector.ExporterStatus{}})
-			return
-		}
-		st := opts.Collector.Status()
-		mergeExporterStatus(&st, opts.Exporters)
-		if opts.Timing != nil {
-			for i := range st.Exporters {
-				if addr, err := netip.ParseAddr(st.Exporters[i].Address); err == nil {
-					st.Exporters[i].Timing = opts.Timing.Timing(addr)
-				}
-			}
-		}
-		writeJSON(w, http.StatusOK, st)
+		st, ps := collectorStatus(opts)
+		writeJSON(w, http.StatusOK, struct {
+			collector.Status
+			Pipeline *ingest.Stats `json:"pipeline,omitempty"`
+		}{st, ps})
 	})
 	registerExporters(mux, opts)
 	registerInterfaces(mux, opts)

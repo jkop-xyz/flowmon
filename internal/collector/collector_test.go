@@ -177,7 +177,7 @@ func TestListenUDPEndToEnd(t *testing.T) {
 	if err := c.ListenUDP(ctx, "127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
-	addr := c.Listeners()[0]
+	addr := c.Listeners()[0].Address
 	addr = addr[:len(addr)-len("/udp")]
 
 	conn, err := net.Dial("udp", addr)

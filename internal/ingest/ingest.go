@@ -66,6 +66,8 @@ type Pipeline struct {
 
 	written      atomic.Uint64
 	dropped      atomic.Uint64
+	lastWrite    atomic.Int64 // Unix nanoseconds of the last successful write
+	batched      atomic.Int64 // Flows in the batch being filled
 	late         atomic.Uint64
 	writeErrors  atomic.Uint64
 	noAddresses  atomic.Uint64
@@ -156,14 +158,17 @@ func (p *Pipeline) Run(ctx context.Context) {
 			p.opts.Logger.Error("writing flows", "flows", len(batch), "err", err)
 		} else {
 			p.written.Add(uint64(len(batch)))
+			p.lastWrite.Store(time.Now().UnixNano())
 		}
 		batch = batch[:0]
+		p.batched.Store(0)
 	}
 
 	for {
 		select {
 		case f := <-p.queue:
 			batch = append(batch, f)
+			p.batched.Store(int64(len(batch)))
 			if len(batch) >= p.opts.BatchSize {
 				flush()
 			}
@@ -188,24 +193,37 @@ func (p *Pipeline) Run(ctx context.Context) {
 
 // Stats are pipeline counters.
 type Stats struct {
-	Written     uint64 `json:"written"`
+	Written uint64 `json:"written"`
+	// Dropped Flows didn't fit in the write queue.
 	Dropped     uint64 `json:"dropped"`
 	Late        uint64 `json:"late"`
 	WriteErrors uint64 `json:"writeErrors"`
 	NoAddresses uint64 `json:"noAddresses"`
 	Options     uint64 `json:"optionsRecords"`
+	// Queued Flows wait to be written: in the queue (of QueueCapacity) or the next batch.
+	Queued        int `json:"queued"`
+	QueueCapacity int `json:"queueCapacity"`
+	// LastWrite is when Flows were last written to the Flow Store.
+	LastWrite *time.Time `json:"lastWrite,omitempty"`
 }
 
 // Stats returns the pipeline counters.
 func (p *Pipeline) Stats() Stats {
-	return Stats{
-		Written:     p.written.Load(),
-		Dropped:     p.dropped.Load(),
-		Late:        p.late.Load(),
-		WriteErrors: p.writeErrors.Load(),
-		NoAddresses: p.noAddresses.Load(),
-		Options:     p.optionsCount.Load(),
+	st := Stats{
+		Written:       p.written.Load(),
+		Dropped:       p.dropped.Load(),
+		Late:          p.late.Load(),
+		WriteErrors:   p.writeErrors.Load(),
+		NoAddresses:   p.noAddresses.Load(),
+		Options:       p.optionsCount.Load(),
+		Queued:        len(p.queue) + int(p.batched.Load()),
+		QueueCapacity: cap(p.queue),
 	}
+	if ns := p.lastWrite.Load(); ns != 0 {
+		t := time.Unix(0, ns).UTC()
+		st.LastWrite = &t
+	}
+	return st
 }
 
 // timingSamples is how many recent Flows the timing medians are taken over.

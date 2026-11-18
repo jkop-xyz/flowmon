@@ -267,11 +267,12 @@ func serve(stderr io.Writer) int {
 	})
 
 	coll := collector.New(collector.Options{
-		MaxExporters: cfg.MaxExporters,
-		Capture:      debugCapture,
-		Logger:       logger,
-		Sink:         pipeline,
-		Gate:         gate,
+		MaxExporters:  cfg.MaxExporters,
+		ReceiveBuffer: cfg.UDPReceiveBuffer,
+		Capture:       debugCapture,
+		Logger:        logger,
+		Sink:          pipeline,
+		Gate:          gate,
 	})
 	for _, addr := range cfg.FlowUDPAddrs {
 		if err := coll.ListenUDP(ctx, addr); err != nil {
@@ -378,13 +379,15 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: func() time.Duration { return collectionSettings.Current().Retention.Raw },
 		},
-		SNMP:     &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
-		GeoIP:    geo,
-		Remote:   &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
-		Hosts:    &httpserver.HostOptions{Store: store, Directory: hostDirectory},
-		Explorer: store,
-		Settings: collectionSettings,
-		AppStore: holder,
+		SNMP:           &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		GeoIP:          geo,
+		Remote:         &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
+		Hosts:          &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		Explorer:       store,
+		Settings:       collectionSettings,
+		NoFlowsWarning: cfg.NoFlowsWarning,
+		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline, Store: store},
+		AppStore:       holder,
 		Services: services.NewDirectory(func() services.Store {
 			if s := holder.Usable(); s != nil {
 				return s
