@@ -50,6 +50,17 @@ export type TemplateStatus = {
   findings: Finding[]
 }
 
+export type TimingStatus = {
+  samples: number
+  /** Median of (received − export time): positive when the Exporter's clock is behind. */
+  clockOffsetSeconds: number
+  /** Median of (export time − flow end). */
+  exportLagSeconds: number
+  flows: number
+  estimatedTimeFlows: number
+  findings: Finding[]
+}
+
 export type ExporterStatus = {
   address: string
   lastSource: string
@@ -63,6 +74,7 @@ export type ExporterStatus = {
   deviations: DeviationStatus[]
   templates: TemplateStatus[]
   findings: Finding[]
+  timing: TimingStatus | null
 }
 
 export type CollectorStatus = {
@@ -74,4 +86,24 @@ export type CollectorStatus = {
 
 export function fetchExporters(signal?: AbortSignal) {
   return getJSON<CollectorStatus>("/api/exporters", signal)
+}
+
+export type BandwidthPoint = {
+  t: string
+  inboundBps: number
+  outboundBps: number
+  internalBps: number
+}
+
+export type BandwidthResult = {
+  from: string
+  to: string
+  stepSeconds: number
+  points: BandwidthPoint[]
+}
+
+export function fetchBandwidth(range: { from: Date; to: Date; exporter?: string }, signal?: AbortSignal) {
+  const params = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString() })
+  if (range.exporter) params.set("exporter", range.exporter)
+  return getJSON<BandwidthResult>(`/api/overview/bandwidth?${params}`, signal)
 }

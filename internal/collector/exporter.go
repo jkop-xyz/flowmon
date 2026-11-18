@@ -105,6 +105,21 @@ type ExporterStatus struct {
 	Deviations         []DeviationStatus `json:"deviations"`
 	Templates          []TemplateStatus  `json:"templates"`
 	Findings           []Finding         `json:"findings"`
+	// Timing is filled in by the ingest pipeline once Flows have been normalised.
+	Timing *TimingStatus `json:"timing"`
+}
+
+// TimingStatus compares an Exporter's times with Flowmon's clock.
+type TimingStatus struct {
+	Samples int `json:"samples"`
+	// ClockOffsetSeconds is the median of (received - export time): positive when the
+	// Exporter's clock is behind, negative when it is ahead.
+	ClockOffsetSeconds float64 `json:"clockOffsetSeconds"`
+	// ExportLagSeconds is the median of (export time - flow end).
+	ExportLagSeconds   float64   `json:"exportLagSeconds"`
+	Flows              uint64    `json:"flows"`
+	EstimatedTimeFlows uint64    `json:"estimatedTimeFlows"`
+	Findings           []Finding `json:"findings"`
 }
 
 // DeviationStatus counts one kind of deviation.

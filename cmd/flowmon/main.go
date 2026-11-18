@@ -10,14 +10,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/capture"
+	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
+	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
+	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/web"
 )
 
@@ -98,10 +103,47 @@ func serve(stderr io.Writer) int {
 			"path", cfg.DebugCapture, "max_duration", cfg.DebugCaptureMaxDuration)
 	}
 
+	extra, err := classify.ParseLocalNetworks(cfg.ExtraLocalNetworks)
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error: FLOWMON_LOCAL_NETWORKS:", err)
+		return 2
+	}
+	classifier := classify.New(append(classify.DefaultLocalNetworks(), extra...))
+
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		logger.Error("data directory", "err", err)
+		return 1
+	}
+	store, err := flowstore.Open(ctx, filepath.Join(cfg.DataDir, "flows.duckdb"), flowstore.Options{
+		MemoryLimit: cfg.FlowStoreMemoryLimit,
+		Threads:     cfg.FlowStoreThreads,
+	})
+	if err != nil {
+		logger.Error("flow store", "err", err)
+		return 1
+	}
+	defer store.Close()
+
+	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger})
+	pipelineCtx, stopPipeline := context.WithCancel(ctx)
+	var pipelineDone sync.WaitGroup
+	pipelineDone.Add(1)
+	go func() {
+		defer pipelineDone.Done()
+		pipeline.Run(pipelineCtx)
+	}()
+	// Runs before store.Close (defers are LIFO), on every exit path: the pipeline stops
+	// and writes its last batch before the store closes.
+	defer func() {
+		stopPipeline()
+		pipelineDone.Wait()
+	}()
+
 	coll := collector.New(collector.Options{
 		MaxExporters: cfg.MaxExporters,
 		Capture:      debugCapture,
 		Logger:       logger,
+		Sink:         pipeline,
 	})
 	for _, addr := range cfg.FlowUDPAddrs {
 		if err := coll.ListenUDP(ctx, addr); err != nil {
@@ -115,6 +157,8 @@ func serve(stderr io.Writer) int {
 		UI:        web.Dist(),
 		Logger:    logger,
 		Collector: coll,
+		Timing:    pipeline,
+		Flows:     store,
 	}))
 
 	errCh := make(chan error, 1)

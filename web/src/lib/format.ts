@@ -32,3 +32,31 @@ export function formatAgo(iso: string, now: number): string {
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
+
+const bitUnits = ["bit/s", "kbit/s", "Mbit/s", "Gbit/s", "Tbit/s"]
+
+/** Rates are shown in bits per second (decimal units, like link speeds). */
+export function formatBitsPerSecond(bps: number): string {
+  let value = bps
+  let unit = 0
+  while (value >= 1000 && unit < bitUnits.length - 1) {
+    value /= 1000
+    unit++
+  }
+  const digits = value === 0 || value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2
+  return `${value.toFixed(digits)} ${bitUnits[unit]}`
+}
+
+/** Axis ticks: times for short ranges, dates and times for longer ones. */
+export function formatTick(ms: number, rangeMs: number): string {
+  const d = new Date(ms)
+  if (rangeMs <= 24 * 3600_000) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
+}
+
+export function formatSeconds(s: number): string {
+  const abs = Math.abs(s)
+  if (abs < 1) return `${s.toFixed(2)} s`
+  if (abs < 120) return `${s.toFixed(0)} s`
+  return `${(s / 60).toFixed(1)} min`
+}

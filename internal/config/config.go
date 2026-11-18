@@ -32,6 +32,12 @@ type Config struct {
 	DebugCaptureMaxBytes    int64
 	DebugCaptureMaxDuration time.Duration
 	DebugCaptureFiles       int
+	// ExtraLocalNetworks are added to the default Local Networks (comma-separated CIDRs).
+	ExtraLocalNetworks string
+	// FlowStoreMemoryLimit is DuckDB's memory_limit, e.g. "1GB".
+	FlowStoreMemoryLimit string
+	// FlowStoreThreads is DuckDB's thread count; 0 lets DuckDB decide.
+	FlowStoreThreads int
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -83,6 +89,14 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if cfg.DebugCaptureFiles, err = positiveInt(get("FLOWMON_DEBUG_CAPTURE_FILES", "3")); err != nil {
 		return Config{}, fmt.Errorf("FLOWMON_DEBUG_CAPTURE_FILES: %w", err)
+	}
+
+	cfg.ExtraLocalNetworks = get("FLOWMON_LOCAL_NETWORKS", "")
+	cfg.FlowStoreMemoryLimit = get("FLOWMON_FLOW_STORE_MEMORY_LIMIT", "1GB")
+	if s := get("FLOWMON_FLOW_STORE_THREADS", ""); s != "" {
+		if cfg.FlowStoreThreads, err = positiveInt(s); err != nil {
+			return Config{}, fmt.Errorf("FLOWMON_FLOW_STORE_THREADS: %w", err)
+		}
 	}
 
 	if err := cfg.LogLevel.UnmarshalText([]byte(get("FLOWMON_LOG_LEVEL", "info"))); err != nil {

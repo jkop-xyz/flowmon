@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { ModeToggle } from "@/components/mode-toggle"
+import { TimeRangePicker } from "@/components/time-range-picker"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -35,6 +36,7 @@ export function AppLayout() {
           <Separator orientation="vertical" className="mr-2 data-vertical:h-4 data-vertical:self-center" />
           <h1 className="text-sm font-medium">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
+            <TimeRangePicker />
             <ServerStatus />
             <ModeToggle />
           </div>
