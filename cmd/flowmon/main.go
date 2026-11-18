@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/capture"
+	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
@@ -79,10 +81,40 @@ func serve(stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var debugCapture *capture.Writer
+	if cfg.DebugCapture != "" {
+		debugCapture, err = capture.Open(capture.Options{
+			Path:         cfg.DebugCapture,
+			MaxFileBytes: cfg.DebugCaptureMaxBytes,
+			MaxFiles:     cfg.DebugCaptureFiles,
+			MaxDuration:  cfg.DebugCaptureMaxDuration,
+		}, time.Now())
+		if err != nil {
+			logger.Error("debug capture", "err", err)
+			return 1
+		}
+		defer debugCapture.Close()
+		logger.Warn("debug capture is on: received datagrams are written to disk and contain private traffic metadata",
+			"path", cfg.DebugCapture, "max_duration", cfg.DebugCaptureMaxDuration)
+	}
+
+	coll := collector.New(collector.Options{
+		MaxExporters: cfg.MaxExporters,
+		Capture:      debugCapture,
+		Logger:       logger,
+	})
+	for _, addr := range cfg.FlowUDPAddrs {
+		if err := coll.ListenUDP(ctx, addr); err != nil {
+			logger.Error("collector", "err", err)
+			return 1
+		}
+	}
+
 	srv := httpserver.NewServer(cfg.HTTPAddr, httpserver.New(httpserver.Options{
-		Version: version,
-		UI:      web.Dist(),
-		Logger:  logger,
+		Version:   version,
+		UI:        web.Dist(),
+		Logger:    logger,
+		Collector: coll,
 	}))
 
 	errCh := make(chan error, 1)

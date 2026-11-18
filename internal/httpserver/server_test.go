@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/jkop-xyz/flowmon/internal/collector"
 )
 
 func newTestHandler(ui fstest.MapFS) http.Handler {
@@ -37,6 +40,27 @@ func TestHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" || body["version"] != "1.2.3" {
 		t.Errorf("body %v", body)
+	}
+}
+
+func TestExportersWithoutCollector(t *testing.T) {
+	rec := get(t, newTestHandler(builtUI), "/api/exporters")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"exporters":[]`) {
+		t.Errorf("status %d, body %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestExportersFromCollector(t *testing.T) {
+	c := collector.New(collector.Options{})
+	c.HandleDatagram(netip.MustParseAddrPort("192.168.10.1:5000"), netip.MustParseAddrPort("0.0.0.0:4739"), []byte{0, 9, 0, 0})
+	h := New(Options{Version: "1", UI: builtUI, Collector: c})
+	rec := get(t, h, "/api/exporters")
+	var st collector.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Exporters) != 1 || st.Exporters[0].Address != "192.168.10.1" {
+		t.Errorf("status %+v", st)
 	}
 }
 
