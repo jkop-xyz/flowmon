@@ -344,6 +344,9 @@ export function LocalHostPage() {
         <CardHeader>
           <CardTitle>Traffic</CardTitle>
           <CardDescription>What it received and sent, {label}, with Remote IPs and other Local Hosts.</CardDescription>
+          <CardAction>
+            <ExplorerLink host={host} />
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {summary.isPending ? (
@@ -422,6 +425,18 @@ export function LocalHostPage() {
         />
       </div>
     </Page>
+  )
+}
+
+/** Opens the Flow Explorer filtered to this Local Host, keeping the time range. */
+function ExplorerLink({ host }: { host: string }) {
+  const { search } = useLocation()
+  const params = new URLSearchParams(search)
+  params.set("host", host)
+  return (
+    <Link to={{ pathname: "/flows", search: params.toString() }} className="text-sm underline-offset-4 hover:underline">
+      Open in Flow Explorer
+    </Link>
   )
 }
 

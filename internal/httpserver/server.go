@@ -61,6 +61,8 @@ type Options struct {
 	Remote *RemoteOptions
 	// Hosts wires Host Labels, Host Names and the Local Host screens.
 	Hosts *HostOptions
+	// Explorer answers the Flow Explorer.
+	Explorer FlowStore
 	// Services names Service Ports.
 	Services *services.Directory
 	// Now returns the current time; tests replace it.
@@ -107,6 +109,7 @@ func New(opts Options) http.Handler {
 	registerRemote(mux, opts)
 	registerHosts(mux, opts)
 	registerServices(mux, opts)
+	registerFlows(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})

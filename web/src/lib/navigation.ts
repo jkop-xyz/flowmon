@@ -44,8 +44,8 @@ export const navItems: NavItem[] = [
   {
     title: "Flow Explorer",
     path: "/flows",
-    ready: false,
-    filters: none,
+    ready: true,
+    filters: { exporter: true, timeRange: true },
     icon: Activity,
     summary: "A filterable, sortable table of raw Flows with every decoded field.",
   },

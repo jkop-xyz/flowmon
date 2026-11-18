@@ -1,36 +1,34 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, RotateCw, Search } from "lucide-react"
+import { AlertTriangle, RotateCw, Search } from "lucide-react"
 import { useState, type FormEvent } from "react"
-import { useNavigate, useLocation, useParams } from "react-router"
+import { Link, useNavigate, useLocation, useParams } from "react-router"
 
 import { DBIPAttribution } from "@/components/geoip"
+import { FlowDetailSheet, FlowTable } from "@/components/flow-table"
 import { HostLink } from "@/components/host"
-import { ServicePort } from "@/components/service-port"
 import { Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   fetchRDAP,
-  fetchRemoteFlows,
+  fetchFlows,
   fetchRemoteIP,
   fetchRemoteIPs,
-  type FlowList,
   type GeoInfo,
   type Registration,
   type RemoteDetail,
 } from "@/lib/api"
 import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
-import { formatBytes, formatDateTime, formatNumber, protocolName } from "@/lib/format"
+import { formatBytes, formatDateTime, formatNumber } from "@/lib/format"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
-import { serviceKey, useServiceNames } from "@/lib/services"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 function countryLabel(code?: string) {
@@ -301,104 +299,53 @@ function LocalHostsCard({ d, rangeFrom, label }: { d: RemoteDetail; rangeFrom: D
 function FlowsCard({ ip }: { ip: string }) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
+  const { search } = useLocation()
+  const [selected, setSelected] = useState<string | null>(null)
   const query = useQuery({
-    queryKey: ["remote-flows", ip, preset.value, exporter],
-    queryFn: ({ signal }) => fetchRemoteFlows(ip, { ...resolveRange(preset), exporter }, signal),
+    queryKey: ["flows", "remote", ip, preset.value, exporter],
+    queryFn: ({ signal }) =>
+      fetchFlows({ ...resolveRange(preset), exporter }, { remote: ip }, { sort: "end", asc: false, limit: 100, offset: 0 }, signal),
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
   const rangeFrom = resolveRange(preset).from
+  const explorer = new URLSearchParams(search)
+  explorer.set("remote", ip)
+  const truncated = query.data?.rawFrom && new Date(query.data.rawFrom) > rangeFrom
   return (
     <Card>
       <CardHeader>
         <CardTitle>Flows</CardTitle>
-        <CardDescription>Its raw Flows, newest first.</CardDescription>
+        <CardDescription>Its raw Flows, newest first. Click one for every field.</CardDescription>
+        <CardAction>
+          <Link to={{ pathname: "/flows", search: explorer.toString() }} className="text-sm underline-offset-4 hover:underline">
+            Open in Flow Explorer
+          </Link>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {query.isPending ? (
           <SectionSkeleton rows={6} />
         ) : query.isError ? (
           <QueryError title="Couldn't load its Flows" error={query.error} />
+        ) : query.data.items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {query.data.rawFrom ? "No raw Flows with it in this time range." : "No raw Flows are kept yet."}
+          </p>
         ) : (
-          <FlowsTable list={query.data} rangeFrom={rangeFrom} />
+          <FlowTable items={query.data.items} hidden={["peer", "network"]} onSelect={(f) => setSelected(f.id)} />
+        )}
+        {query.data && (query.data.total > query.data.items.length || truncated) && (
+          <p className="text-xs text-muted-foreground">
+            {query.data.total > query.data.items.length &&
+              `Showing the newest ${query.data.items.length} of ${formatNumber(query.data.total)}. `}
+            {truncated &&
+              `Raw Flows are only kept from ${formatDateTime(query.data.rawFrom!)}, so older Flows in this time range aren't available. The totals above still include them.`}
+          </p>
         )}
       </CardContent>
+      <FlowDetailSheet id={selected} onClose={() => setSelected(null)} />
     </Card>
-  )
-}
-
-function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
-  const names = useHostNames(list.items.map((f) => f.localHost))
-  const serviceNames = useServiceNames(list.items.map((f) => ({ protocol: f.protocol, port: f.servicePort })))
-  const truncated = list.rawFrom && new Date(list.rawFrom) > rangeFrom
-  return (
-    <>
-      {list.items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {list.rawFrom ? "No raw Flows with it in this time range." : "No raw Flows are kept yet."}
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ended</TableHead>
-                <TableHead>Direction</TableHead>
-                <TableHead>Local Host</TableHead>
-                <TableHead>Remote port</TableHead>
-                <TableHead>Service</TableHead>
-                <TableHead className="text-right">Bytes</TableHead>
-                <TableHead className="text-right">Packets</TableHead>
-                <TableHead>Exporter</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {list.items.map((f, i) => (
-                <TableRow key={`${f.end}/${f.localHost}/${f.localPort}/${f.peerPort}/${i}`}>
-                  <TableCell className="tabular-nums" title={`Started ${formatDateTime(f.start)}`}>
-                    {formatDateTime(f.end)}
-                  </TableCell>
-                  <TableCell>
-                    <span className="flex items-center gap-1">
-                      {f.direction === "inbound" ? (
-                        <ArrowDownLeft className="size-3.5 text-chart-1" />
-                      ) : (
-                        <ArrowUpRight className="size-3.5 text-chart-2" />
-                      )}
-                      {f.direction === "inbound" ? "Inbound" : "Outbound"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="max-w-64">
-                    <HostLink host={f.localHost} name={names[f.localHost]} />
-                    <span className="font-mono text-xs text-muted-foreground">port {f.localPort}</span>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {f.peerPort}/{protocolName(f.protocol).toLowerCase()}
-                  </TableCell>
-                  <TableCell className="max-w-48">
-                    <ServicePort
-                      protocol={f.protocol}
-                      port={f.servicePort}
-                      name={serviceNames[serviceKey(f.protocol, f.servicePort)]}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatBytes(f.bytes)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(f.packets)}</TableCell>
-                  <TableCell className="font-mono text-xs">{f.exporter}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-      {(list.more || truncated) && (
-        <p className="text-xs text-muted-foreground">
-          {list.more && `Showing the newest ${list.items.length}. `}
-          {truncated &&
-            `Raw Flows are only kept from ${formatDateTime(list.rawFrom!)}, so older Flows in this time range aren't available. The totals above still include them.`}
-        </p>
-      )}
-    </>
   )
 }
 
