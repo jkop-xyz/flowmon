@@ -2,11 +2,13 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/netip"
 	"strconv"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/geoip"
 )
@@ -20,7 +22,18 @@ type RemoteOptions struct {
 	}
 	// Lookup gives today's GeoIP data for an address.
 	Lookup interface{ Lookup(netip.Addr) geoip.Info }
+	// Names answers reverse DNS from cache and queues the rest.
+	Names interface {
+		Names(ips []netip.Addr) map[netip.Addr]enrichment.Name
+	}
+	// RDAP looks up registration details.
+	RDAP interface {
+		Lookup(ctx context.Context, ip netip.Addr) (enrichment.RDAPResult, error)
+	}
 }
+
+// maxNames bounds one reverse DNS request: about what fits on a screen.
+const maxNames = 200
 
 // remoteDetail adds today's GeoIP lookup to what the Flow Store knows.
 type remoteDetail struct {
@@ -135,5 +148,53 @@ func registerRemote(mux *http.ServeMux, opts Options) {
 			return
 		}
 		writeJSON(w, http.StatusOK, list)
+	})
+
+	mux.HandleFunc("GET /api/reverse-dns", func(w http.ResponseWriter, r *http.Request) {
+		if ro == nil || ro.Names == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "reverse DNS not available"})
+			return
+		}
+		raw := r.URL.Query()["ip"]
+		if len(raw) > maxNames {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at most 200 addresses at a time"})
+			return
+		}
+		ips := make([]netip.Addr, 0, len(raw))
+		for _, s := range raw {
+			ip, err := netip.ParseAddr(s)
+			if err != nil || ip.Zone() != "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": s + " is not an IP address"})
+				return
+			}
+			ips = append(ips, ip)
+		}
+		names := ro.Names.Names(ips)
+		// Keyed by the address as the client sent it, so it can match its own strings.
+		out := make(map[string]enrichment.Name, len(raw))
+		for i, s := range raw {
+			out[s] = names[ips[i].Unmap()]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"names": out})
+	})
+	mux.HandleFunc("GET /api/remote-ips/{ip}/rdap", func(w http.ResponseWriter, r *http.Request) {
+		if ro == nil || ro.RDAP == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "RDAP not available"})
+			return
+		}
+		ip, ok := remoteIP(w, r)
+		if !ok {
+			return
+		}
+		res, err := ro.RDAP.Lookup(r.Context(), ip)
+		switch {
+		case errors.Is(err, enrichment.ErrNotPublic):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "registries only describe public addresses"})
+		case err != nil:
+			opts.Logger.Warn("RDAP lookup", "ip", ip.String(), "err", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusOK, res)
+		}
 	})
 }

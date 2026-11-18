@@ -1,21 +1,33 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowDownLeft, ArrowUpRight, Search } from "lucide-react"
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, RotateCw, Search } from "lucide-react"
 import { useState, type FormEvent } from "react"
 import { useNavigate, useLocation, useParams } from "react-router"
 
 import { DBIPAttribution } from "@/components/geoip"
-import { Page, QueryError, SectionSkeleton, Stat } from "@/components/page"
+import { Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
+import { ReverseDNS } from "@/components/reverse-dns"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { fetchRemoteFlows, fetchRemoteIP, fetchRemoteIPs, type FlowList, type GeoInfo, type RemoteDetail } from "@/lib/api"
+import {
+  fetchRDAP,
+  fetchRemoteFlows,
+  fetchRemoteIP,
+  fetchRemoteIPs,
+  type FlowList,
+  type GeoInfo,
+  type Registration,
+  type RemoteDetail,
+} from "@/lib/api"
 import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { formatBytes, formatDateTime, formatNumber, protocolName } from "@/lib/format"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
+import { useReverseDNS } from "@/lib/reverse-dns"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 function countryLabel(code?: string) {
@@ -84,6 +96,7 @@ export function RemoteIPsPage() {
     placeholderData: (previous) => previous,
   })
   const rangeFrom = resolveRange(preset).from
+  const names = useReverseDNS(query.data?.result.items.map((i) => i.remoteIp) ?? [])
 
   return (
     <Page>
@@ -129,8 +142,11 @@ export function RemoteIPsPage() {
                 <TableBody>
                   {query.data.result.items.map((it) => (
                     <TableRow key={it.remoteIp}>
-                      <TableCell>
-                        <RemoteIPLink ip={it.remoteIp} />
+                      <TableCell className="max-w-72">
+                        <div className="flex flex-col gap-0.5">
+                          <RemoteIPLink ip={it.remoteIp} />
+                          <ReverseDNS name={names[it.remoteIp]} />
+                        </div>
                       </TableCell>
                       <TableCell>{countryLabel(it.country)}</TableCell>
                       <TableCell className="max-w-64 truncate" title={asnLabel(it)}>
@@ -185,6 +201,7 @@ export function RemoteIPPage() {
       ) : (
         <>
           <IdentityCard d={detail.data.result} />
+          <RegistrationCard ip={ip} />
           <LocalHostsCard d={detail.data.result} rangeFrom={rangeFrom} label={preset.label.toLowerCase()} />
         </>
       )}
@@ -194,6 +211,8 @@ export function RemoteIPPage() {
 }
 
 function IdentityCard({ d }: { d: RemoteDetail }) {
+  const names = useReverseDNS([d.remoteIp])
+  const name = names[d.remoteIp]
   // Today's lookup comes first; stored Flows keep what was known when they arrived.
   const now = d.current ?? d
   const storedDiffers =
@@ -203,6 +222,13 @@ function IdentityCard({ d }: { d: RemoteDetail }) {
       <CardHeader>
         <CardTitle className="font-mono text-lg">{d.remoteIp}</CardTitle>
         <CardDescription className="flex flex-col gap-0.5">
+          {name?.status === "resolved" ? (
+            <span className="font-mono text-sm text-foreground">{name.name}</span>
+          ) : name?.status === "pending" || !name ? (
+            <ReverseDNS name={name} className="h-4 w-40" />
+          ) : (
+            <span className="text-xs">{name.status === "failed" ? "Reverse DNS didn't answer; trying again later." : "No reverse DNS name."}</span>
+          )}
           <span>
             {countryLabel(now.country)} · {asnLabel(now)}
           </span>
@@ -360,6 +386,79 @@ function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
             `Raw Flows are only kept from ${formatDateTime(list.rawFrom!)}, so older Flows in this time range aren't available. The totals above still include them.`}
         </p>
       )}
+    </>
+  )
+}
+
+/** Registration details from the address's registry (RDAP), fetched when the page opens. */
+function RegistrationCard({ ip }: { ip: string }) {
+  const query = useQuery({
+    queryKey: ["rdap", ip],
+    queryFn: ({ signal }) => fetchRDAP(ip, signal),
+    staleTime: 60 * 60_000,
+    retry: false,
+  })
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Registration</CardTitle>
+        <CardDescription>Who holds the network {ip} belongs to, according to its regional registry (RDAP).</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {query.isPending ? (
+          <SectionSkeleton rows={3} />
+        ) : query.isError ? (
+          <Alert variant="warning">
+            <AlertTriangle />
+            <AlertTitle>Couldn't get the registration</AlertTitle>
+            <AlertDescription>
+              <p>{query.error.message}</p>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => void query.refetch()}>
+                <RotateCw />
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : query.data.status === "not-found" || !query.data.registration ? (
+          <p className="text-sm text-muted-foreground">The registry has no record of this address.</p>
+        ) : (
+          <RegistrationDetails r={query.data.registration} fetchedAt={query.data.fetchedAt} now={query.dataUpdatedAt} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RegistrationDetails({ r, fetchedAt, now }: { r: Registration; fetchedAt: string; now: number }) {
+  const rows: [string, React.ReactNode][] = []
+  if (r.organisation) rows.push(["Holder", r.organisation])
+  if (r.name || r.handle) rows.push(["Network", [r.name, r.handle && r.handle !== r.name ? `(${r.handle})` : ""].filter(Boolean).join(" ")])
+  if (r.cidrs.length > 0) rows.push(["CIDR", <span key="cidr" className="font-mono text-xs">{r.cidrs.join(", ")}</span>])
+  if (r.start && r.end) rows.push(["Range", <span key="range" className="font-mono text-xs">{`${r.start} – ${r.end}`}</span>])
+  if (r.type) rows.push(["Type", r.type])
+  if (r.country) rows.push(["Country", countryLabel(r.country)])
+  if (r.abuseEmail)
+    rows.push([
+      "Abuse contact",
+      <a key="abuse" href={`mailto:${r.abuseEmail}`} className="underline underline-offset-4">
+        {r.abuseEmail}
+      </a>,
+    ])
+  if (r.registered) rows.push(["Registered", formatDateTime(r.registered)])
+  if (r.lastChanged) rows.push(["Last changed", formatDateTime(r.lastChanged)])
+  return (
+    <>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-xs text-muted-foreground">
+        From {r.server ?? "the registry"}, fetched <TimeAgo iso={fetchedAt} now={now} />. Kept for a week.
+      </p>
     </>
   )
 }

@@ -2,12 +2,14 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/geoip"
 )
@@ -64,5 +66,48 @@ func TestRemoteEndpoints(t *testing.T) {
 	}
 	if rec := get(t, New(Options{UI: builtUI}), "/api/remote-ips"); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("without a store: %d", rec.Code)
+	}
+}
+
+type fakeNames struct{}
+
+func (fakeNames) Names(ips []netip.Addr) map[netip.Addr]enrichment.Name {
+	out := map[netip.Addr]enrichment.Name{}
+	for _, ip := range ips {
+		out[ip.Unmap()] = enrichment.Name{Name: "host." + ip.Unmap().String(), Status: enrichment.NameResolved}
+	}
+	return out
+}
+
+type fakeRDAP struct{ err error }
+
+func (f fakeRDAP) Lookup(context.Context, netip.Addr) (enrichment.RDAPResult, error) {
+	if f.err != nil {
+		return enrichment.RDAPResult{}, f.err
+	}
+	return enrichment.RDAPResult{Status: enrichment.RDAPFound, Registration: &enrichment.Registration{Name: "GOGL", CIDRs: []string{}}}, nil
+}
+
+func TestReverseDNSAndRDAPEndpoints(t *testing.T) {
+	h := New(Options{UI: builtUI, Remote: &RemoteOptions{Names: fakeNames{}, RDAP: fakeRDAP{}}})
+	rec := get(t, h, "/api/reverse-dns?ip=8.8.8.8&ip=::ffff:1.1.1.1")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"::ffff:1.1.1.1":{"name":"host.1.1.1.1","status":"resolved"}`) {
+		t.Errorf("names: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := get(t, h, "/api/reverse-dns?ip=nope"); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad address: %d", rec.Code)
+	}
+	if rec := get(t, h, "/api/reverse-dns?"+strings.Repeat("ip=1.1.1.1&", 201)); rec.Code != http.StatusBadRequest {
+		t.Errorf("too many: %d", rec.Code)
+	}
+	rec = get(t, h, "/api/remote-ips/8.8.8.8/rdap")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"GOGL"`) {
+		t.Errorf("rdap: %d %s", rec.Code, rec.Body.String())
+	}
+	for err, want := range map[error]int{enrichment.ErrNotPublic: http.StatusBadRequest, errors.New("registry down"): http.StatusBadGateway} {
+		h := New(Options{UI: builtUI, Remote: &RemoteOptions{RDAP: fakeRDAP{err: err}}})
+		if rec := get(t, h, "/api/remote-ips/8.8.8.8/rdap"); rec.Code != want {
+			t.Errorf("%v: %d, want %d", err, rec.Code, want)
+		}
 	}
 }

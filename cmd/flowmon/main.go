@@ -22,6 +22,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
+	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
@@ -296,6 +297,17 @@ func serve(stderr io.Writer) int {
 		announceSetup()
 	}
 
+	// Reverse DNS and RDAP are cached in the App Store when it is reachable.
+	ipCache := func() enrichment.Persister {
+		if s := holder.Get(); s != nil {
+			return s
+		}
+		return nil
+	}
+	reverseDNS := enrichment.NewReverseDNS(enrichment.ReverseDNSOptions{Store: ipCache, Logger: logger})
+	go reverseDNS.Run(pipelineCtx)
+	rdap := enrichment.NewRDAP(enrichment.RDAPOptions{Store: ipCache, UserAgent: "flowmon/" + version})
+
 	srv := httpserver.NewServer(cfg.HTTPAddr, httpserver.New(httpserver.Options{
 		Version:   version,
 		UI:        web.Dist(),
@@ -312,7 +324,7 @@ func serve(stderr io.Writer) int {
 		},
 		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
 		GeoIP:  geo,
-		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver},
+		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 	}))
 
 	errCh := make(chan error, 1)
@@ -371,13 +383,16 @@ func (s snmpSink) AddSNMPDelta(ctx context.Context, a netip.Addr, name string, d
 	return s.store.AddSNMPDelta(ctx, a, name, d)
 }
 
-// expireSessions deletes expired sessions every hour.
+// expireSessions deletes expired sessions and cached IP Enrichment every hour.
 func expireSessions(ctx context.Context, logger *slog.Logger, s *appstore.Store) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
 		if _, err := s.DeleteExpiredSessions(ctx, time.Now()); err != nil && ctx.Err() == nil {
 			logger.Warn("deleting expired sessions", "err", err)
+		}
+		if _, err := s.DeleteExpiredIPInfo(ctx, time.Now()); err != nil && ctx.Err() == nil {
+			logger.Warn("deleting expired reverse DNS and RDAP results", "err", err)
 		}
 		select {
 		case <-ctx.Done():

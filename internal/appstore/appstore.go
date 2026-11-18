@@ -235,6 +235,16 @@ var migrations = []string{
 		value TEXT NOT NULL,
 		updated_at BIGINT NOT NULL
 	)`,
+	// 2: cached IP Enrichment that is looked up on demand (reverse DNS, RDAP), as JSON.
+	`CREATE TABLE ip_cache (
+		kind TEXT NOT NULL,
+		ip TEXT NOT NULL,
+		value TEXT NOT NULL,
+		fetched_at BIGINT NOT NULL,
+		expires_at BIGINT NOT NULL,
+		PRIMARY KEY (kind, ip)
+	);
+	CREATE INDEX ip_cache_expires ON ip_cache (expires_at)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

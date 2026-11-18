@@ -2,7 +2,7 @@
 
 A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow from your router (MikroTik first, but any exporter that follows the standard), and shows where traffic goes and who is on the other end: country, ASN owner, reverse DNS and registration details.
 
-> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Each Remote IP has a page with the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. The Exporters page shows each Exporter with its Templates. Reverse DNS, Local Host pages and the Flow Explorer are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
+> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Remote IPs show their reverse DNS names, and each has a page with its registration details (RDAP), the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. The Exporters page shows each Exporter with its Templates. Local Host pages and the Flow Explorer are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
 
 ## Run it
 

@@ -190,3 +190,37 @@ func TestPlaceholderRewrite(t *testing.T) {
 		t.Errorf("%q", got)
 	}
 }
+
+func TestIPCache(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+		if _, _, err := s.CachedIPInfo(ctx, "rdns", "1.1.1.1", now); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("empty cache: %v", err)
+		}
+		if err := s.CacheIPInfo(ctx, "rdns", "1.1.1.1", `{"name":"one.one.one.one"}`, now, 24*time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CacheIPInfo(ctx, "rdap", "1.1.1.1", `{}`, now, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		v, fetched, err := s.CachedIPInfo(ctx, "rdns", "1.1.1.1", now.Add(23*time.Hour))
+		if err != nil || v != `{"name":"one.one.one.one"}` || !fetched.Equal(now) {
+			t.Errorf("cached %q %v %v", v, fetched, err)
+		}
+		// Replacing keeps one entry per kind and address.
+		if err := s.CacheIPInfo(ctx, "rdns", "1.1.1.1", `{"name":"x"}`, now.Add(time.Hour), 24*time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		if v, _, _ := s.CachedIPInfo(ctx, "rdns", "1.1.1.1", now.Add(2*time.Hour)); v != `{"name":"x"}` {
+			t.Errorf("after replacing: %q", v)
+		}
+		// Expired entries aren't returned and are deleted.
+		if _, _, err := s.CachedIPInfo(ctx, "rdap", "1.1.1.1", now.Add(2*time.Hour)); !errors.Is(err, ErrNotFound) {
+			t.Errorf("expired: %v", err)
+		}
+		if n, err := s.DeleteExpiredIPInfo(ctx, now.Add(2*time.Hour)); err != nil || n != 1 {
+			t.Errorf("deleted %d %v", n, err)
+		}
+	})
+}
