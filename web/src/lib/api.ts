@@ -3,10 +3,38 @@ export type Health = {
   version: string
 }
 
-async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal })
-  if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`)
+/** An API error carries the HTTP status and the server's message. */
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function parse<T>(path: string, response: Response): Promise<T> {
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`
+    try {
+      const body = (await response.json()) as { error?: string }
+      if (body.error) message = body.error
+    } catch {
+      // not JSON: keep the status text
+    }
+    throw new ApiError(response.status, message || path)
+  }
   return (await response.json()) as T
+}
+
+async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return parse<T>(path, await fetch(path, { signal }))
+}
+
+export async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  return parse<T>(
+    path,
+    await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  )
 }
 
 export function fetchHealth(signal?: AbortSignal) {

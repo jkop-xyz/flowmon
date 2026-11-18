@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router"
 import { AppSidebar } from "@/components/app-sidebar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { TimeRangePicker } from "@/components/time-range-picker"
+import { UserMenu } from "@/components/user-menu"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -39,6 +40,7 @@ export function AppLayout() {
             <TimeRangePicker />
             <ServerStatus />
             <ModeToggle />
+            <UserMenu />
           </div>
         </header>
         <main className="flex-1 p-4 md:p-6">

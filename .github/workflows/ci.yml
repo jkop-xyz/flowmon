@@ -16,6 +16,20 @@ jobs:
   go:
     name: Go
     runs-on: ubuntu-latest
+    # App Store tests run against SQLite and this Postgres (ADR 0001).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: flowmon
+          POSTGRES_PASSWORD: flowmon
+          POSTGRES_DB: flowmon
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flowmon"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      FLOWMON_TEST_POSTGRES_URL: postgres://flowmon:flowmon@localhost:5432/flowmon?sslmode=disable
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

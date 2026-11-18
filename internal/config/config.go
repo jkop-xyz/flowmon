@@ -42,6 +42,16 @@ type Config struct {
 	RetentionRaw, RetentionMinute, RetentionHour time.Duration
 	// WatermarkOverride replaces the learned Watermark when set.
 	WatermarkOverride time.Duration
+	// DatabaseURL, when set, decides the App Store and locks the setup screen.
+	DatabaseURL string
+	// DatabasePasswordFile holds the App Store password (e.g. a Docker secret).
+	DatabasePasswordFile string
+	// AdminUsername and AdminPassword create the admin account if none exists.
+	AdminUsername, AdminPassword string
+	// TrustedProxies are CIDRs whose X-Forwarded-For/-Proto headers are believed.
+	TrustedProxies string
+	// SecureCookies is "auto", "always" or "never".
+	SecureCookies string
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -119,6 +129,23 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		if cfg.WatermarkOverride, err = ParseDuration(s); err != nil || cfg.WatermarkOverride <= 0 {
 			return Config{}, fmt.Errorf("FLOWMON_WATERMARK: must be a positive duration such as 5m")
 		}
+	}
+
+	cfg.DatabaseURL = get("FLOWMON_DATABASE_URL", "")
+	cfg.DatabasePasswordFile = get("FLOWMON_DATABASE_PASSWORD_FILE", "")
+	cfg.AdminUsername = get("FLOWMON_ADMIN_USERNAME", "")
+	cfg.AdminPassword = get("FLOWMON_ADMIN_PASSWORD", "")
+	if f := get("FLOWMON_ADMIN_PASSWORD_FILE", ""); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return Config{}, fmt.Errorf("FLOWMON_ADMIN_PASSWORD_FILE: %w", err)
+		}
+		cfg.AdminPassword = strings.TrimRight(string(b), "\r\n")
+	}
+	cfg.TrustedProxies = get("FLOWMON_TRUSTED_PROXIES", "")
+	cfg.SecureCookies = strings.ToLower(get("FLOWMON_SECURE_COOKIES", "auto"))
+	if cfg.SecureCookies != "auto" && cfg.SecureCookies != "always" && cfg.SecureCookies != "never" {
+		return Config{}, fmt.Errorf("FLOWMON_SECURE_COOKIES: must be auto, always or never")
 	}
 
 	if err := cfg.LogLevel.UnmarshalText([]byte(get("FLOWMON_LOG_LEVEL", "info"))); err != nil {

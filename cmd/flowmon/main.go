@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/appstore"
+	"github.com/jkop-xyz/flowmon/internal/auth"
 	"github.com/jkop-xyz/flowmon/internal/capture"
 	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/collector"
@@ -23,6 +25,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
+	"github.com/jkop-xyz/flowmon/internal/setup"
 	"github.com/jkop-xyz/flowmon/web"
 )
 
@@ -32,18 +35,19 @@ var version = "dev"
 const usage = `Usage: flowmon <command>
 
 Commands:
-  serve        Run the collector, API and web UI (default)
-  healthcheck  Exit 0 if the local server is healthy, 1 otherwise
-  version      Print the version
+  serve                          Run the collector, API and web UI (default)
+  healthcheck                    Exit 0 if the local server is healthy, 1 otherwise
+  admin reset-password <user>    Set a new password for an account
+  version                        Print the version
 
 Configuration is read from FLOWMON_* environment variables.
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cmd := "serve"
 	if len(args) > 0 {
 		cmd = args[0]
@@ -54,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return serve(stderr)
 	case "healthcheck":
 		return check(stderr)
+	case "admin":
+		return admin(args[1:], stdin, stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, version)
 		return 0
@@ -155,6 +161,53 @@ func serve(stderr io.Writer) int {
 		}
 	}
 
+	proxies, err := classify.ParseLocalNetworks(cfg.TrustedProxies)
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error: FLOWMON_TRUSTED_PROXIES:", err)
+		return 2
+	}
+	holder := &appstore.Holder{}
+	defer func() {
+		if s := holder.Get(); s != nil {
+			s.Close()
+		}
+	}()
+	authManager := auth.NewManager(holder.Get, auth.Options{
+		Proxies:       auth.Proxies{Trusted: proxies},
+		SecureCookies: auth.SecureCookies(cfg.SecureCookies),
+	})
+	storeCfg, locked, storeErr := appStoreConfig(cfg)
+	setupCtl := setup.New(setup.Options{
+		Holder: holder, Auth: authManager, BootstrapPath: bootstrapPath(cfg), DefaultSQLitePath: defaultSQLite(cfg),
+		Locked: locked, Logger: logger,
+		OnConfigured: func(s *appstore.Store) { go expireSessions(ctx, logger, s) },
+	})
+	announceSetup := func() {
+		if st, err := setupCtl.Status(ctx); err == nil && st.Step != setup.StepDone {
+			logger.Warn("first-run setup: open the web UI and enter this setup token", "token", setupCtl.Token(), "step", st.Step)
+		}
+	}
+	switch {
+	case storeErr == nil:
+		openAppStore(ctx, logger, storeCfg, holder, func(s *appstore.Store) {
+			if ok, err := setup.SeedAdmin(ctx, s, cfg.AdminUsername, cfg.AdminPassword, time.Now()); err != nil {
+				logger.Error("creating the admin account from FLOWMON_ADMIN_USERNAME", "err", err)
+			} else if ok {
+				logger.Info("admin account created from FLOWMON_ADMIN_USERNAME", "username", cfg.AdminUsername)
+			}
+			announceSetup()
+			go expireSessions(ctx, logger, s)
+		})
+		if holder.Get() == nil {
+			announceSetup()
+		}
+	case errors.Is(storeErr, errNotConfigured):
+		announceSetup()
+	default:
+		logger.Error("app store configuration", "err", storeErr)
+		announceSetup()
+	}
+
 	srv := httpserver.NewServer(cfg.HTTPAddr, httpserver.New(httpserver.Options{
 		Version:   version,
 		UI:        web.Dist(),
@@ -163,6 +216,8 @@ func serve(stderr io.Writer) int {
 		Timing:    pipeline,
 		Flows:     store,
 		Watermark: pipeline,
+		Auth:      authManager,
+		Setup:     setupCtl,
 	}))
 
 	errCh := make(chan error, 1)
@@ -186,6 +241,22 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// expireSessions deletes expired sessions every hour.
+func expireSessions(ctx context.Context, logger *slog.Logger, s *appstore.Store) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if _, err := s.DeleteExpiredSessions(ctx, time.Now()); err != nil && ctx.Err() == nil {
+			logger.Warn("deleting expired sessions", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // maintain compacts Rollups and applies retention every ten minutes.
