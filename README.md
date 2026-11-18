@@ -2,7 +2,7 @@
 
 A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow from your router (MikroTik first, but any exporter that follows the standard), and shows where traffic goes and who is on the other end: country, ASN owner, reverse DNS and registration details.
 
-> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data`, and shows bandwidth and top Local Hosts, protocols and Service Ports on the Overview, and each Exporter with its Templates on the Exporters page. GeoIP enrichment and the other screens are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
+> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, protocols and Service Ports on the Overview, and each Exporter with its Templates on the Exporters page. Remote IP details and the other screens are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
 
 ## Run it
 
@@ -40,6 +40,9 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_EXPORTER_AUTO_ACCEPT` | `false` | Approve every new Exporter without asking. Otherwise a new Exporter waits on the Exporters page, its Templates kept and its Flows dropped |
 | `FLOWMON_EXPORTER_ALLOWLIST` | none | CIDRs whose Exporters are approved without asking, e.g. `192.168.10.1/32` |
 | `FLOWMON_MAX_EXPORTERS` | `64` | Most Exporters tracked; datagrams from further sources are ignored and counted |
+| `FLOWMON_GEOIP_DIR` | `/data/geoip` | Your own GeoIP MMDB files (country, city or ASN, from MaxMind or DB-IP). They win over downloads |
+| `FLOWMON_GEOIP_DOWNLOAD` | `true` | Download GeoIP databases weekly: MaxMind GeoLite2 with an account, DB-IP Lite otherwise. `false` uses only your own files |
+| `FLOWMON_MAXMIND_ACCOUNT_ID`, `FLOWMON_MAXMIND_LICENSE_KEY` (or `_FILE`) | none | Your free MaxMind account, for GeoLite2 instead of DB-IP Lite |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |
 | `FLOWMON_DEBUG_CAPTURE_FILES` | `3` | Capture files kept, including the current one |
@@ -71,4 +74,4 @@ The design lives in [`GLOSSARY.md`](GLOSSARY.md) (the domain language) and [`doc
 
 ## Licence
 
-[Apache-2.0](LICENSE). Flowmon will use GeoIP data from MaxMind GeoLite2 (downloaded with your own licence key) or DB-IP Lite (CC BY 4.0, attribution shown in the UI). Neither is bundled in the image.
+[Apache-2.0](LICENSE). Flowmon uses GeoIP data from MaxMind GeoLite2 (downloaded with your own licence key) or [DB-IP](https://db-ip.com) Lite (CC BY 4.0, attribution shown in the UI), or files you provide; see [docs/deploy.md](docs/deploy.md#geoip-databases). Neither is bundled in the image. The world map uses [Natural Earth](https://www.naturalearthdata.com) shapes (public domain) via world-atlas.

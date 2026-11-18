@@ -28,7 +28,8 @@ type Key struct {
 	PeerKind            PeerKind
 	// PeerLocalHost is the other Local Host for Internal traffic, empty otherwise.
 	PeerLocalHost string
-	// PeerASN and PeerCountry are filled by GeoIP enrichment; 0 and "" until then.
+	// PeerASN and PeerCountry are the Remote IP's GeoIP enrichment; 0 and "" when
+	// unknown and for Internal traffic.
 	PeerASN     uint32
 	PeerCountry string
 	Protocol    uint8
@@ -78,6 +79,8 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 		LocalHost:           f.Local.String(),
 		LocalIsExporterHost: f.LocalIsExporterHost,
 		PeerKind:            PeerRemote,
+		PeerASN:             f.PeerASN,
+		PeerCountry:         f.PeerCountry,
 		Protocol:            f.Protocol,
 		ServicePort:         flow.ServicePort(f.Protocol, f.LocalPort, f.PeerPort),
 	}
@@ -94,6 +97,7 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 	if f.Direction == flow.DirectionInternal {
 		sender := base
 		sender.PeerKind, sender.PeerLocalHost = PeerLocal, f.Peer.String()
+		sender.PeerASN, sender.PeerCountry = 0, ""
 		receiver := sender
 		receiver.LocalHost, receiver.PeerLocalHost = f.Peer.String(), f.Local.String()
 		receiver.LocalIsExporterHost = false

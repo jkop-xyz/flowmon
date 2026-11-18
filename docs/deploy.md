@@ -54,6 +54,18 @@ echo 'net.core.rmem_max = 4194304' | sudo tee /etc/sysctl.d/90-flowmon.conf
 sudo sysctl --system
 ```
 
+## GeoIP databases
+
+Flowmon looks up each Remote IP's country and ASN Owner when its Flow is stored. It picks a database for each, in this order:
+
+1. **Your own files.** Put MMDB files (MaxMind GeoLite2/GeoIP2 Country, City or ASN, or DB-IP Lite) in `/data/geoip`, or mount a directory there and set `FLOWMON_GEOIP_DIR`. Flowmon checks for new or changed files every hour and never replaces them.
+2. **MaxMind GeoLite2**, if you set `FLOWMON_MAXMIND_ACCOUNT_ID` and `FLOWMON_MAXMIND_LICENSE_KEY` (or `FLOWMON_MAXMIND_LICENSE_KEY_FILE`). A [free account](https://www.maxmind.com/en/geolite2/signup) gives you both. Downloaded weekly.
+3. **DB-IP Lite**, downloaded weekly without an account. It is licensed under CC BY 4.0, so the UI credits DB-IP wherever its data shows.
+
+Downloads go to `/data/geoip-downloads`. With `FLOWMON_GEOIP_DOWNLOAD=false`, nothing is downloaded and only your own files are used. Settings shows which database is in use, how old it is, and why a download failed.
+
+A Flow keeps the country and ASN Owner it was stored with. A newer database applies to Flows from then on; it doesn't rewrite history.
+
 ## Backups
 
 Back up the `/data` volume as a whole. It holds:
@@ -64,6 +76,7 @@ Back up the `/data` volume as a whole. It holds:
 | `flowmon.db` | the App Store, when you chose the built-in SQLite |
 | `bootstrap.json` | where the App Store lives (mode 0600; it can contain the Postgres password) |
 | `secret.key` | the key that encrypts stored SNMP credentials. Without it, they have to be entered again |
+| `geoip-downloads/` | downloaded GeoIP databases. No need to back them up; they are downloaded again |
 
 If you chose **PostgreSQL** for the App Store, accounts and settings live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
 

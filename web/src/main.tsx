@@ -14,11 +14,13 @@ import { ExportersPage } from "@/pages/exporters-page"
 import { MikroTikGuidePage } from "@/pages/mikrotik-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
+import { SettingsPage } from "@/pages/settings-page"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
 const screens: Record<string, React.ReactNode> = {
   "/": <OverviewPage />,
   "/exporters": <ExportersPage />,
+  "/settings": <SettingsPage />,
 }
 
 const queryClient: QueryClient = new QueryClient({

@@ -117,3 +117,18 @@ func TestAggregate(t *testing.T) {
 		}
 	}
 }
+
+func TestPeerGeoIsKeptForRemotePeersOnly(t *testing.T) {
+	f := mk(flow.DirectionOutbound, t0, t0)
+	f.PeerCountry, f.PeerASN = "AU", 13335
+	if rows := Contributions(f, time.Minute); rows[0].Key.PeerCountry != "AU" || rows[0].Key.PeerASN != 13335 {
+		t.Errorf("remote %+v", rows[0].Key)
+	}
+	// An Internal Flow never carries a country, even if one were set.
+	f.Direction, f.Peer = flow.DirectionInternal, netip.MustParseAddr("192.168.10.50")
+	for _, r := range Contributions(f, time.Minute) {
+		if r.Key.PeerCountry != "" || r.Key.PeerASN != 0 {
+			t.Errorf("internal %+v", r.Key)
+		}
+	}
+}

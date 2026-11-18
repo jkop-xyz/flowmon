@@ -13,6 +13,7 @@ import (
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
+	"github.com/jkop-xyz/flowmon/internal/geoip"
 )
 
 func newTestHandler(ui fstest.MapFS) http.Handler {
@@ -98,6 +99,28 @@ func TestTopEndpointAndIncomplete(t *testing.T) {
 	}
 	if rec := get(t, h, "/api/overview/top?dimension=colours"); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown dimension: %d", rec.Code)
+	}
+	for limit, want := range map[string]int{"250": http.StatusOK, "0": http.StatusBadRequest, "301": http.StatusBadRequest, "x": http.StatusBadRequest} {
+		if rec := get(t, h, "/api/overview/top?dimension=hosts&limit="+limit); rec.Code != want {
+			t.Errorf("limit %s: %d, want %d", limit, rec.Code, want)
+		}
+	}
+}
+
+type fakeGeoIP struct{}
+
+func (fakeGeoIP) Status() geoip.Status {
+	return geoip.Status{DownloadsEnabled: true, Databases: []geoip.DatabaseStatus{{Kind: geoip.KindCountry, Source: geoip.SourceDBIP}}}
+}
+
+func TestGeoIPEndpoint(t *testing.T) {
+	rec := get(t, New(Options{UI: builtUI, GeoIP: fakeGeoIP{}}), "/api/geoip")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"dbip"`) {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+	rec = get(t, New(Options{UI: builtUI}), "/api/geoip")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"databases":[]`) {
+		t.Errorf("without GeoIP: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

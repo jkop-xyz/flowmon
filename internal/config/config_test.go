@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"os"
 	"testing"
 	"time"
 )
@@ -33,6 +34,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.MaxExporters != 64 {
 		t.Errorf("max exporters %d", cfg.MaxExporters)
 	}
+	if cfg.GeoIPDir != "/data/geoip" || !cfg.GeoIPDownload || cfg.MaxMindAccountID != "" {
+		t.Errorf("geoip dir %q, download %v, maxmind %q", cfg.GeoIPDir, cfg.GeoIPDownload, cfg.MaxMindAccountID)
+	}
 	if cfg.RetentionRaw != 7*24*time.Hour || cfg.RetentionMinute != 90*24*time.Hour || cfg.RetentionHour != 730*24*time.Hour || cfg.WatermarkOverride != 0 {
 		t.Errorf("retention %v %v %v, watermark %v", cfg.RetentionRaw, cfg.RetentionMinute, cfg.RetentionHour, cfg.WatermarkOverride)
 	}
@@ -63,6 +67,9 @@ func TestOverrides(t *testing.T) {
 	if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.DataDir != "/srv/flowmon" {
 		t.Errorf("got addr %q, data dir %q", cfg.HTTPAddr, cfg.DataDir)
 	}
+	if cfg.GeoIPDir != "/srv/flowmon/geoip" {
+		t.Errorf("geoip dir follows the data dir: %q", cfg.GeoIPDir)
+	}
 	if cfg.LogLevel != slog.LevelDebug || cfg.LogFormat != "json" {
 		t.Errorf("got level %v, format %q", cfg.LogLevel, cfg.LogFormat)
 	}
@@ -90,9 +97,26 @@ func TestInvalidValues(t *testing.T) {
 		{"FLOWMON_DEBUG_CAPTURE_MAX_DURATION": "-5m"},
 		{"FLOWMON_RETENTION_RAW": "forever"},
 		{"FLOWMON_WATERMARK": "0s"},
+		{"FLOWMON_GEOIP_DOWNLOAD": "sometimes"},
+		{"FLOWMON_MAXMIND_ACCOUNT_ID": "12345"},
+		{"FLOWMON_MAXMIND_LICENSE_KEY_FILE": "/does/not/exist"},
 	} {
 		if _, err := fromLookup(lookupFrom(env)); err == nil {
 			t.Errorf("%v: expected an error", env)
 		}
+	}
+}
+
+func TestMaxMindKeyFromFile(t *testing.T) {
+	p := t.TempDir() + "/key"
+	if err := os.WriteFile(p, []byte("abc123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := fromLookup(lookupFrom(map[string]string{"FLOWMON_MAXMIND_ACCOUNT_ID": "12345", "FLOWMON_MAXMIND_LICENSE_KEY_FILE": p, "FLOWMON_GEOIP_DOWNLOAD": "false"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxMindLicenseKey != "abc123" || cfg.GeoIPDownload {
+		t.Errorf("key %q, download %v", cfg.MaxMindLicenseKey, cfg.GeoIPDownload)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
+	"github.com/jkop-xyz/flowmon/internal/geoip"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
@@ -142,7 +143,15 @@ func serve(stderr io.Writer) int {
 		logger.Error("interfaces", "err", err)
 		return 1
 	}
-	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
+	resolver := &geoip.Resolver{}
+	geo := geoip.NewManager(geoip.Options{
+		Dir: cfg.GeoIPDir, DownloadDir: filepath.Join(cfg.DataDir, "geoip-downloads"), Download: cfg.GeoIPDownload,
+		MaxMindAccountID: cfg.MaxMindAccountID, MaxMindLicenseKey: cfg.MaxMindLicenseKey,
+		UserAgent: "flowmon/" + version, Logger: logger,
+	}, resolver)
+	geo.Load() // what is already on disk, so the first Flows are enriched
+
+	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: resolver.Enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
 		OnInterfaceName: func(exp netip.Addr, idx uint32, name string, at time.Time) {
 			if _, err := ifaceRegistry.SetName(context.Background(), exp, idx, name, interfaces.SourceOptions, at); err != nil {
 				logger.Warn("saving an interface name from an Options Template", "exporter", exp.String(), "err", err)
@@ -164,6 +173,7 @@ func serve(stderr io.Writer) int {
 
 	retention := flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour}
 	go maintain(pipelineCtx, logger, store, pipeline, retention)
+	go geo.Run(pipelineCtx)
 
 	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
 	if err != nil {
@@ -176,7 +186,15 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
-	reprocessor := reprocess.New(store, func(f *flow.Flow) { classifier.Classify(f, f.End) }, logger)
+	reprocessor := reprocess.New(store, func(f *flow.Flow) {
+		peer := f.Peer
+		classifier.Classify(f, f.End)
+		// A Flow keeps the enrichment it was stored with, unless its Peer changed; then
+		// the new Peer is looked up in today's databases, the best there is.
+		if f.Peer != peer {
+			resolver.Enrich(f)
+		}
+	}, logger)
 
 	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
 	if err != nil {
@@ -292,7 +310,8 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
 		},
-		SNMP: &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		SNMP:  &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		GeoIP: geo,
 	}))
 
 	errCh := make(chan error, 1)

@@ -21,6 +21,8 @@ Environment=TZ=UTC
 # Optional settings (see the README):
 # Environment=FLOWMON_EXPORTER_ALLOWLIST=192.168.10.1/32
 # Environment=FLOWMON_DATABASE_URL=postgres://flowmon@postgres.lan:5432/lab?sslmode=require&search_path=flowmon
+# Environment=FLOWMON_MAXMIND_ACCOUNT_ID=123456
+# Environment=FLOWMON_MAXMIND_LICENSE_KEY_FILE=/run/secrets/maxmind_license_key
 # Podman ignores HEALTHCHECK in OCI images, so the check is declared here.
 HealthCmd=flowmon healthcheck
 HealthInterval=30s

@@ -60,7 +60,7 @@ export const navItems: NavItem[] = [
   {
     title: "Settings",
     path: "/settings",
-    ready: false,
+    ready: true,
     filters: none,
     icon: Settings,
     summary: "Local Networks, GeoIP databases, retention and accounts.",
