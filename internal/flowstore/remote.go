@@ -91,23 +91,52 @@ func (a *sqlArgs) add(v any) string {
 	return fmt.Sprintf("$%d", len(a.args))
 }
 
+// remoteFilter narrows the rows that answer a Remote IPs query.
+type remoteFilter struct {
+	exporter, remote netip.Addr
+	// hosts limits rows to these Local Hosts when byHost is set (none matches nothing).
+	hosts  []string
+	byHost bool
+}
+
+// where returns the filter as SQL conditions; peer is the Remote IP column.
+func (f remoteFilter) where(a *sqlArgs, peer string) string {
+	var w string
+	if f.exporter.IsValid() {
+		w += ` AND exporter = ` + a.add(f.exporter.String())
+	}
+	if f.remote.IsValid() {
+		w += ` AND ` + peer + ` = ` + a.add(f.remote.String())
+	}
+	if f.byHost {
+		w += ` AND ` + inList(a, "local_host", f.hosts)
+	}
+	return w
+}
+
+// inList is "col IN (…)" over values, or FALSE when there are none.
+func inList(a *sqlArgs, col string, values []string) string {
+	if len(values) == 0 {
+		return `FALSE`
+	}
+	ps := make([]string, len(values))
+	for i, v := range values {
+		ps[i] = a.add(v)
+	}
+	return col + ` IN (` + strings.Join(ps, ", ") + `)`
+}
+
 // rawRemoteSQL selects, per raw Flow with a Remote IP overlapping [w0, w1), its share of
 // bytes and packets inside the window, spread over its duration like Rollups are, and
 // counts the Flow if it ended in the window. It returns "" when no raw table applies.
-func (s *Store) rawRemoteSQL(a *sqlArgs, w0, w1 time.Time, exporter, remote netip.Addr) string {
+func (s *Store) rawRemoteSQL(a *sqlArgs, w0, w1 time.Time, f remoteFilter) string {
 	// Flows are filed by end time and spread over at most rollup.MaxSpread.
 	tables := s.tablesFor(w0, w1.Add(rollup.MaxSpread))
 	if len(tables) == 0 {
 		return ""
 	}
 	p0, p1 := a.add(w0.UTC()), a.add(w1.UTC())
-	where := fmt.Sprintf(`direction IN (1, 2) AND end_ts >= %s AND start_ts < %s`, p0, p1)
-	if exporter.IsValid() {
-		where += ` AND exporter = ` + a.add(exporter.String())
-	}
-	if remote.IsValid() {
-		where += ` AND peer = ` + a.add(remote.String())
-	}
+	where := fmt.Sprintf(`direction IN (1, 2) AND end_ts >= %s AND start_ts < %s`, p0, p1) + f.where(a, "peer")
 	spread := fmt.Sprintf(`INTERVAL %d SECOND`, int(rollup.MaxSpread.Seconds()))
 	inWindow := fmt.Sprintf(`(end_ts >= %s AND end_ts < %s)`, p0, p1)
 	share := fmt.Sprintf(`CASE WHEN end_ts <= start_ts OR end_ts - start_ts > %s
@@ -131,7 +160,7 @@ func (s *Store) buildTopRemote(ctx context.Context, p period) error {
 	defer s.writeMu.Unlock()
 	start := p.start()
 	a := &sqlArgs{}
-	src := s.rawRemoteSQL(a, start, start.Add(periodSize(p.gran)), netip.Addr{}, netip.Addr{})
+	src := s.rawRemoteSQL(a, start, start.Add(periodSize(p.gran)), remoteFilter{})
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -272,6 +301,8 @@ func (s *Store) applyTopRemoteRetention(ctx context.Context, now time.Time, dayR
 type RemoteQuery struct {
 	From, To time.Time
 	Exporter netip.Addr
+	// LocalHosts, when not nil, counts only traffic of these Local Hosts (addresses).
+	LocalHosts []string
 	// ByFlows ranks by Flow count instead of bytes.
 	ByFlows bool
 	Limit   int
@@ -320,7 +351,7 @@ type RemoteResult struct {
 
 // remoteSource builds the union of list rows and raw Flows that answers a query over
 // [from, to), and says how it was answered.
-func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, exporter, remote netip.Addr) (string, Coverage) {
+func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, f remoteFilter) (string, Coverage) {
 	from, to = from.UTC(), to.UTC()
 	cov := Coverage{From: from, To: to, Source: SourceRaw}
 	days := s.RawDays(time.Time{})
@@ -331,7 +362,7 @@ func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, exporter, remo
 	}
 	rawCols := `exporter, local_host, local_is_exporter_host, peer, peer_country, peer_asn, rx, tx, flows`
 	if !rawFrom.IsZero() && !from.Before(rawFrom) && to.Sub(from) <= rawRemoteRange {
-		raw := s.rawRemoteSQL(a, from, to, exporter, remote)
+		raw := s.rawRemoteSQL(a, from, to, f)
 		if raw == "" {
 			return "", cov
 		}
@@ -364,13 +395,8 @@ func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, exporter, remo
 	tail := from
 	if !oldest.IsZero() {
 		cov.ListsFrom = &oldest
-		where := fmt.Sprintf(`granularity = %s AND period >= %s AND period < %s`, a.add(gran), a.add(from.Truncate(size)), a.add(minTime(to, newestEnd)))
-		if exporter.IsValid() {
-			where += ` AND exporter = ` + a.add(exporter.String())
-		}
-		if remote.IsValid() {
-			where += ` AND remote_ip = ` + a.add(remote.String())
-		}
+		where := fmt.Sprintf(`granularity = %s AND period >= %s AND period < %s`, a.add(gran), a.add(from.Truncate(size)), a.add(minTime(to, newestEnd))) +
+			f.where(a, "remote_ip")
 		parts = append(parts, `SELECT exporter, local_host, local_is_exporter_host, remote_ip AS peer, peer_country, peer_asn, bytes_rx AS rx, bytes_tx AS tx, flows
 			FROM top_remote WHERE `+where)
 		if newestEnd.After(tail) {
@@ -378,7 +404,7 @@ func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, exporter, remo
 		}
 	}
 	if tail.Before(to) {
-		if raw := s.rawRemoteSQL(a, tail, to, exporter, remote); raw != "" {
+		if raw := s.rawRemoteSQL(a, tail, to, f); raw != "" {
 			parts = append(parts, `SELECT `+rawCols+` FROM (`+raw+`)`)
 		}
 	}
@@ -413,7 +439,7 @@ func (s *Store) TopRemoteIPs(ctx context.Context, q RemoteQuery) (RemoteResult, 
 	}
 	q.Limit = min(q.Limit, MaxTopLimit)
 	a := &sqlArgs{}
-	src, cov := s.remoteSource(a, q.From, q.To, q.now(), q.Exporter, netip.Addr{})
+	src, cov := s.remoteSource(a, q.From, q.To, q.now(), remoteFilter{exporter: q.Exporter, hosts: q.LocalHosts, byHost: q.LocalHosts != nil})
 	res := RemoteResult{Coverage: cov, Items: []RemoteItem{}}
 	if src == "" {
 		return res, nil
@@ -481,7 +507,7 @@ func (s *Store) RemoteIP(ctx context.Context, ip netip.Addr, q RemoteQuery) (Rem
 		return RemoteDetail{}, ErrInvalidRange
 	}
 	a := &sqlArgs{}
-	src, cov := s.remoteSource(a, q.From, q.To, q.now(), q.Exporter, ip)
+	src, cov := s.remoteSource(a, q.From, q.To, q.now(), remoteFilter{exporter: q.Exporter, remote: ip})
 	d := RemoteDetail{Coverage: cov, RemoteIP: ip.String(), LocalHosts: []RemoteHost{}}
 	if src == "" {
 		return d, nil

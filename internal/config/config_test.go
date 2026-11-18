@@ -120,3 +120,24 @@ func TestMaxMindKeyFromFile(t *testing.T) {
 		t.Errorf("key %q, download %v", cfg.MaxMindLicenseKey, cfg.GeoIPDownload)
 	}
 }
+
+func TestLocalDNSServer(t *testing.T) {
+	for in, want := range map[string]string{
+		"192.168.88.1":      "192.168.88.1:53",
+		"192.168.88.1:5353": "192.168.88.1:5353",
+		"fd00::1":           "[fd00::1]:53",
+		"[fd00::1]":         "[fd00::1]:53",
+		"[fd00::1]:53":      "[fd00::1]:53",
+		"pihole.lan":        "pihole.lan:53",
+	} {
+		cfg, err := fromLookup(lookupFrom(map[string]string{"FLOWMON_LOCAL_DNS_SERVER": in}))
+		if err != nil || cfg.LocalDNSServer != want {
+			t.Errorf("%q: got %q, %v; want %q", in, cfg.LocalDNSServer, err, want)
+		}
+	}
+	for _, in := range []string{"10.0.0.1:0", "10.0.0.1:dns", "10.0.0.0/24"} {
+		if _, err := fromLookup(lookupFrom(map[string]string{"FLOWMON_LOCAL_DNS_SERVER": in})); err == nil {
+			t.Errorf("%q accepted", in)
+		}
+	}
+}

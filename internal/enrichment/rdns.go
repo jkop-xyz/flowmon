@@ -23,7 +23,7 @@ const (
 // Name statuses.
 const (
 	NameResolved = "resolved"
-	// NameNone means there is no reverse DNS name, or the address isn't public.
+	// NameNone means there is no reverse DNS name, or the address isn't looked up.
 	NameNone    = "none"
 	NamePending = "pending"
 	// NameFailed means the lookup failed (timeout, server error); it is retried later.
@@ -45,6 +45,14 @@ type AddrResolver interface {
 type ReverseDNSOptions struct {
 	Resolver AddrResolver
 	Store    PersisterFunc
+	// Kind names the cache, so resolvers that answer differently don't share one; "" means
+	// "rdns" (Remote IPs, against the system resolver).
+	Kind string
+	// TTL is how long names (and "no name") are kept; 0 means ReverseDNSTTL.
+	TTL time.Duration
+	// Allow says which addresses are looked up; the rest have no name. Nil means public
+	// unicast addresses only.
+	Allow func(netip.Addr) bool
 	// Interval spaces lookups; 0 means 50 ms (20 a second).
 	Interval time.Duration
 	// Workers is how many lookups may wait on DNS at once; 0 means 4.
@@ -81,18 +89,27 @@ func NewReverseDNS(opts ReverseDNSOptions) *ReverseDNS {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &ReverseDNS{opts: opts, cache: newCache("rdns", opts.Store, reverseDNSMemory), limit: &limiter{interval: opts.Interval},
+	if opts.Kind == "" {
+		opts.Kind = "rdns"
+	}
+	if opts.TTL <= 0 {
+		opts.TTL = ReverseDNSTTL
+	}
+	if opts.Allow == nil {
+		opts.Allow = public
+	}
+	return &ReverseDNS{opts: opts, cache: newCache(opts.Kind, opts.Store, reverseDNSMemory), limit: &limiter{interval: opts.Interval},
 		queue: make(chan netip.Addr, 2048), pending: map[netip.Addr]bool{}}
 }
 
-// Names returns what is known for each address now. Unknown public addresses are queued
-// and reported as pending; ask again to get their names.
+// Names returns what is known for each address now. Unknown addresses that Allow accepts
+// are queued and reported as pending; ask again to get their names.
 func (r *ReverseDNS) Names(ips []netip.Addr) map[netip.Addr]Name {
 	now := r.opts.Now()
 	out := make(map[netip.Addr]Name, len(ips))
 	for _, ip := range ips {
 		ip = ip.Unmap()
-		if !public(ip) {
+		if !r.opts.Allow(ip) {
 			out[ip] = Name{Status: NameNone}
 			continue
 		}
@@ -149,7 +166,7 @@ func (r *ReverseDNS) Run(ctx context.Context) {
 func (r *ReverseDNS) resolve(ctx context.Context, ip netip.Addr) {
 	now := r.opts.Now()
 	// The App Store may already know; that costs no DNS query.
-	if _, ok := r.cache.get(ctx, ip, now, ReverseDNSTTL); ok {
+	if _, ok := r.cache.get(ctx, ip, now, r.opts.TTL); ok {
 		return
 	}
 	if err := r.limit.wait(ctx); err != nil {
@@ -175,5 +192,5 @@ func (r *ReverseDNS) resolve(ctx context.Context, ip netip.Addr) {
 		return
 	}
 	b, _ := json.Marshal(n)
-	r.cache.put(ctx, ip, string(b), now, ReverseDNSTTL, true)
+	r.cache.put(ctx, ip, string(b), now, r.opts.TTL, true)
 }

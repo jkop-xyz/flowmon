@@ -4,11 +4,11 @@ import { useState, type FormEvent } from "react"
 import { useNavigate, useLocation, useParams } from "react-router"
 
 import { DBIPAttribution } from "@/components/geoip"
+import { HostLink } from "@/components/host"
 import { Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -27,6 +27,7 @@ import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { formatBytes, formatDateTime, formatNumber, protocolName } from "@/lib/format"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
+import { useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
@@ -253,6 +254,7 @@ function IdentityCard({ d }: { d: RemoteDetail }) {
 }
 
 function LocalHostsCard({ d, rangeFrom, label }: { d: RemoteDetail; rangeFrom: Date; label: string }) {
+  const names = useHostNames(d.localHosts.map((h) => h.host))
   return (
     <Card>
       <CardHeader>
@@ -276,11 +278,8 @@ function LocalHostsCard({ d, rangeFrom, label }: { d: RemoteDetail; rangeFrom: D
               <TableBody>
                 {d.localHosts.map((h) => (
                   <TableRow key={h.host}>
-                    <TableCell>
-                      <span className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{h.host}</span>
-                        {h.localIsExporterHost && <Badge variant="outline">Exporter Host</Badge>}
-                      </span>
+                    <TableCell className="max-w-72">
+                      <HostLink host={h.host} name={names[h.host]} exporterHost={h.localIsExporterHost} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatBytes(h.receivedBytes)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatBytes(h.sentBytes)}</TableCell>
@@ -327,6 +326,7 @@ function FlowsCard({ ip }: { ip: string }) {
 }
 
 function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
+  const names = useHostNames(list.items.map((f) => f.localHost))
   const truncated = list.rawFrom && new Date(list.rawFrom) > rangeFrom
   return (
     <>
@@ -364,8 +364,9 @@ function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
                       {f.direction === "inbound" ? "Inbound" : "Outbound"}
                     </span>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {f.localHost}:{f.localPort}
+                  <TableCell className="max-w-64">
+                    <HostLink host={f.localHost} name={names[f.localHost]} />
+                    <span className="font-mono text-xs text-muted-foreground">port {f.localPort}</span>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {f.peerPort}/{protocolName(f.protocol).toLowerCase()}

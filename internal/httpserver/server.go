@@ -58,6 +58,8 @@ type Options struct {
 	GeoIP interface{ Status() geoip.Status }
 	// Remote wires the Remote IPs screens.
 	Remote *RemoteOptions
+	// Hosts wires Host Labels, Host Names and the Local Host screens.
+	Hosts *HostOptions
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -100,6 +102,7 @@ func New(opts Options) http.Handler {
 	registerInterfaces(mux, opts)
 	registerSNMP(mux, opts)
 	registerRemote(mux, opts)
+	registerHosts(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
@@ -135,6 +138,9 @@ func New(opts Options) http.Handler {
 				return
 			}
 			q.Limit = n
+		}
+		if q.Dimension == flowstore.TopLocalHosts {
+			q.HostGroups = hostGroups(r.Context(), opts)
 		}
 		res, err := opts.Flows.Top(r.Context(), q)
 		if errors.Is(err, flowstore.ErrUnknownDimension) {

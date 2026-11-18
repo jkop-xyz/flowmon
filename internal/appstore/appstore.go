@@ -245,6 +245,14 @@ var migrations = []string{
 		PRIMARY KEY (kind, ip)
 	);
 	CREATE INDEX ip_cache_expires ON ip_cache (expires_at)`,
+	// 3: Host Labels. prefix is canonical CIDR text (a single address is a /32 or /128).
+	`CREATE TABLE host_labels (
+		id TEXT PRIMARY KEY,
+		prefix TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL,
+		created_at BIGINT NOT NULL,
+		updated_at BIGINT NOT NULL
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
