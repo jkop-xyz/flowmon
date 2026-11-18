@@ -264,3 +264,27 @@ func TestHostLabels(t *testing.T) {
 		}
 	})
 }
+
+func TestServiceNames(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *Store) {
+		if _, err := s.SetServiceName(ctx, 6, 8006, "proxmox", t0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetServiceName(ctx, 0, 1883, "mqtt broker", t0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetServiceName(ctx, 6, 8006, "Proxmox VE", t0.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		all, err := s.ServiceNames(ctx)
+		if err != nil || len(all) != 2 || all[0].Port != 1883 || all[0].Protocol != 0 || all[1].Name != "Proxmox VE" || !all[1].UpdatedAt.Equal(t0.Add(time.Hour)) {
+			t.Fatalf("names %+v %v", all, err)
+		}
+		if err := s.DeleteServiceName(ctx, 6, 8006); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteServiceName(ctx, 6, 8006); !errors.Is(err, ErrNotFound) {
+			t.Errorf("delete twice: %v", err)
+		}
+	})
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/rollup"
 )
 
@@ -558,8 +559,10 @@ type FlowItem struct {
 	Peer                string    `json:"peer"`
 	PeerPort            uint16    `json:"peerPort"`
 	Protocol            uint8     `json:"protocol"`
-	Bytes               uint64    `json:"bytes"`
-	Packets             uint64    `json:"packets"`
+	// ServicePort is whichever of the two ports identifies the service.
+	ServicePort uint16 `json:"servicePort"`
+	Bytes       uint64 `json:"bytes"`
+	Packets     uint64 `json:"packets"`
 }
 
 // FlowList is a page of raw Flows, newest first.
@@ -619,6 +622,7 @@ func (s *Store) RemoteFlows(ctx context.Context, ip netip.Addr, from, to time.Ti
 			continue
 		}
 		f.Start, f.End, f.LocalHost = f.Start.UTC(), f.End.UTC(), local.String
+		f.ServicePort = flow.ServicePort(f.Protocol, f.LocalPort, f.PeerPort)
 		f.Direction = "inbound"
 		if dir == 2 {
 			f.Direction = "outbound"

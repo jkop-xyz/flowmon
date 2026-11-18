@@ -438,6 +438,8 @@ export type FlowItem = {
   peer: string
   peerPort: number
   protocol: number
+  /** Whichever of the two ports identifies the service. */
+  servicePort: number
   bytes: number
   packets: number
 }
@@ -587,4 +589,36 @@ export function fetchHostRemoteIPs(host: string, range: RangeParams, signal?: Ab
   const params = hostParams(host, range)
   params.set("limit", "20")
   return getJSON<WithIncomplete<RemoteResult>>(`/api/local-hosts/remote-ips?${params}`, signal)
+}
+
+/** A name the user gave a Service Port; protocol 0 names it for every protocol. */
+export type UserServiceName = {
+  protocol: number
+  port: number
+  name: string
+  updatedAt: string
+  /** What the IANA registry calls the port. */
+  ianaName?: string
+}
+
+export type ServiceName = { name?: string; description?: string; source?: "user" | "iana" }
+
+export function fetchServiceNames(signal?: AbortSignal) {
+  return getJSON<{ names: UserServiceName[] }>("/api/service-names", signal)
+}
+
+/** Service Names for "protocol/port" keys. */
+export function lookupServiceNames(keys: string[], signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  for (const k of keys) params.append("port", k)
+  return getJSON<{ names: Record<string, ServiceName> }>(`/api/service-names/lookup?${params}`, signal)
+}
+
+export const setServiceName = (protocol: number, port: number, name: string) =>
+  putJSON<UserServiceName>(`/api/service-names/${protocol}/${port}`, { name })
+
+export async function deleteServiceName(protocol: number, port: number) {
+  const path = `/api/service-names/${protocol}/${port}`
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
 }
