@@ -14,12 +14,14 @@ import { ExportersPage } from "@/pages/exporters-page"
 import { MikroTikGuidePage } from "@/pages/mikrotik-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
+import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
 import { SettingsPage } from "@/pages/settings-page"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
 const screens: Record<string, React.ReactNode> = {
   "/": <OverviewPage />,
   "/exporters": <ExportersPage />,
+  "/remote": <RemoteIPsPage />,
   "/settings": <SettingsPage />,
 }
 
@@ -52,6 +54,7 @@ createRoot(document.getElementById("root")!).render(
                       element={screens[item.path] ?? <PlaceholderPage item={item} />}
                     />
                   ))}
+                  <Route path="/remote/:ip" element={<RemoteIPPage />} />
                   <Route path="/guide/mikrotik" element={<MikroTikGuidePage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>

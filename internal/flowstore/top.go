@@ -21,6 +21,8 @@ const (
 	// Remote IP had no GeoIP data is one row with an empty country or ASN 0.
 	TopCountries TopDimension = "countries"
 	TopASNs      TopDimension = "asns"
+	// TopRemoteIPs comes from Top Remote IPs, not from Rollups (see TopRemoteIPs).
+	TopRemoteIPs TopDimension = "remotes"
 )
 
 // MaxTopLimit is the most items a top-N list returns (enough for every country).
@@ -43,6 +45,7 @@ type TopItem struct {
 	LocalIsExporterHost bool    `json:"localIsExporterHost,omitempty"`
 	Protocol            uint8   `json:"protocol"`
 	ServicePort         uint16  `json:"servicePort"`
+	RemoteIP            string  `json:"remoteIp,omitempty"`
 	Country             string  `json:"country,omitempty"`
 	ASN                 uint32  `json:"asn,omitempty"`
 	ASNOrg              string  `json:"asnOrg,omitempty"`
@@ -50,6 +53,7 @@ type TopItem struct {
 	SentBytes           float64 `json:"sentBytes"`
 	InternalBytes       float64 `json:"internalBytes"`
 	TotalBytes          float64 `json:"totalBytes"`
+	Flows               float64 `json:"flows,omitempty"`
 }
 
 // TopResult is a ranked list plus the total over every value, so the UI can show shares.
@@ -59,6 +63,8 @@ type TopResult struct {
 	Source     Source    `json:"source"`
 	Items      []TopItem `json:"items"`
 	TotalBytes float64   `json:"totalBytes"`
+	// Approximate is set when the list came from Top Remote IPs lists (see Coverage).
+	Approximate bool `json:"approximate,omitempty"`
 }
 
 // ErrUnknownDimension is returned for an unsupported TopDimension.
@@ -74,6 +80,18 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 		q.Limit = 10
 	}
 	q.Limit = min(q.Limit, MaxTopLimit)
+	if q.Dimension == TopRemoteIPs {
+		r, err := s.TopRemoteIPs(ctx, RemoteQuery{From: q.From, To: q.To, Exporter: q.Exporter, Limit: q.Limit})
+		if err != nil {
+			return TopResult{}, err
+		}
+		res := TopResult{From: r.From, To: r.To, Source: r.Source, Items: []TopItem{}, TotalBytes: r.TotalBytes, Approximate: r.Approximate}
+		for _, it := range r.Items {
+			res.Items = append(res.Items, TopItem{RemoteIP: it.RemoteIP, Country: it.Country, ASN: it.ASN, ASNOrg: it.ASNOrg,
+				ReceivedBytes: it.ReceivedBytes, SentBytes: it.SentBytes, TotalBytes: it.TotalBytes, Flows: it.Flows})
+		}
+		return res, nil
+	}
 	g, source := Minute, SourceMinute
 	if q.To.Sub(q.From) >= 24*time.Hour {
 		g, source = Hour, SourceHour

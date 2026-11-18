@@ -56,6 +56,8 @@ type Options struct {
 	SNMP *SNMPOptions
 	// GeoIP reports the GeoIP databases in use. Nil reports none.
 	GeoIP interface{ Status() geoip.Status }
+	// Remote wires the Remote IPs screens.
+	Remote *RemoteOptions
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -97,6 +99,7 @@ func New(opts Options) http.Handler {
 	registerExporters(mux, opts)
 	registerInterfaces(mux, opts)
 	registerSNMP(mux, opts)
+	registerRemote(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
@@ -135,7 +138,7 @@ func New(opts Options) http.Handler {
 		}
 		res, err := opts.Flows.Top(r.Context(), q)
 		if errors.Is(err, flowstore.ErrUnknownDimension) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, protocols, ports, countries or asns"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, remotes, protocols, ports, countries or asns"})
 			return
 		}
 		if queryError(w, opts.Logger, "top", err) {

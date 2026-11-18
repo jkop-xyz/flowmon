@@ -171,10 +171,11 @@ export function fetchBandwidth(range: RangeParams, signal?: AbortSignal) {
   return getJSON<WithIncomplete<BandwidthResult>>(`/api/overview/bandwidth?${rangeParams(range)}`, signal)
 }
 
-export type TopDimension = "hosts" | "protocols" | "ports" | "countries" | "asns"
+export type TopDimension = "hosts" | "remotes" | "protocols" | "ports" | "countries" | "asns"
 
 export type TopItem = {
   host?: string
+  remoteIp?: string
   localIsExporterHost?: boolean
   protocol: number
   servicePort: number
@@ -187,6 +188,7 @@ export type TopItem = {
   sentBytes: number
   internalBytes: number
   totalBytes: number
+  flows?: number
 }
 
 export type TopResult = {
@@ -195,6 +197,8 @@ export type TopResult = {
   source: Source
   items: TopItem[]
   totalBytes: number
+  /** Set when the list came from the Top Remote IPs lists (see Coverage). */
+  approximate?: boolean
 }
 
 export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: AbortSignal, limit?: number) {
@@ -365,4 +369,91 @@ export type GeoIPStatus = {
 
 export function fetchGeoIP(signal?: AbortSignal) {
   return getJSON<GeoIPStatus>("/api/geoip", signal)
+}
+
+/** Where an answer about Remote IPs came from, and what it can't include. */
+export type Coverage = {
+  from: string
+  to: string
+  /** raw is exact; hour and day are the Top Remote IPs lists. */
+  source: "raw" | "hour" | "day"
+  approximate: boolean
+  /** Start of the oldest raw Flows still kept. */
+  rawFrom?: string
+  /** Start of the oldest list of the granularity used. */
+  listsFrom?: string
+}
+
+export type RemoteItem = {
+  remoteIp: string
+  country?: string
+  asn?: number
+  asnOrg?: string
+  receivedBytes: number
+  sentBytes: number
+  totalBytes: number
+  flows: number
+  localHosts: number
+}
+
+export type RemoteResult = Coverage & {
+  items: RemoteItem[]
+  totalBytes: number
+  otherBytes: number
+}
+
+export type RemoteHost = {
+  host: string
+  localIsExporterHost?: boolean
+  receivedBytes: number
+  sentBytes: number
+  totalBytes: number
+  flows: number
+}
+
+export type GeoInfo = { country?: string; asn?: number; asnOrg?: string }
+
+export type RemoteDetail = Coverage &
+  GeoInfo & {
+    remoteIp: string
+    receivedBytes: number
+    sentBytes: number
+    flows: number
+    localHosts: RemoteHost[]
+    /** What today's GeoIP databases say. */
+    current?: GeoInfo
+  }
+
+export type FlowItem = {
+  exporter: string
+  start: string
+  end: string
+  direction: "inbound" | "outbound"
+  localHost: string
+  localIsExporterHost?: boolean
+  localPort: number
+  peer: string
+  peerPort: number
+  protocol: number
+  bytes: number
+  packets: number
+}
+
+export type FlowList = { items: FlowItem[]; more: boolean; rawFrom?: string }
+
+export function fetchRemoteIPs(range: RangeParams, sort: "bytes" | "flows", signal?: AbortSignal) {
+  const params = rangeParams(range)
+  params.set("sort", sort)
+  params.set("limit", "100")
+  return getJSON<WithIncomplete<RemoteResult>>(`/api/remote-ips?${params}`, signal)
+}
+
+export function fetchRemoteIP(ip: string, range: RangeParams, signal?: AbortSignal) {
+  return getJSON<WithIncomplete<RemoteDetail>>(`/api/remote-ips/${encodeURIComponent(ip)}?${rangeParams(range)}`, signal)
+}
+
+export function fetchRemoteFlows(ip: string, range: RangeParams, signal?: AbortSignal) {
+  const params = rangeParams(range)
+  params.set("limit", "100")
+  return getJSON<FlowList>(`/api/remote-ips/${encodeURIComponent(ip)}/flows?${params}`, signal)
 }

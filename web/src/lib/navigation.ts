@@ -36,8 +36,8 @@ export const navItems: NavItem[] = [
   {
     title: "Remote IPs",
     path: "/remote",
-    ready: false,
-    filters: none,
+    ready: true,
+    filters: { exporter: true, timeRange: true },
     icon: Globe,
     summary: "Who is on the other end: country, ASN Owner, reverse DNS and registration details.",
   },
@@ -78,6 +78,9 @@ export type RouteMeta = {
 export function routeMeta(pathname: string): RouteMeta {
   const item = navItems.find((i) => i.path === pathname)
   if (item) return { title: item.title, activePath: item.path, filters: item.ready ? item.filters : none }
+  if (pathname.startsWith("/remote/")) {
+    return { title: "Remote IP", activePath: "/remote", filters: { exporter: true, timeRange: true } }
+  }
   if (pathname === "/guide/mikrotik") return { title: "MikroTik setup guide", activePath: "/exporters", filters: none }
   return { title: "Page not found", activePath: "", filters: none }
 }
