@@ -1,0 +1,11 @@
+# Build output
+/flowmon
+/bin/
+
+# Local data and captures
+/data/
+*.pcap
+*.pcapng
+
+# Local issue tracker scratch space
+.scratch/
