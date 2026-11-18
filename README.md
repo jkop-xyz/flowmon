@@ -11,7 +11,7 @@ docker build -t flowmon .
 docker run -d --name flowmon --network host -v flowmon-data:/data flowmon
 ```
 
-Then open <http://localhost:8080>. Host networking is how Flowmon will run once collection exists, because it needs to see each exporter's real source address. Release images, a compose file and a Podman Quadlet come in [#19](https://github.com/jkop-xyz/flowmon/issues/19).
+Then open <http://localhost:8080>. The first visit runs setup: enter the one-time setup token from the logs (`docker logs flowmon`), choose where accounts and settings live (built-in SQLite, or your own PostgreSQL), and create the admin account. Forgot the password? `docker exec -it flowmon flowmon admin reset-password admin`. Host networking is how Flowmon will run once collection exists, because it needs to see each exporter's real source address. Release images, a compose file and a Podman Quadlet come in [#19](https://github.com/jkop-xyz/flowmon/issues/19).
 
 ## Configuration
 
@@ -29,6 +29,11 @@ Then open <http://localhost:8080>. Host networking is how Flowmon will run once 
 | `FLOWMON_RETENTION_MINUTE` | `90d` | How long minute Rollups are kept |
 | `FLOWMON_RETENTION_HOUR` | `730d` | How long hour Rollups are kept |
 | `FLOWMON_WATERMARK` | learned | Override the per-Exporter Watermark (how long after a minute its data may still change), e.g. `5m` |
+| `FLOWMON_DATABASE_URL` | setup screen | App Store location, e.g. `sqlite:///data/flowmon.db` or `postgres://flowmon@db.lan:5432/lab?sslmode=require&search_path=flowmon`. When set, it overrides and locks the setup screen's choice |
+| `FLOWMON_DATABASE_PASSWORD_FILE` | none | File holding the Postgres password (e.g. a Docker secret) |
+| `FLOWMON_ADMIN_USERNAME`, `FLOWMON_ADMIN_PASSWORD` (or `_FILE`) | none | Create the admin account on first start instead of in the setup screen |
+| `FLOWMON_TRUSTED_PROXIES` | none | CIDRs of reverse proxies whose `X-Forwarded-For`/`-Proto` headers are trusted |
+| `FLOWMON_SECURE_COOKIES` | `auto` | `auto` marks the session cookie Secure when the browser used HTTPS (directly or via a trusted proxy); `always` or `never` force it |
 | `FLOWMON_MAX_EXPORTERS` | `64` | Most Exporters tracked; datagrams from further sources are ignored and counted |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |

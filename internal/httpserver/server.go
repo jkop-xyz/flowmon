@@ -13,8 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/auth"
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
+	"github.com/jkop-xyz/flowmon/internal/setup"
 )
 
 // Options configures the handler.
@@ -38,11 +40,17 @@ type Options struct {
 	}
 	// Watermark says how recent data may still change, for "incomplete" shading.
 	Watermark interface{ MaxWatermark() time.Duration }
+	// Auth and Setup enable login and first-run setup. Without Auth, the API is open
+	// (tests only).
+	Auth  *auth.Manager
+	Setup *setup.Controller
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
 
-// New returns the root handler: the API under /api/ and the single-page UI everywhere else.
+// New returns the root handler: the API under /api/ and the single-page UI everywhere
+// else. Everything under /api/ except health, setup and login needs a session. Unsafe
+// cross-origin browser requests are rejected (CSRF protection).
 func New(opts Options) http.Handler {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -51,10 +59,13 @@ func New(opts Options) http.Handler {
 		opts.Now = time.Now
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
+	public := http.NewServeMux()
+	public.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": opts.Version})
 	})
+	registerAuth(public, opts)
+
+	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/exporters", func(w http.ResponseWriter, _ *http.Request) {
 		if opts.Collector == nil {
 			writeJSON(w, http.StatusOK, collector.Status{Listeners: []string{}, Exporters: []collector.ExporterStatus{}})
@@ -110,8 +121,9 @@ func New(opts Options) http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
-	mux.Handle("/", spaHandler(opts.UI, opts.Logger))
-	return mux
+	public.Handle("/api/", requireSession(mux, opts))
+	public.Handle("/", spaHandler(opts.UI, opts.Logger))
+	return http.NewCrossOriginProtection().Handler(public)
 }
 
 // NewServer wraps the handler with timeouts suitable for a small self-hosted dashboard.
