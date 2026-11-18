@@ -11,12 +11,12 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/enrichment"
+	"github.com/jkop-xyz/flowmon/internal/storecache"
 )
 
 // MaxNameLength bounds a Host Label's name.
@@ -75,59 +75,36 @@ var (
 // Directory holds Host Labels in memory, longest prefix first, and names Local Hosts.
 type Directory struct {
 	// store returns the App Store, or nil while there is none.
-	store func() LabelStore
-	dns   Resolver
-	now   func() time.Time
-
-	mu      sync.Mutex
-	labels  []appstore.HostLabel
-	loaded  bool
-	lastTry time.Time
+	store  func() LabelStore
+	dns    Resolver
+	now    func() time.Time
+	labels *storecache.Snapshot[[]appstore.HostLabel]
 }
 
 // NewDirectory returns a Directory. dns may be nil (no reverse DNS for Local Hosts).
 func NewDirectory(store func() LabelStore, dns Resolver) *Directory {
-	return &Directory{store: store, dns: dns, now: time.Now}
+	d := &Directory{store: store, dns: dns, now: time.Now}
+	d.labels = storecache.New(func(ctx context.Context) ([]appstore.HostLabel, error) {
+		s := store()
+		if s == nil {
+			return nil, ErrUnavailable
+		}
+		labels, err := s.HostLabels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		slices.SortStableFunc(labels, func(a, b appstore.HostLabel) int { return b.Prefix.Bits() - a.Prefix.Bits() })
+		return labels, nil
+	})
+	return d
 }
-
-// retryLoad spaces attempts to load labels while the App Store is failing.
-const retryLoad = 30 * time.Second
 
 // Labels returns every Host Label, longest prefix first. Labels are loaded on first use
 // and after every change; while the App Store is down the last ones loaded are used.
-func (d *Directory) Labels(ctx context.Context) []appstore.HostLabel {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.loaded && d.now().Sub(d.lastTry) >= retryLoad {
-		d.lastTry = d.now()
-		_ = d.loadLocked(ctx)
-	}
-	return d.labels
-}
+func (d *Directory) Labels(ctx context.Context) []appstore.HostLabel { return d.labels.Get(ctx) }
 
 // Reload reads the labels again.
-func (d *Directory) Reload(ctx context.Context) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.loadLocked(ctx)
-}
-
-func (d *Directory) loadLocked(ctx context.Context) error {
-	s := d.store()
-	if s == nil {
-		d.loaded = false
-		return ErrUnavailable
-	}
-	labels, err := s.HostLabels(ctx)
-	if err != nil {
-		// Keep the labels we have, and try again soon.
-		d.loaded = false
-		return err
-	}
-	slices.SortStableFunc(labels, func(a, b appstore.HostLabel) int { return b.Prefix.Bits() - a.Prefix.Bits() })
-	d.labels, d.loaded = labels, true
-	return nil
-}
+func (d *Directory) Reload(ctx context.Context) error { return d.labels.Reload(ctx) }
 
 // Match returns the Host Label for an address: the one with the longest prefix that
 // contains it.

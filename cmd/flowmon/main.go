@@ -35,6 +35,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/interfaces"
 	"github.com/jkop-xyz/flowmon/internal/reprocess"
 	"github.com/jkop-xyz/flowmon/internal/secret"
+	"github.com/jkop-xyz/flowmon/internal/services"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 	"github.com/jkop-xyz/flowmon/internal/snmp"
 	"github.com/jkop-xyz/flowmon/web"
@@ -344,6 +345,12 @@ func serve(stderr io.Writer) int {
 		GeoIP:  geo,
 		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		Services: services.NewDirectory(func() services.Store {
+			if s := holder.Get(); s != nil {
+				return s
+			}
+			return nil
+		}),
 	}))
 
 	errCh := make(chan error, 1)

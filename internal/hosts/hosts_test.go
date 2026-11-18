@@ -10,6 +10,7 @@ import (
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/enrichment"
+	"github.com/jkop-xyz/flowmon/internal/storecache"
 )
 
 type fakeStore struct {
@@ -170,7 +171,7 @@ func TestLabelsRetryWhileFailing(t *testing.T) {
 	store := &fakeStore{err: errors.New("down")}
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	d := NewDirectory(func() LabelStore { return store }, nil)
-	d.now = func() time.Time { return now }
+	d.labels.SetClock(func() time.Time { return now })
 	ctx := context.Background()
 	d.Labels(ctx)
 	d.Labels(ctx)
@@ -179,7 +180,7 @@ func TestLabelsRetryWhileFailing(t *testing.T) {
 	}
 	store.err = nil
 	store.labels = []appstore.HostLabel{{ID: "a", Prefix: key("10.0.0.1"), Name: "A"}}
-	now = now.Add(retryLoad)
+	now = now.Add(storecache.RetryAfter)
 	if l := d.Labels(ctx); len(l) != 1 {
 		t.Errorf("labels after recovery: %v", l)
 	}

@@ -253,6 +253,14 @@ var migrations = []string{
 		created_at BIGINT NOT NULL,
 		updated_at BIGINT NOT NULL
 	)`,
+	// 4: user-defined Service Names. protocol 0 means every protocol.
+	`CREATE TABLE service_names (
+		protocol INTEGER NOT NULL,
+		port INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		updated_at BIGINT NOT NULL,
+		PRIMARY KEY (protocol, port)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

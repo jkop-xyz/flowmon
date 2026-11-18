@@ -20,6 +20,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/geoip"
+	"github.com/jkop-xyz/flowmon/internal/services"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 )
 
@@ -60,6 +61,8 @@ type Options struct {
 	Remote *RemoteOptions
 	// Hosts wires Host Labels, Host Names and the Local Host screens.
 	Hosts *HostOptions
+	// Services names Service Ports.
+	Services *services.Directory
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -103,6 +106,7 @@ func New(opts Options) http.Handler {
 	registerSNMP(mux, opts)
 	registerRemote(mux, opts)
 	registerHosts(mux, opts)
+	registerServices(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})

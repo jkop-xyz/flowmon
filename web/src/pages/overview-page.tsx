@@ -2,15 +2,12 @@ import { useQuery } from "@tanstack/react-query"
 import { lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation } from "react-router"
 
-import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   fetchBandwidth,
   fetchTop,
-  type HostName,
   type TopDimension,
-  type ReverseDNSName,
   type TopItem,
 } from "@/lib/api"
 import { DBIPAttribution } from "@/components/geoip"
@@ -19,7 +16,9 @@ import { Page, QueryError, SectionSkeleton } from "@/components/page"
 import { BarList, BarRow } from "@/components/bar-list"
 import { HostLink } from "@/components/host"
 import { RemoteIPLink } from "@/components/remote"
+import { ServicePort } from "@/components/service-port"
 import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
+import { serviceKey, useServiceNames } from "@/lib/services"
 import { useHostNames } from "@/lib/hosts"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { useReverseDNS } from "@/lib/reverse-dns"
@@ -137,22 +136,17 @@ export function OverviewPage() {
   )
 }
 
+/** Text labels; hosts, Remote IPs and ports are rendered as links and names instead. */
 function itemLabel(dimension: TopDimension, item: TopItem) {
   switch (dimension) {
-    case "hosts":
-      return item.host ?? ""
-    case "remotes":
-      return item.remoteIp ?? ""
     case "protocols":
       return protocolName(item.protocol)
-    case "ports":
-      return item.servicePort === 0
-        ? `${protocolName(item.protocol)} (no port)`
-        : `${item.servicePort}/${protocolName(item.protocol).toLowerCase()}`
     case "countries":
       return item.country ? `${countryName(item.country)} (${item.country})` : "Unknown"
     case "asns":
       return item.asn ? `AS${item.asn}${item.asnOrg ? ` ${item.asnOrg}` : ""}` : "Unknown"
+    default:
+      return ""
   }
 }
 
@@ -225,21 +219,56 @@ function CardFooterNote({ children }: { children: ReactNode }) {
 function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
   const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
   const hostNames = useHostNames(dimension === "hosts" ? items.map((i) => i.host ?? "") : [])
+  const serviceNames = useServiceNames(
+    dimension === "ports" ? items.map((i) => ({ protocol: i.protocol, port: i.servicePort })) : [],
+  )
   if (items.length === 0) return <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
+
+  const label = (item: TopItem) => {
+    switch (dimension) {
+      case "hosts":
+        return (
+          <HostLink
+            host={item.host ?? ""}
+            name={hostNames[item.host ?? ""]}
+            exporterHost={item.localIsExporterHost}
+            addresses={item.addresses}
+          />
+        )
+      case "remotes":
+        return (
+          <>
+            <RemoteIPLink ip={item.remoteIp ?? ""} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
+            <ReverseDNS name={names[item.remoteIp ?? ""]} className="min-w-0" />
+          </>
+        )
+      case "ports":
+        return (
+          <ServicePort
+            protocol={item.protocol}
+            port={item.servicePort}
+            name={serviceNames[serviceKey(item.protocol, item.servicePort)]}
+          />
+        )
+    }
+    const text = itemLabel(dimension, item)
+    return (
+      <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={text}>
+        {text}
+      </span>
+    )
+  }
+
   return (
     <BarList>
       {items.map((item) => (
-        <TopRow
+        <BarRow
           key={itemKey(item)}
-          label={itemLabel(dimension, item)}
-          item={item}
+          label={label(item)}
+          total={item.totalBytes}
+          received={item.receivedBytes}
+          sent={item.sentBytes + item.internalBytes}
           max={items[0].totalBytes}
-          mono={mono}
-          exporterHost={dimension === "hosts" && item.localIsExporterHost}
-          remote={dimension === "remotes"}
-          name={dimension === "remotes" ? names[item.remoteIp ?? ""] : undefined}
-          host={dimension === "hosts"}
-          hostName={dimension === "hosts" ? hostNames[item.host ?? ""] : undefined}
         />
       ))}
     </BarList>
@@ -302,56 +331,5 @@ function TopCard({
         {footer && <CardFooterNote>{footer}</CardFooterNote>}
       </CardContent>
     </Card>
-  )
-}
-
-function TopRow({
-  label,
-  item,
-  max,
-  mono,
-  exporterHost,
-  remote,
-  name,
-  host,
-  hostName,
-}: {
-  label: string
-  item: TopItem
-  max: number
-  mono: boolean
-  exporterHost?: boolean
-  /** The label is a Remote IP: link to its page. */
-  remote?: boolean
-  /** Its reverse DNS name, for Remote IPs. */
-  name?: ReverseDNSName
-  /** The label is a Local Host: show its Host Name and link to its page. */
-  host?: boolean
-  hostName?: HostName
-}) {
-  return (
-    <BarRow
-      total={item.totalBytes}
-      received={item.receivedBytes}
-      sent={item.sentBytes + item.internalBytes}
-      max={max}
-      label={
-        <>
-          {host ? (
-            <HostLink host={label} name={hostName} exporterHost={exporterHost} addresses={item.addresses} />
-          ) : remote ? (
-            <>
-              <RemoteIPLink ip={label} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
-              <ReverseDNS name={name} className="min-w-0" />
-            </>
-          ) : (
-            <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={label}>
-              {label}
-            </span>
-          )}
-          {exporterHost && !host && <Badge variant="outline">Exporter Host</Badge>}
-        </>
-      }
-    />
   )
 }

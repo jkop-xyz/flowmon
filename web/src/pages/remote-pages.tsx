@@ -5,6 +5,7 @@ import { useNavigate, useLocation, useParams } from "react-router"
 
 import { DBIPAttribution } from "@/components/geoip"
 import { HostLink } from "@/components/host"
+import { ServicePort } from "@/components/service-port"
 import { Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
@@ -29,6 +30,7 @@ import { formatBytes, formatDateTime, formatNumber, protocolName } from "@/lib/f
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
+import { serviceKey, useServiceNames } from "@/lib/services"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 function countryLabel(code?: string) {
@@ -327,6 +329,7 @@ function FlowsCard({ ip }: { ip: string }) {
 
 function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
   const names = useHostNames(list.items.map((f) => f.localHost))
+  const serviceNames = useServiceNames(list.items.map((f) => ({ protocol: f.protocol, port: f.servicePort })))
   const truncated = list.rawFrom && new Date(list.rawFrom) > rangeFrom
   return (
     <>
@@ -343,6 +346,7 @@ function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
                 <TableHead>Direction</TableHead>
                 <TableHead>Local Host</TableHead>
                 <TableHead>Remote port</TableHead>
+                <TableHead>Service</TableHead>
                 <TableHead className="text-right">Bytes</TableHead>
                 <TableHead className="text-right">Packets</TableHead>
                 <TableHead>Exporter</TableHead>
@@ -370,6 +374,13 @@ function FlowsTable({ list, rangeFrom }: { list: FlowList; rangeFrom: Date }) {
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {f.peerPort}/{protocolName(f.protocol).toLowerCase()}
+                  </TableCell>
+                  <TableCell className="max-w-48">
+                    <ServicePort
+                      protocol={f.protocol}
+                      port={f.servicePort}
+                      name={serviceNames[serviceKey(f.protocol, f.servicePort)]}
+                    />
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatBytes(f.bytes)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatNumber(f.packets)}</TableCell>

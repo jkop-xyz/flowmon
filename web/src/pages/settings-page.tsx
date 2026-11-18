@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react"
 
 import { DBIPAttribution } from "@/components/geoip"
+import { ServiceNamesCard } from "@/components/service-names-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +17,7 @@ export function SettingsPage() {
   return (
     <Page>
       <GeoIPCard />
+      <ServiceNamesCard />
     </Page>
   )
 }

@@ -8,6 +8,7 @@ import { HostLink } from "@/components/host"
 import { Field, FormActions, FormError, Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
+import { ServicePort } from "@/components/service-port"
 import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,9 +30,10 @@ import {
 } from "@/lib/api"
 import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
-import { formatBytes, formatNumber, protocolName } from "@/lib/format"
+import { formatBytes, formatNumber } from "@/lib/format"
 import { hostPath, useHostLabels, useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
+import { serviceKey, useServiceNames } from "@/lib/services"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 const trafficSeries: TrafficSeries<"receivedBps" | "sentBps">[] = [
@@ -330,6 +332,9 @@ export function LocalHostPage() {
     placeholderData: (previous) => previous,
   })
   const names = useHostNames([host])
+  const serviceNames = useServiceNames(
+    (summary.data?.result.ports ?? []).map((p) => ({ protocol: p.protocol ?? 0, port: p.servicePort ?? 0 })),
+  )
   const label = preset.label.toLowerCase()
 
   return (
@@ -382,11 +387,11 @@ export function LocalHostPage() {
           items={summary.data?.result.ports}
           empty="No Flows in this time range."
           label={(it) => (
-            <span className="truncate font-mono text-xs">
-              {it.servicePort
-                ? `${it.servicePort}/${protocolName(it.protocol ?? 0).toLowerCase()}`
-                : `${protocolName(it.protocol ?? 0)} (no port)`}
-            </span>
+            <ServicePort
+              protocol={it.protocol ?? 0}
+              port={it.servicePort ?? 0}
+              name={serviceNames[serviceKey(it.protocol ?? 0, it.servicePort ?? 0)]}
+            />
           )}
           rowKey={(it) => `${it.protocol}/${it.servicePort}`}
         />
