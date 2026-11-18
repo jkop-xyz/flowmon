@@ -100,6 +100,8 @@ func TestInvalidValues(t *testing.T) {
 		{"FLOWMON_GEOIP_DOWNLOAD": "sometimes"},
 		{"FLOWMON_MAXMIND_ACCOUNT_ID": "12345"},
 		{"FLOWMON_MAXMIND_LICENSE_KEY_FILE": "/does/not/exist"},
+		{"FLOWMON_UDP_RECEIVE_BUFFER_MB": "0"},
+		{"FLOWMON_NO_FLOWS_WARNING": "soon"},
 	} {
 		if _, err := fromLookup(lookupFrom(env)); err == nil {
 			t.Errorf("%v: expected an error", env)
@@ -139,5 +141,16 @@ func TestLocalDNSServer(t *testing.T) {
 		if _, err := fromLookup(lookupFrom(map[string]string{"FLOWMON_LOCAL_DNS_SERVER": in})); err == nil {
 			t.Errorf("%q accepted", in)
 		}
+	}
+}
+
+func TestCollectorHealthSettings(t *testing.T) {
+	cfg, err := fromLookup(lookupFrom(nil))
+	if err != nil || cfg.UDPReceiveBuffer != 8<<20 || cfg.NoFlowsWarning != 5*time.Minute || cfg.MetricsToken != "" {
+		t.Fatalf("defaults %d %v %q %v", cfg.UDPReceiveBuffer, cfg.NoFlowsWarning, cfg.MetricsToken, err)
+	}
+	cfg, err = fromLookup(lookupFrom(map[string]string{"FLOWMON_UDP_RECEIVE_BUFFER_MB": "32", "FLOWMON_NO_FLOWS_WARNING": "off", "FLOWMON_METRICS_TOKEN": "s3cret"}))
+	if err != nil || cfg.UDPReceiveBuffer != 32<<20 || cfg.NoFlowsWarning != 0 || cfg.MetricsToken != "s3cret" {
+		t.Fatalf("set %d %v %q %v", cfg.UDPReceiveBuffer, cfg.NoFlowsWarning, cfg.MetricsToken, err)
 	}
 }

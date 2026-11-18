@@ -47,12 +47,41 @@ With host networking, Flowmon listens directly on the host: UDP 2055 and 4739 fo
 
 ## UDP receive buffer
 
-Flowmon asks for a 4 MiB receive buffer on its UDP sockets, so bursts from the router aren't dropped. The kernel caps that at `net.core.rmem_max`, whose default is about 208 KiB. A container can't raise it, so set it on the host:
+Flowmon asks for an 8 MiB receive buffer on its UDP sockets (`FLOWMON_UDP_RECEIVE_BUFFER_MB`), so bursts from the router aren't dropped. The kernel caps that at `net.core.rmem_max`, whose default is about 208 KiB. A container can't raise it, so set it on the host:
 
 ```sh
-echo 'net.core.rmem_max = 4194304' | sudo tee /etc/sysctl.d/90-flowmon.conf
+echo 'net.core.rmem_max = 8388608' | sudo tee /etc/sysctl.d/90-flowmon.conf
 sudo sysctl --system
 ```
+
+Alternatively, give the container the `NET_ADMIN` capability (`cap_add: [NET_ADMIN]` in Compose, `AddCapability=NET_ADMIN` in a Quadlet). With it, Flowmon forces the buffer size past `rmem_max`.
+
+The Exporters page shows the buffer each socket got and how many datagrams the kernel dropped because it was full. Flowmon's own losses are shown next to them: a full write queue, Flows that arrived too late, and failed writes.
+
+## Collection health and Prometheus
+
+If approved Exporters exist but no Flows arrive for `FLOWMON_NO_FLOWS_WARNING` (default `5m`, `off` to disable), every page shows a warning.
+
+`/metrics` serves Prometheus metrics without a login:
+
+- Per socket: datagrams, kernel drops and receive buffer.
+- Per Exporter: datagrams, records, deviations, Watermark and clock offset.
+- The write pipeline: Flows stored and dropped by reason, queue length and the last write.
+- The Flow Store: disk size and raw days kept.
+- Whether the App Store answers, and whether collection has gone quiet.
+
+The metrics hold counters and Exporter addresses, not Flow contents. To require a token, set `FLOWMON_METRICS_TOKEN` (or `FLOWMON_METRICS_TOKEN_FILE`) and configure Prometheus to send it:
+
+```yaml
+scrape_configs:
+  - job_name: flowmon
+    authorization:
+      credentials_file: /etc/prometheus/flowmon-token
+    static_configs:
+      - targets: ["flowmon.lan:8080"]
+```
+
+Useful alerts are `flowmon_collection_quiet == 1`, `increase(flowmon_collector_socket_drops_total[15m]) > 0` and `increase(flowmon_ingest_flows_dropped_total[15m]) > 0`.
 
 ## GeoIP databases
 

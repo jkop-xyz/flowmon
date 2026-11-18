@@ -71,6 +71,7 @@ func registerSettings(mux *http.ServeMux, opts Options) {
 			}
 			out["appStore"] = st
 		}
+		out["collection"] = collectionHealth(opts)
 		writeJSON(w, http.StatusOK, out)
 	})
 

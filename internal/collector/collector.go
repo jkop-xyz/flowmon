@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/capture"
@@ -83,6 +84,8 @@ type Options struct {
 	MaxPending int
 	// NewExportersPerMinute rate-limits how fast unknown sources become Exporters.
 	NewExportersPerMinute int
+	// ReceiveBuffer is the socket receive buffer to ask for; 0 means 8 MiB.
+	ReceiveBuffer int
 	// Gate decides admission; nil accepts every Exporter.
 	Gate    Gate
 	Sink    RecordSink
@@ -97,8 +100,11 @@ type Collector struct {
 	opts      Options
 	mu        sync.Mutex
 	exporters map[netip.Addr]*exporter
-	listeners []string
-	overLimit uint64 // datagrams dropped because MaxExporters was reached
+	listeners []*listener
+	// lastAccepted is when records from an approved Exporter last went to the sink.
+	lastAccepted     time.Time
+	lastAcceptedFrom netip.Addr
+	overLimit        uint64 // datagrams dropped because MaxExporters was reached
 	// overPending counts datagrams dropped because MaxPending was reached.
 	overPending uint64
 	// rateLimited counts datagrams from new sources dropped by NewExportersPerMinute.
@@ -125,6 +131,9 @@ func New(opts Options) *Collector {
 	if opts.NewExportersPerMinute <= 0 {
 		opts.NewExportersPerMinute = 10
 	}
+	if opts.ReceiveBuffer <= 0 {
+		opts.ReceiveBuffer = 8 << 20
+	}
 	if opts.Gate == nil {
 		opts.Gate = GateFunc(func(netip.Addr) Admission { return AdmitAccept })
 	}
@@ -142,6 +151,35 @@ func New(opts Options) *Collector {
 		newTokens: float64(opts.NewExportersPerMinute), newRefill: now}
 }
 
+// listener is one socket the collector receives on.
+type listener struct {
+	address      string
+	requested    int
+	granted      int
+	dropsCounted bool
+	datagrams    atomic.Uint64
+	kernelDrops  atomic.Uint64
+}
+
+// ListenerStatus describes one collector socket.
+type ListenerStatus struct {
+	Address string `json:"address"`
+	// RequestedBuffer and GrantedBuffer are the receive buffer asked for and what the
+	// kernel gave (0 when unknown).
+	RequestedBuffer int `json:"requestedBuffer"`
+	GrantedBuffer   int `json:"grantedBuffer"`
+	// KernelDrops counts datagrams the kernel dropped because the buffer was full;
+	// DropsCounted is false where the kernel can't report them.
+	KernelDrops  uint64 `json:"kernelDrops"`
+	DropsCounted bool   `json:"dropsCounted"`
+	Datagrams    uint64 `json:"datagrams"`
+}
+
+func (l *listener) status() ListenerStatus {
+	return ListenerStatus{Address: l.address, RequestedBuffer: l.requested, GrantedBuffer: l.granted,
+		KernelDrops: l.kernelDrops.Load(), DropsCounted: l.dropsCounted, Datagrams: l.datagrams.Load()}
+}
+
 // ListenUDP receives datagrams on addr until ctx is done. It returns once the socket is
 // bound (or binding failed); receiving continues in a goroutine.
 func (c *Collector) ListenUDP(ctx context.Context, addr string) error {
@@ -150,13 +188,18 @@ func (c *Collector) ListenUDP(ctx context.Context, addr string) error {
 		return fmt.Errorf("listening on %s/udp: %w", addr, err)
 	}
 	udp := conn.(*net.UDPConn)
-	_ = udp.SetReadBuffer(4 << 20) // best effort; the kernel caps it at net.core.rmem_max
 	local := udp.LocalAddr().(*net.UDPAddr).AddrPort()
+	l := &listener{address: local.String() + "/udp", requested: c.opts.ReceiveBuffer}
+	l.granted, l.dropsCounted = tuneSocket(udp, c.opts.ReceiveBuffer)
 
 	c.mu.Lock()
-	c.listeners = append(c.listeners, local.String()+"/udp")
+	c.listeners = append(c.listeners, l)
 	c.mu.Unlock()
-	c.opts.Logger.Info("collector listening", "addr", local.String(), "transport", "udp")
+	c.opts.Logger.Info("collector listening", "addr", local.String(), "transport", "udp", "receive_buffer", l.granted)
+	if l.granted > 0 && l.granted < l.requested {
+		c.opts.Logger.Warn("the kernel granted a smaller UDP receive buffer than asked for; bursts may be dropped. Raise net.core.rmem_max on the host",
+			"addr", local.String(), "asked", l.requested, "granted", l.granted)
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -164,14 +207,20 @@ func (c *Collector) ListenUDP(ctx context.Context, addr string) error {
 	}()
 	go func() {
 		buf := make([]byte, 65535)
+		oob := make([]byte, oobSize)
 		for {
-			n, src, err := udp.ReadFromUDPAddrPort(buf)
+			n, oobn, _, src, err := udp.ReadMsgUDPAddrPort(buf, oob)
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				c.opts.Logger.Warn("udp read", "addr", local.String(), "err", err)
 				continue
+			}
+			l.datagrams.Add(1)
+			if drops, ok := socketDrops(oob[:oobn]); ok {
+				// The kernel reports its running total for the socket.
+				l.kernelDrops.Store(uint64(drops))
 			}
 			c.HandleDatagram(src, local, buf[:n])
 		}
@@ -225,6 +274,9 @@ func (c *Collector) HandleDatagram(src, local netip.AddrPort, data []byte) {
 		exp.deviation(DevNetFlowV5Unsupported, "NetFlow v5 support comes in v1.1; send IPFIX instead", now)
 	default:
 		exp.deviation(DevUnknownVersion, fmt.Sprintf("version %d", ipfix.PeekVersion(data)), now)
+	}
+	if len(records) > 0 {
+		c.lastAccepted, c.lastAcceptedFrom = now, src.Addr()
 	}
 	c.mu.Unlock()
 
@@ -308,16 +360,25 @@ func (h *decodeHandler) Deviation(d ipfix.Deviation, detail string) {
 	h.exp.deviation(d, detail, h.now)
 }
 
-// Listeners returns the addresses the collector receives on.
-func (c *Collector) Listeners() []string {
+// Listeners returns the sockets the collector receives on.
+func (c *Collector) Listeners() []ListenerStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]string(nil), c.listeners...)
+	out := make([]ListenerStatus, len(c.listeners))
+	for i, l := range c.listeners {
+		out[i] = l.status()
+	}
+	return out
 }
 
 // Status is a snapshot for the Exporters page.
 type Status struct {
-	Listeners []string `json:"listeners"`
+	Listeners []ListenerStatus `json:"listeners"`
+	// Started is when the collector started; LastAccepted when records from an
+	// approved Exporter last arrived (zero if none yet), and from which.
+	Started          time.Time  `json:"started"`
+	LastAccepted     *time.Time `json:"lastAccepted,omitempty"`
+	LastAcceptedFrom string     `json:"lastAcceptedFrom,omitempty"`
 	// DroppedOverExporterLimit counts datagrams from new sources ignored because the
 	// Exporter limit was reached.
 	DroppedOverExporterLimit uint64 `json:"droppedOverExporterLimit"`
@@ -337,13 +398,21 @@ func (c *Collector) Status() Status {
 	defer c.mu.Unlock()
 	now := c.opts.Now()
 	st := Status{
-		Listeners:                append([]string{}, c.listeners...),
+		Listeners:                make([]ListenerStatus, len(c.listeners)),
+		Started:                  c.started,
 		DroppedOverExporterLimit: c.overLimit,
 		MaxExporters:             c.opts.MaxExporters,
 		DroppedOverPendingLimit:  c.overPending,
 		MaxPending:               c.opts.MaxPending,
 		DroppedNewExporterRate:   c.rateLimited,
 		Exporters:                make([]ExporterStatus, 0, len(c.exporters)),
+	}
+	for i, l := range c.listeners {
+		st.Listeners[i] = l.status()
+	}
+	if !c.lastAccepted.IsZero() {
+		t := c.lastAccepted
+		st.LastAccepted, st.LastAcceptedFrom = &t, c.lastAcceptedFrom.String()
 	}
 	for _, exp := range c.exporters {
 		st.Exporters = append(st.Exporters, exp.status(now))

@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
-import { AlertTriangle, Cable, ChevronRight, Info, Radio } from "lucide-react"
+import { AlertTriangle, Cable, ChevronRight, Info } from "lucide-react"
 
 import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
 import { InterfacesSection } from "@/components/interfaces-section"
+import { CollectorCard } from "@/components/collector-card"
 import { EmptyState, Page, QueryError, Section, SectionHeading, Stat, TimeAgo } from "@/components/page"
 import { SNMPSection } from "@/components/snmp-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -82,7 +83,7 @@ export function ExportersPage() {
     )
   }
 
-  const { listeners, droppedOverExporterLimit, maxExporters, droppedOverPendingLimit, maxPending } = query.data
+  const { droppedOverExporterLimit, maxExporters, droppedOverPendingLimit, maxPending } = query.data
   // Pending Exporters first: they need a decision.
   const exporters = query.data.exporters
     .filter((e) => !selected || e.address === selected)
@@ -93,22 +94,7 @@ export function ExportersPage() {
 
   return (
     <Page>
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <Radio className="size-4" />
-        <span>Listening on</span>
-        {listeners.length === 0 ? (
-          <span>nothing: no collector addresses are configured</span>
-        ) : (
-          listeners.map((l) => (
-            <Badge key={l} variant="outline" className="font-mono">
-              {l}
-            </Badge>
-          ))
-        )}
-        <Link to="/guide/mikrotik" className="ml-auto underline underline-offset-4">
-          MikroTik setup guide
-        </Link>
-      </div>
+      <CollectorCard status={query.data} now={now} />
 
       {droppedOverExporterLimit > 0 && (
         <Alert variant="warning">
