@@ -42,6 +42,10 @@ Then open <http://localhost:8080>. The first visit runs setup: enter the one-tim
 | `FLOWMON_DEBUG_CAPTURE_FILES` | `3` | Capture files kept, including the current one |
 | `FLOWMON_DEBUG_CAPTURE_MAX_DURATION` | `1h` | Capturing stops this long after start |
 
+### SNMP and Reconciliation
+
+On the Exporters page, each approved Exporter can be polled over SNMP (v3 recommended, or v2c) every minute. SNMP fills in interface names (`ifName`), and for every WAN Interface Flowmon compares the router's own 64-bit interface counters (minus layer-2 overhead per packet) with the bytes in Flows, per hour. A gap above 15% for 3 hours in a row is flagged: usually hardware offload that Traffic Flow can't see, a long active timeout, or the wrong overhead preset. SNMP credentials are stored encrypted with a key kept in `/data/secret.key`; back that file up with the rest of `/data`.
+
 ### Debug capture
 
 `FLOWMON_DEBUG_CAPTURE=/data/debug/capture.pcap` records every datagram Flowmon receives, wrapped in IP and UDP headers so Wireshark and tshark decode it as IPFIX. Use it when an Exporter shows up as "0% decoded" or its numbers look wrong. Captures contain who talked to whom on your network: the files are created readable only by Flowmon's user, the capture stops on its own, and you should anonymise a capture before sharing it.

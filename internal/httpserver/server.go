@@ -49,6 +49,8 @@ type Options struct {
 	Exporters *exporters.Registry
 	// Interfaces wires Interfaces, Interface Roles and reprocessing.
 	Interfaces *InterfaceOptions
+	// SNMP wires SNMP settings and Reconciliation.
+	SNMP *SNMPOptions
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -89,6 +91,7 @@ func New(opts Options) http.Handler {
 	})
 	registerExporters(mux, opts)
 	registerInterfaces(mux, opts)
+	registerSNMP(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
