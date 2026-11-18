@@ -188,9 +188,37 @@ func TestSessionCacheBridgesAnOutage(t *testing.T) {
 	if _, err := m.Authenticate(context.Background(), r); err != nil {
 		t.Errorf("within the cache period the session still works: %v", err)
 	}
-	*now = now.Add(2 * time.Minute)
-	if _, err := m.Authenticate(context.Background(), r); err == nil {
-		t.Error("after the cache period the store must be asked again")
+	// After the cache period the store is asked again; it fails, and the session was
+	// confirmed recently enough to stay valid.
+	*now = now.Add(30 * time.Minute)
+	if _, err := m.Authenticate(context.Background(), r); err != nil {
+		t.Errorf("within the outage grace the session still works: %v", err)
+	}
+	*now = now.Add(time.Hour)
+	if _, err := m.Authenticate(context.Background(), r); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("after the outage grace: %v", err)
+	}
+	if _, err := login(m, "admin", "correct horse battery"); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("logging in during an outage: %v", err)
+	}
+}
+
+func TestUnavailableStoreIsNotAsked(t *testing.T) {
+	m, _, now := setup(t)
+	available := true
+	m.opts.Available = func() bool { return available }
+	w, _ := login(m, "admin", "correct horse battery")
+	r := withCookie(w)
+	if _, err := m.Authenticate(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	available = false
+	*now = now.Add(10 * time.Minute)
+	if _, err := m.Authenticate(context.Background(), r); err != nil {
+		t.Errorf("a recent session during an outage: %v", err)
+	}
+	if _, err := login(m, "admin", "correct horse battery"); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("login while unavailable: %v", err)
 	}
 }
 

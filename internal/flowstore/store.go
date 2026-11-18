@@ -203,6 +203,9 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 11: collection settings set in the UI (Local Networks, retention). Kept here, not in
+	// the App Store, so collection never depends on the App Store (ADR 0001).
+	stmt(`CREATE TABLE settings (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {

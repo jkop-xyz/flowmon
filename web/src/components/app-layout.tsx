@@ -9,6 +9,7 @@ import { UserMenu } from "@/components/user-menu"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppStoreBanner } from "@/components/app-store-banner"
 import { fetchHealth } from "@/lib/api"
 import { routeMeta } from "@/lib/navigation"
 
@@ -56,6 +57,7 @@ export function AppLayout() {
           </div>
         </header>
         <main className="flex-1 p-4 md:p-6">
+          <AppStoreBanner />
           <Outlet />
         </main>
       </SidebarInset>

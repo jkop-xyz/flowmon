@@ -34,7 +34,7 @@ func TestInterfacesEndpoints(t *testing.T) {
 	_, _ = reg.Approve(ctx, router, "", exporters.ByAddress, "MikroTik", "admin")
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	c := &client{t: t, h: New(Options{UI: builtUI, Exporters: reg, Now: func() time.Time { return now },
-		Interfaces: &InterfaceOptions{Registry: ifs, Stats: fakeStats{}, Changes: store, RawRetention: 7 * 24 * time.Hour}})}
+		Interfaces: &InterfaceOptions{Registry: ifs, Stats: fakeStats{}, Changes: store, RawRetention: func() time.Duration { return 7 * 24 * time.Hour }}})}
 
 	var res InterfacesResponse
 	_ = json.Unmarshal(c.do("GET", "/api/exporters/192.168.10.1/interfaces", "").Body.Bytes(), &res)

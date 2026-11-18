@@ -79,19 +79,34 @@ A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts 
 - **Reverse DNS** for Local Hosts asks the server in `FLOWMON_LOCAL_DNS_SERVER`, or the container's resolver when it is unset. Point it at the server that knows your hosts by name, such as the MikroTik or a Pi-hole. Names are cached for an hour, because DHCP can move them.
 - **Host Labels** are stored in the App Store. A label on a single address names that host. A label on a prefix, such as an IPv6 `/64` or a DHCP range written as a prefix, makes every address in it one Local Host. Use it for a device whose addresses rotate. A label on an address inside a labelled prefix keeps that address separate, because the longest prefix wins.
 
+## Settings and environment variables
+
+Local Networks and retention can be changed on the Settings page. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.
+
+A change to Local Networks applies to Flows from then on, and charts mark when it happened. To classify stored Flows again, reprocess an Exporter on the Exporters page.
+
+## When the App Store is unavailable
+
+If Postgres (or the SQLite file) stops answering, Flowmon keeps collecting and storing Flows. Every chart and list keeps working. Flowmon checks the App Store every 15 seconds and logs once when it goes away and once when it is back. Until then:
+
+- Every page shows a banner saying the App Store isn't answering.
+- People who were logged in within the last hour stay logged in. New logins wait.
+- Changes stored in the App Store are refused with a clear message: Host Labels, Service Names and accounts. Host Labels and Service Names already loaded keep working.
+- Reverse DNS and RDAP results are cached in memory only.
+
 ## Backups
 
 Back up the `/data` volume as a whole. It holds:
 
 | File | What it is |
 |---|---|
-| `flows.duckdb` | the Flow Store: raw Flows, Rollups, Exporter approvals, Interfaces, SNMP settings |
+| `flows.duckdb` | the Flow Store: raw Flows, Rollups, Exporter approvals, Interfaces, SNMP settings, Local Networks and retention |
 | `flowmon.db` | the App Store, when you chose the built-in SQLite |
 | `bootstrap.json` | where the App Store lives (mode 0600; it can contain the Postgres password) |
 | `secret.key` | the key that encrypts stored SNMP credentials. Without it, they have to be entered again |
 | `geoip-downloads/` | downloaded GeoIP databases. No need to back them up; they are downloaded again |
 
-If you chose **PostgreSQL** for the App Store, accounts and settings live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
+If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels and Service Names live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
 
 To get a consistent copy of `flows.duckdb`, stop the container first (`docker compose stop`, or `systemctl stop flowmon`). An online snapshot endpoint is planned (#18).
 

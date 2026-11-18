@@ -41,6 +41,9 @@ type Config struct {
 	FlowStoreThreads int
 	// Retention of raw Flows and of minute and hour Rollups.
 	RetentionRaw, RetentionMinute, RetentionHour time.Duration
+	// RetentionFromEnv says which retention values were set by environment variable,
+	// which locks them in Settings.
+	RetentionFromEnv struct{ Raw, Minute, Hour bool }
 	// WatermarkOverride replaces the learned Watermark when set.
 	WatermarkOverride time.Duration
 	// DatabaseURL, when set, decides the App Store and locks the setup screen.
@@ -130,11 +133,13 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 	for _, r := range []struct {
 		key, def string
 		into     *time.Duration
+		fromEnv  *bool
 	}{
-		{"FLOWMON_RETENTION_RAW", "7d", &cfg.RetentionRaw},
-		{"FLOWMON_RETENTION_MINUTE", "90d", &cfg.RetentionMinute},
-		{"FLOWMON_RETENTION_HOUR", "730d", &cfg.RetentionHour},
+		{"FLOWMON_RETENTION_RAW", "7d", &cfg.RetentionRaw, &cfg.RetentionFromEnv.Raw},
+		{"FLOWMON_RETENTION_MINUTE", "90d", &cfg.RetentionMinute, &cfg.RetentionFromEnv.Minute},
+		{"FLOWMON_RETENTION_HOUR", "730d", &cfg.RetentionHour, &cfg.RetentionFromEnv.Hour},
 	} {
+		*r.fromEnv = get(r.key, "") != ""
 		if *r.into, err = ParseDuration(get(r.key, r.def)); err != nil || *r.into <= 0 {
 			return Config{}, fmt.Errorf("%s: must be a positive duration such as 7d or 12h", r.key)
 		}

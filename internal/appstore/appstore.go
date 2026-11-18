@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -307,14 +308,95 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 // Holder holds the App Store once it exists. Before first-run setup there is none, and
-// collection keeps running regardless (ADR 0001).
-type Holder struct{ p atomic.Pointer[Store] }
+// collection keeps running regardless (ADR 0001). Monitor tracks whether the App Store
+// answers, so callers can skip it during an outage instead of waiting on timeouts.
+type Holder struct {
+	p atomic.Pointer[Store]
 
-// Get returns the store, or nil before setup.
+	mu     sync.Mutex
+	health Health
+}
+
+// Health says whether the App Store answers.
+type Health struct {
+	Available bool `json:"available"`
+	// Since is when it last became available or unavailable.
+	Since time.Time `json:"since"`
+	// Error is why it is unavailable.
+	Error string `json:"error,omitempty"`
+}
+
+// Get returns the store, or nil before setup. It may be unavailable; see Usable.
 func (h *Holder) Get() *Store { return h.p.Load() }
 
-// Set installs the store.
-func (h *Holder) Set(s *Store) { h.p.Store(s) }
+// Usable returns the store when it is set up and answering, else nil.
+func (h *Holder) Usable() *Store {
+	s := h.p.Load()
+	if s == nil || !h.Health().Available {
+		return nil
+	}
+	return s
+}
+
+// Set installs the store, which has just been opened, so it is available.
+func (h *Holder) Set(s *Store) {
+	h.p.Store(s)
+	h.setHealth(nil, time.Now())
+}
+
+// Health returns the latest health. Before setup it is unavailable without an error.
+func (h *Holder) Health() Health {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.health
+}
+
+func (h *Holder) setHealth(err error, now time.Time) (changed bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	available := err == nil
+	if available != h.health.Available || h.health.Since.IsZero() {
+		h.health.Since, changed = now, true
+	}
+	h.health.Available, h.health.Error = available, ""
+	if err != nil {
+		h.health.Error = err.Error()
+	}
+	return changed
+}
+
+// Check pings the store once and records the result.
+func (h *Holder) Check(ctx context.Context, timeout time.Duration) (Health, bool) {
+	s := h.p.Load()
+	if s == nil {
+		return h.Health(), false
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	err := s.Ping(pctx)
+	cancel()
+	if ctx.Err() != nil {
+		return h.Health(), false
+	}
+	changed := h.setHealth(err, time.Now())
+	return h.Health(), changed
+}
+
+// Monitor pings the store every interval until ctx is done; onChange runs when it
+// becomes available or unavailable.
+func (h *Holder) Monitor(ctx context.Context, interval time.Duration, onChange func(Health)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if st, changed := h.Check(ctx, 5*time.Second); changed && onChange != nil {
+				onChange(st)
+			}
+		}
+	}
+}
 
 // DropSchemaForTest drops a Postgres schema. Tests only.
 func (s *Store) DropSchemaForTest(ctx context.Context, schema string) error {

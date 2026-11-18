@@ -75,7 +75,7 @@ type Interfaces interface {
 
 // Classifier is safe for concurrent use.
 type Classifier struct {
-	local  []netip.Prefix
+	local  atomic.Pointer[[]netip.Prefix]
 	ifaces atomic.Pointer[Interfaces]
 
 	mu      sync.Mutex
@@ -84,14 +84,24 @@ type Classifier struct {
 
 // New returns a Classifier for the given Local Networks.
 func New(local []netip.Prefix) *Classifier {
-	return &Classifier{local: local, learned: map[netip.Addr]map[netip.Addr]time.Time{}}
+	c := &Classifier{learned: map[netip.Addr]map[netip.Addr]time.Time{}}
+	c.SetLocalNetworks(local)
+	return c
+}
+
+// SetLocalNetworks replaces the Local Networks; Flows classified from now on use them.
+func (c *Classifier) SetLocalNetworks(local []netip.Prefix) {
+	local = append([]netip.Prefix(nil), local...)
+	c.local.Store(&local)
 }
 
 // SetInterfaces enables classification by interface for the Exporters that ask for it.
 func (c *Classifier) SetInterfaces(i Interfaces) { c.ifaces.Store(&i) }
 
 // LocalNetworks returns the configured Local Networks.
-func (c *Classifier) LocalNetworks() []netip.Prefix { return append([]netip.Prefix(nil), c.local...) }
+func (c *Classifier) LocalNetworks() []netip.Prefix {
+	return append([]netip.Prefix(nil), *c.local.Load()...)
+}
 
 // InLocalNetwork reports whether an address is in a Local Network.
 func (c *Classifier) InLocalNetwork(a netip.Addr) bool { return c.inLocalNetwork(a) }
@@ -101,7 +111,7 @@ func (c *Classifier) inLocalNetwork(a netip.Addr) bool {
 		return false
 	}
 	a = a.Unmap()
-	for _, p := range c.local {
+	for _, p := range *c.local.Load() {
 		if p.Contains(a) {
 			return true
 		}

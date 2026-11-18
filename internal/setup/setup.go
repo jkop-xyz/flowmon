@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
@@ -57,6 +58,10 @@ type Controller struct {
 	opts  Options
 	token string
 	mu    sync.Mutex // one setup action at a time
+
+	// done is set once setup was seen finished, so an App Store outage later doesn't
+	// send people back to setup.
+	done atomic.Bool
 }
 
 // New returns a Controller with a fresh setup token.
@@ -107,15 +112,20 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 		}
 		return st, nil
 	}
+	st.Database = string(store.Driver())
 	n, err := store.CountUsers(ctx)
 	if err != nil {
+		if c.done.Load() {
+			st.Step, st.DatabaseUnavailable = StepDone, true
+			return st, nil
+		}
 		return st, err
 	}
 	st.Step = StepDone
 	if n == 0 {
 		st.Step = StepAdmin
 	}
-	st.Database = string(store.Driver())
+	c.done.Store(st.Step == StepDone)
 	return st, nil
 }
 
