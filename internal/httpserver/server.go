@@ -34,7 +34,10 @@ type Options struct {
 	// Flows answers the Overview's queries.
 	Flows interface {
 		Bandwidth(ctx context.Context, q flowstore.BandwidthQuery) (flowstore.BandwidthResult, error)
+		Top(ctx context.Context, q flowstore.TopQuery) (flowstore.TopResult, error)
 	}
+	// Watermark says how recent data may still change, for "incomplete" shading.
+	Watermark interface{ MaxWatermark() time.Duration }
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -78,16 +81,31 @@ func New(opts Options) http.Handler {
 			return
 		}
 		res, err := opts.Flows.Bandwidth(r.Context(), q)
-		if errors.Is(err, flowstore.ErrInvalidRange) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the time range must be positive and at most 8 days"})
+		if queryError(w, opts.Logger, "bandwidth", err) {
 			return
 		}
+		writeJSON(w, http.StatusOK, withIncomplete{res, incompleteFrom(opts)})
+	})
+	mux.HandleFunc("GET /api/overview/top", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Flows == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
+			return
+		}
+		bq, err := bandwidthQuery(r, opts.Now())
 		if err != nil {
-			opts.Logger.Error("bandwidth query", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, res)
+		q := flowstore.TopQuery{Dimension: flowstore.TopDimension(r.URL.Query().Get("dimension")), From: bq.From, To: bq.To, Exporter: bq.Exporter, Limit: 10}
+		res, err := opts.Flows.Top(r.Context(), q)
+		if errors.Is(err, flowstore.ErrUnknownDimension) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, protocols or ports"})
+			return
+		}
+		if queryError(w, opts.Logger, "top", err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, withIncomplete{res, incompleteFrom(opts)})
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -106,6 +124,36 @@ func NewServer(addr string, handler http.Handler) *http.Server {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+}
+
+// withIncomplete adds the "incomplete" boundary to a query result.
+type withIncomplete struct {
+	Result any `json:"result"`
+	// IncompleteFrom is the time after which data may still change (now minus the
+	// largest Watermark). The UI shades it.
+	IncompleteFrom time.Time `json:"incompleteFrom"`
+}
+
+func incompleteFrom(opts Options) time.Time {
+	w := 2 * time.Minute
+	if opts.Watermark != nil {
+		w = opts.Watermark.MaxWatermark()
+	}
+	return opts.Now().Add(-w).UTC()
+}
+
+// queryError writes the response for a failed query and reports whether there was one.
+func queryError(w http.ResponseWriter, logger *slog.Logger, what string, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, flowstore.ErrInvalidRange):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the time range must be positive and at most 2 years"})
+	default:
+		logger.Error(what+" query", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+	}
+	return true
 }
 
 // bandwidthQuery reads from, to (RFC 3339, default the last hour), exporter and points.

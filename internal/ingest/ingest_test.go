@@ -120,3 +120,47 @@ func TestClockAheadFinding(t *testing.T) {
 		t.Errorf("timing %+v", tm)
 	}
 }
+
+func TestWatermarkFollowsFlowDurations(t *testing.T) {
+	p := New(Options{Writer: &memWriter{}, Now: func() time.Time { return now }})
+	if w := p.Watermark(exporter); w != WatermarkMargin {
+		t.Errorf("no Flows yet: %v", w)
+	}
+	// outboundRecord Flows last 4 s.
+	for i := 0; i < 100; i++ {
+		p.Records(exporter, []ipfix.Record{outboundRecord(now)})
+	}
+	if w := p.Watermark(exporter); w != 4*time.Second+WatermarkMargin {
+		t.Errorf("watermark %v", w)
+	}
+	if w := p.MaxWatermark(); w != 4*time.Second+WatermarkMargin {
+		t.Errorf("max watermark %v", w)
+	}
+}
+
+func TestWatermarkIsCappedAndOverridable(t *testing.T) {
+	p := New(Options{Writer: &memWriter{}, Now: func() time.Time { return now }})
+	rec := outboundRecord(now)
+	rec.Fields[6].Raw = ipfixtest.U64(uint64(now.Add(-3 * time.Hour).UnixMilli())) // a 3-hour Flow
+	p.Records(exporter, []ipfix.Record{rec})
+	if w := p.Watermark(exporter); w != WatermarkCap+WatermarkMargin {
+		t.Errorf("capped watermark %v", w)
+	}
+	o := New(Options{Writer: &memWriter{}, WatermarkOverride: 10 * time.Minute, Now: func() time.Time { return now }})
+	if w := o.Watermark(exporter); w != 10*time.Minute {
+		t.Errorf("override %v", w)
+	}
+}
+
+func TestLateFlowsAreDroppedAndCounted(t *testing.T) {
+	w := &memWriter{}
+	p := New(Options{Writer: w, Now: func() time.Time { return now.Add(3 * time.Hour) }})
+	p.Records(exporter, []ipfix.Record{outboundRecord(now)}) // ended 3 h ago: past Watermark + 2 h
+	if p.Stats().Late != 1 || p.Stats().Dropped != 0 {
+		t.Errorf("stats %+v", p.Stats())
+	}
+	tm := p.Timing(exporter)
+	if tm != nil {
+		t.Errorf("late Flows don't produce timing samples: %+v", tm)
+	}
+}

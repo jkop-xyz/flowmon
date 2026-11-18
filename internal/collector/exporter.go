@@ -116,7 +116,11 @@ type TimingStatus struct {
 	// Exporter's clock is behind, negative when it is ahead.
 	ClockOffsetSeconds float64 `json:"clockOffsetSeconds"`
 	// ExportLagSeconds is the median of (export time - flow end).
-	ExportLagSeconds   float64   `json:"exportLagSeconds"`
+	ExportLagSeconds float64 `json:"exportLagSeconds"`
+	// WatermarkSeconds is how long after a bucket ends this Exporter's data may still change.
+	WatermarkSeconds float64 `json:"watermarkSeconds"`
+	// LateFlows were dropped for arriving more than 2 h past the Watermark.
+	LateFlows          uint64    `json:"lateFlows"`
 	Flows              uint64    `json:"flows"`
 	EstimatedTimeFlows uint64    `json:"estimatedTimeFlows"`
 	Findings           []Finding `json:"findings"`

@@ -60,3 +60,20 @@ export function formatSeconds(s: number): string {
   if (abs < 120) return `${s.toFixed(0)} s`
   return `${(s / 60).toFixed(1)} min`
 }
+
+const protocolNames: Record<number, string> = {
+  1: "ICMP",
+  2: "IGMP",
+  6: "TCP",
+  17: "UDP",
+  41: "IPv6-in-IPv4",
+  47: "GRE",
+  50: "ESP",
+  58: "ICMPv6",
+  89: "OSPF",
+  132: "SCTP",
+}
+
+export function protocolName(n: number): string {
+  return protocolNames[n] ?? `IP protocol ${n}`
+}

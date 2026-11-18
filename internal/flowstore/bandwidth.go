@@ -10,8 +10,32 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/flow"
 )
 
-// MaxRawRange is the longest range raw-Flow queries accept. Longer ranges need Rollups.
+// MaxRawRange is the longest range raw-Flow queries accept. Longer ranges use Rollups.
 const MaxRawRange = 8 * 24 * time.Hour
+
+// MaxRange is the longest range any query accepts: the default hour Rollup retention.
+const MaxRange = 731 * 24 * time.Hour
+
+// Source names the store a query was answered from.
+type Source string
+
+// Sources, from finest to coarsest.
+const (
+	SourceRaw    Source = "raw"
+	SourceMinute Source = "minute"
+	SourceHour   Source = "hour"
+)
+
+// sourceForStep picks the coarsest store whose buckets are no larger than step.
+func sourceForStep(step time.Duration) Source {
+	switch {
+	case step < time.Minute:
+		return SourceRaw
+	case step < time.Hour:
+		return SourceMinute
+	}
+	return SourceHour
+}
 
 // BandwidthQuery asks for traffic over time.
 type BandwidthQuery struct {
@@ -36,6 +60,7 @@ type BandwidthResult struct {
 	To     time.Time        `json:"to"`
 	Step   time.Duration    `json:"-"`
 	StepS  float64          `json:"stepSeconds"`
+	Source Source           `json:"source"`
 	Points []BandwidthPoint `json:"points"`
 }
 
@@ -56,25 +81,36 @@ func StepFor(rng time.Duration, maxPoints int) time.Duration {
 	return niceSteps[len(niceSteps)-1]
 }
 
-// Bandwidth returns inbound, outbound and internal traffic per time bucket. Each Flow's
-// bytes are spread evenly over its duration, so a long download doesn't show up as a
-// single spike when its record arrives.
+// Bandwidth returns Network Totals per time bucket: inbound (received from Remote IPs),
+// outbound (sent to Remote IPs) and internal (sent to Local Hosts). Each Flow's bytes are
+// spread evenly over its duration, so a long download doesn't show up as a single spike
+// when its record arrives. Short steps are answered from raw Flows, longer ones from
+// minute or hour Rollups.
 func (s *Store) Bandwidth(ctx context.Context, q BandwidthQuery) (BandwidthResult, error) {
-	if !q.To.After(q.From) || q.To.Sub(q.From) > MaxRawRange {
+	if !q.To.After(q.From) || q.To.Sub(q.From) > MaxRange {
 		return BandwidthResult{}, ErrInvalidRange
 	}
 	if q.MaxPoints <= 0 {
 		q.MaxPoints = 300
 	}
 	step := StepFor(q.To.Sub(q.From), q.MaxPoints)
+	source := sourceForStep(step)
+	if source == SourceRaw && q.To.Sub(q.From) > MaxRawRange {
+		source = SourceMinute
+		step = time.Minute
+	}
 	from := q.From.UTC().Truncate(step)
 	to := q.To.UTC()
 
-	res := BandwidthResult{From: from, To: to, Step: step, StepS: step.Seconds()}
+	res := BandwidthResult{From: from, To: to, Step: step, StepS: step.Seconds(), Source: source}
 	buckets := map[int64]int{} // bucket start (Unix seconds) → index in res.Points
 	for t := from; t.Before(to); t = t.Add(step) {
 		buckets[t.Unix()] = len(res.Points)
 		res.Points = append(res.Points, BandwidthPoint{Time: t})
+	}
+
+	if source != SourceRaw {
+		return res, s.bandwidthFromRollups(ctx, &res, buckets, q.Exporter)
 	}
 
 	tables := s.tablesFor(from, to)
@@ -143,4 +179,53 @@ GROUP BY bucket, direction`, strings.Join(parts, "\nUNION ALL\n"), stepSQL)
 		}
 	}
 	return res, rows.Err()
+}
+
+func (s *Store) bandwidthFromRollups(ctx context.Context, res *BandwidthResult, buckets map[int64]int, exporter netip.Addr) error {
+	g := Minute
+	if res.Source == SourceHour {
+		g = Hour
+	}
+	tables := s.rollupTablesFor(g, res.From, res.To)
+	if len(tables) == 0 {
+		return nil
+	}
+	where := `bucket >= $1 AND bucket < $2`
+	args := []any{res.From, res.To}
+	if exporter.IsValid() {
+		where += ` AND exporter = $3`
+		args = append(args, exporter.String())
+	}
+	var parts []string
+	for _, t := range tables {
+		parts = append(parts, fmt.Sprintf(`SELECT bucket, peer_kind, bytes_rx, bytes_tx FROM %s WHERE %s`, t, where))
+	}
+	query := fmt.Sprintf(`
+SELECT time_bucket(INTERVAL %d SECOND, bucket) AS b,
+	sum(CASE WHEN peer_kind = 1 THEN bytes_rx ELSE 0 END),
+	sum(CASE WHEN peer_kind = 1 THEN bytes_tx ELSE 0 END),
+	sum(CASE WHEN peer_kind = 2 THEN bytes_tx ELSE 0 END)
+FROM (%s) GROUP BY b`, int64(res.Step.Seconds()), strings.Join(parts, "\nUNION ALL\n"))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("bandwidth query: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b time.Time
+		var in, out, internal float64
+		if err := rows.Scan(&b, &in, &out, &internal); err != nil {
+			return err
+		}
+		i, ok := buckets[b.UTC().Unix()]
+		if !ok {
+			continue
+		}
+		perSecond := 8 / res.Step.Seconds()
+		res.Points[i].InboundBps += in * perSecond
+		res.Points[i].OutboundBps += out * perSecond
+		res.Points[i].InternalBps += internal * perSecond
+	}
+	return rows.Err()
 }

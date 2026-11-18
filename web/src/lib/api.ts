@@ -56,6 +56,9 @@ export type TimingStatus = {
   clockOffsetSeconds: number
   /** Median of (export time − flow end). */
   exportLagSeconds: number
+  /** How long after a bucket ends this Exporter's data may still change. */
+  watermarkSeconds: number
+  lateFlows: number
   flows: number
   estimatedTimeFlows: number
   findings: Finding[]
@@ -95,15 +98,57 @@ export type BandwidthPoint = {
   internalBps: number
 }
 
+export type Source = "raw" | "minute" | "hour"
+
 export type BandwidthResult = {
   from: string
   to: string
   stepSeconds: number
+  source: Source
   points: BandwidthPoint[]
 }
 
-export function fetchBandwidth(range: { from: Date; to: Date; exporter?: string }, signal?: AbortSignal) {
+/** Query results carry the time after which data may still change (the Watermark). */
+export type WithIncomplete<T> = {
+  result: T
+  incompleteFrom: string
+}
+
+type RangeParams = { from: Date; to: Date; exporter?: string }
+
+function rangeParams(range: RangeParams) {
   const params = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString() })
   if (range.exporter) params.set("exporter", range.exporter)
-  return getJSON<BandwidthResult>(`/api/overview/bandwidth?${params}`, signal)
+  return params
+}
+
+export function fetchBandwidth(range: RangeParams, signal?: AbortSignal) {
+  return getJSON<WithIncomplete<BandwidthResult>>(`/api/overview/bandwidth?${rangeParams(range)}`, signal)
+}
+
+export type TopDimension = "hosts" | "protocols" | "ports"
+
+export type TopItem = {
+  host?: string
+  localIsExporterHost?: boolean
+  protocol: number
+  servicePort: number
+  receivedBytes: number
+  sentBytes: number
+  internalBytes: number
+  totalBytes: number
+}
+
+export type TopResult = {
+  from: string
+  to: string
+  source: Source
+  items: TopItem[]
+  totalBytes: number
+}
+
+export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: AbortSignal) {
+  const params = rangeParams(range)
+  params.set("dimension", dimension)
+  return getJSON<WithIncomplete<TopResult>>(`/api/overview/top?${params}`, signal)
 }

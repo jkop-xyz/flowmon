@@ -71,10 +71,34 @@ type fakeFlows struct{ got flowstore.BandwidthQuery }
 
 func (f *fakeFlows) Bandwidth(_ context.Context, q flowstore.BandwidthQuery) (flowstore.BandwidthResult, error) {
 	f.got = q
-	if q.To.Sub(q.From) > flowstore.MaxRawRange {
+	if q.To.Sub(q.From) > flowstore.MaxRange {
 		return flowstore.BandwidthResult{}, flowstore.ErrInvalidRange
 	}
 	return flowstore.BandwidthResult{From: q.From, To: q.To, StepS: 10, Points: []flowstore.BandwidthPoint{{Time: q.From, InboundBps: 8}}}, nil
+}
+
+func (f *fakeFlows) Top(_ context.Context, q flowstore.TopQuery) (flowstore.TopResult, error) {
+	if q.Dimension != flowstore.TopLocalHosts {
+		return flowstore.TopResult{}, flowstore.ErrUnknownDimension
+	}
+	return flowstore.TopResult{Items: []flowstore.TopItem{{Host: "192.168.10.44", TotalBytes: 5}}, TotalBytes: 5}, nil
+}
+
+type fixedWatermark time.Duration
+
+func (w fixedWatermark) MaxWatermark() time.Duration { return time.Duration(w) }
+
+func TestTopEndpointAndIncomplete(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	h := New(Options{UI: builtUI, Flows: &fakeFlows{}, Watermark: fixedWatermark(5 * time.Minute), Now: func() time.Time { return now }})
+	rec := get(t, h, "/api/overview/top?dimension=hosts")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"host":"192.168.10.44"`) ||
+		!strings.Contains(rec.Body.String(), `"incompleteFrom":"2026-11-18T11:55:00Z"`) {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+	if rec := get(t, h, "/api/overview/top?dimension=colours"); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown dimension: %d", rec.Code)
+	}
 }
 
 func TestBandwidthEndpoint(t *testing.T) {
@@ -87,10 +111,10 @@ func TestBandwidthEndpoint(t *testing.T) {
 		t.Errorf("default range: %d %+v", rec.Code, flows.got)
 	}
 	rec = get(t, h, "/api/overview/bandwidth?from=2026-11-18T11:00:00Z&to=2026-11-18T11:30:00Z&exporter=192.168.10.1")
-	if rec.Code != http.StatusOK || flows.got.Exporter != netip.MustParseAddr("192.168.10.1") || !strings.Contains(rec.Body.String(), `"inboundBps":8`) {
+	if rec.Code != http.StatusOK || flows.got.Exporter != netip.MustParseAddr("192.168.10.1") || !strings.Contains(rec.Body.String(), `"inboundBps":8`) || !strings.Contains(rec.Body.String(), `"incompleteFrom"`) {
 		t.Errorf("explicit: %d %+v %s", rec.Code, flows.got, rec.Body.String())
 	}
-	for _, bad := range []string{"?from=yesterday", "?exporter=router", "?from=2026-01-01T00:00:00Z"} {
+	for _, bad := range []string{"?from=yesterday", "?exporter=router", "?from=2020-01-01T00:00:00Z"} {
 		if rec := get(t, h, "/api/overview/bandwidth"+bad); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}

@@ -34,8 +34,20 @@ type Options struct {
 	FlushInterval time.Duration
 	// QueueSize bounds Flows waiting to be written; beyond it new Flows are dropped and counted.
 	QueueSize int
-	Now       func() time.Time
+	// WatermarkOverride, if set, replaces the Watermark learned from Flow durations.
+	WatermarkOverride time.Duration
+	Now               func() time.Time
 }
+
+// Watermark parameters (ADR 0004): the 99th percentile of Flow durations over the last
+// 24 hours, capped, plus a margin. Flows arriving more than LateLimit past it are dropped.
+const (
+	WatermarkWindow = 24 * time.Hour
+	WatermarkCap    = 35 * time.Minute
+	WatermarkMargin = 2 * time.Minute
+	LateLimit       = 2 * time.Hour
+	durationSamples = 4096
+)
 
 // Pipeline implements collector.RecordSink.
 type Pipeline struct {
@@ -48,6 +60,7 @@ type Pipeline struct {
 
 	written      atomic.Uint64
 	dropped      atomic.Uint64
+	late         atomic.Uint64
 	writeErrors  atomic.Uint64
 	noAddresses  atomic.Uint64
 	optionsCount atomic.Uint64
@@ -98,7 +111,10 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 			continue
 		}
 		p.opts.Classifier.Classify(&f, now)
-		p.observe(exporter, &f)
+		if p.observe(exporter, &f, now) {
+			p.late.Add(1)
+			continue
+		}
 		select {
 		case p.queue <- f:
 		default:
@@ -160,6 +176,7 @@ func (p *Pipeline) Run(ctx context.Context) {
 type Stats struct {
 	Written     uint64 `json:"written"`
 	Dropped     uint64 `json:"dropped"`
+	Late        uint64 `json:"late"`
 	WriteErrors uint64 `json:"writeErrors"`
 	NoAddresses uint64 `json:"noAddresses"`
 	Options     uint64 `json:"optionsRecords"`
@@ -170,6 +187,7 @@ func (p *Pipeline) Stats() Stats {
 	return Stats{
 		Written:     p.written.Load(),
 		Dropped:     p.dropped.Load(),
+		Late:        p.late.Load(),
 		WriteErrors: p.writeErrors.Load(),
 		NoAddresses: p.noAddresses.Load(),
 		Options:     p.optionsCount.Load(),
@@ -185,15 +203,36 @@ type timing struct {
 	next        int
 	flows       uint64
 	estimated   uint64
+	late        uint64
+
+	durations []sample // recent Flow durations, for the Watermark
+	nextDur   int
 }
 
-func (p *Pipeline) observe(exporter netip.Addr, f *flow.Flow) {
+type sample struct {
+	at  time.Time
+	dur time.Duration
+}
+
+// observe records timing for f and reports whether f is too late to keep.
+func (p *Pipeline) observe(exporter netip.Addr, f *flow.Flow, now time.Time) (late bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	t := p.timing[exporter]
 	if t == nil {
 		t = &timing{}
 		p.timing[exporter] = t
+	}
+	if f.End.Before(now.Add(-p.watermarkLocked(t, now) - LateLimit)) {
+		t.late++
+		return true
+	}
+	d := sample{at: now, dur: f.End.Sub(f.Start)}
+	if len(t.durations) < durationSamples {
+		t.durations = append(t.durations, d)
+	} else {
+		t.durations[t.nextDur] = d
+		t.nextDur = (t.nextDur + 1) % durationSamples
 	}
 	t.flows++
 	if f.TimeEstimated {
@@ -208,6 +247,50 @@ func (p *Pipeline) observe(exporter netip.Addr, f *flow.Flow) {
 		t.endLag[t.next] = lag
 		t.next = (t.next + 1) % timingSamples
 	}
+	return false
+}
+
+func (p *Pipeline) watermarkLocked(t *timing, now time.Time) time.Duration {
+	if p.opts.WatermarkOverride > 0 {
+		return p.opts.WatermarkOverride
+	}
+	var ds []time.Duration
+	for _, s := range t.durations {
+		if now.Sub(s.at) <= WatermarkWindow {
+			ds = append(ds, s.dur)
+		}
+	}
+	var p99 time.Duration
+	if len(ds) > 0 {
+		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+		p99 = ds[(len(ds)*99)/100]
+	}
+	return min(max(p99, 0), WatermarkCap) + WatermarkMargin
+}
+
+// Watermark returns an Exporter's Watermark: how long after a bucket ends its data may
+// still change.
+func (p *Pipeline) Watermark(exporter netip.Addr) time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t := p.timing[exporter]
+	if t == nil {
+		t = &timing{}
+	}
+	return p.watermarkLocked(t, p.opts.Now())
+}
+
+// MaxWatermark is the largest Watermark of any Exporter: data newer than now minus this
+// may still change, so the UI shades it as incomplete.
+func (p *Pipeline) MaxWatermark() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.opts.Now()
+	w := p.watermarkLocked(&timing{}, now)
+	for _, t := range p.timing {
+		w = max(w, p.watermarkLocked(t, now))
+	}
+	return w
 }
 
 func median(ds []time.Duration) time.Duration {
@@ -233,6 +316,8 @@ func (p *Pipeline) Timing(exporter netip.Addr) *collector.TimingStatus {
 	}
 	delay, lag := median(t.exportDelay), median(t.endLag)
 	st := &collector.TimingStatus{
+		WatermarkSeconds:   p.watermarkLocked(t, p.opts.Now()).Seconds(),
+		LateFlows:          t.late,
 		Samples:            len(t.exportDelay),
 		ClockOffsetSeconds: delay.Seconds(),
 		ExportLagSeconds:   lag.Seconds(),
@@ -247,6 +332,10 @@ func (p *Pipeline) Timing(exporter netip.Addr) *collector.TimingStatus {
 	case delay > clockBehindLimit:
 		st.Findings = append(st.Findings, collector.Finding{Severity: collector.SeverityWarning, Code: "clock_behind",
 			Message: "Export times are about " + delay.Round(time.Second).String() + " behind Flowmon's clock. Check NTP on the router."})
+	}
+	if t.late > 0 {
+		st.Findings = append(st.Findings, collector.Finding{Severity: collector.SeverityWarning, Code: "late_flows",
+			Message: "Some Flows arrived more than 2 hours after their Watermark and were dropped. Check the exporter's clock and timeouts."})
 	}
 	if t.estimated > 0 {
 		st.Findings = append(st.Findings, collector.Finding{Severity: collector.SeverityInfo, Code: "estimated_times",

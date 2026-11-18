@@ -209,9 +209,10 @@ function Timing({ timing }: { timing: TimingStatus }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">Timing</h3>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Exporter clock vs Flowmon" value={clock} />
         <Stat label="Flow end to export (median)" value={formatSeconds(timing.exportLagSeconds)} />
+        <Stat label="Watermark" value={formatSeconds(timing.watermarkSeconds)} />
         <Stat
           label="Flows with estimated times"
           value={`${formatNumber(timing.estimatedTimeFlows)} of ${formatNumber(timing.flows)}`}
