@@ -7,11 +7,12 @@ A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow 
 ## Run it
 
 ```sh
-docker build -t flowmon .
-docker run -d --name flowmon --network host -v flowmon-data:/data flowmon
+docker run -d --name flowmon --network host -v flowmon-data:/data --restart unless-stopped ghcr.io/jkop-xyz/flowmon:latest
 ```
 
-Then open <http://localhost:8080>. The first visit runs setup: enter the one-time setup token from the logs (`docker logs flowmon`), choose where accounts and settings live (built-in SQLite, or your own PostgreSQL), and create the admin account. Forgot the password? `docker exec -it flowmon flowmon admin reset-password admin`. Host networking is how Flowmon will run once collection exists, because it needs to see each exporter's real source address. Release images, a compose file and a Podman Quadlet come in [#19](https://github.com/jkop-xyz/flowmon/issues/19).
+Or use [`compose.yaml`](compose.yaml), or the Podman Quadlet in [`deploy/podman/`](deploy/podman). [docs/deploy.md](docs/deploy.md) explains both, plus host networking, the UDP buffer setting, backups and updates.
+
+Then open <http://localhost:8080>. The first visit runs setup: enter the one-time setup token from the logs (`docker logs flowmon`), choose where accounts and settings live (built-in SQLite, or your own PostgreSQL), and create the admin account. Forgot the password? `docker exec -it flowmon flowmon admin reset-password admin`.
 
 Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (also in the app, linked from the Exporters page).
 

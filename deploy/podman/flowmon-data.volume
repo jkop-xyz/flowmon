@@ -1,0 +1,4 @@
+# The data volume for flowmon.container: the Flow Store, the App Store (when SQLite),
+# bootstrap.json and secret.key. Back it up as a whole.
+[Volume]
+VolumeName=flowmon-data

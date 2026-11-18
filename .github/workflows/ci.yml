@@ -82,7 +82,7 @@ jobs:
       - name: Smoke test
         run: |
           docker run -d --name flowmon -p 8080:8080 flowmon:ci
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if docker exec flowmon flowmon healthcheck; then break; fi
             sleep 1
           done
