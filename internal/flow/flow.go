@@ -72,6 +72,13 @@ type Flow struct {
 	Peer                netip.Addr
 	LocalPort, PeerPort uint16
 
+	// PeerCountry (ISO alpha-2) and PeerASN are the Remote IP's GeoIP enrichment, fixed
+	// when the Flow is stored; "" and 0 when unknown, and for Internal and transit Flows.
+	PeerCountry string
+	PeerASN     uint32
+	// PeerASNOrg is the ASN Owner's name at that time. The Flow Store keeps it per ASN.
+	PeerASNOrg string
+
 	// Fields holds every original field, encoded with EncodeFields.
 	Fields []byte
 }

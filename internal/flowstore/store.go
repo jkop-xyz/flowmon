@@ -38,9 +38,10 @@ type Store struct {
 	writeMu sync.Mutex
 
 	mu      sync.Mutex
-	days    map[string]bool // raw day tables that exist, by name
-	rollups map[string]bool // Rollup tables that exist, by name
-	dirty   map[string]bool // Rollup tables written since the last compaction
+	days    map[string]bool   // raw day tables that exist, by name
+	rollups map[string]bool   // Rollup tables that exist, by name
+	dirty   map[string]bool   // Rollup tables written since the last compaction
+	asns    map[uint32]string // ASN Owner names, as stored in asn_names
 }
 
 // Open opens (or creates) the Flow Store at path and applies pending migrations.
@@ -65,12 +66,16 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
 	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
-		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}}
+		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
 	if err := s.loadDays(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := s.loadASNNames(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -86,17 +91,45 @@ func (s *Store) Close() error {
 	return err
 }
 
+// migration is one schema change, applied in a transaction.
+type migration func(ctx context.Context, tx *sql.Tx) error
+
+// stmt is a migration of one statement.
+func stmt(q string) migration {
+	return func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, q)
+		return err
+	}
+}
+
+func queryStrings(ctx context.Context, tx *sql.Tx, q string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // migrations are applied in order and recorded in flowmon_migrations. Never edit an
 // applied migration; add a new one. Changes to the day-table shape must also alter every
 // existing day table.
-var migrations = []string{
+var migrations = []migration{
 	// 1: catalogue of day tables.
-	`CREATE TABLE flow_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`,
+	stmt(`CREATE TABLE flow_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`),
 	// 2: catalogue of Rollup tables (minute: one per day, hour: one per month).
-	`CREATE TABLE rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`,
+	stmt(`CREATE TABLE rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`),
 	// 3: approved and ignored Exporters. Kept here, not in the App Store, because
 	// collection needs them even when the App Store is unreachable (ADR 0001).
-	`CREATE TABLE exporters (
+	stmt(`CREATE TABLE exporters (
 		address VARCHAR PRIMARY KEY,
 		status VARCHAR NOT NULL,
 		role VARCHAR NOT NULL,
@@ -104,25 +137,25 @@ var migrations = []string{
 		name VARCHAR NOT NULL,
 		decided_at TIMESTAMP NOT NULL,
 		decided_by VARCHAR NOT NULL
-	)`,
+	)`),
 	// 4: interface number → name per Exporter, with the time range each mapping was valid,
 	// so reprocessing uses the mapping that applied when a Flow happened (ADR 0003/0004).
-	`CREATE TABLE interface_mappings (
+	stmt(`CREATE TABLE interface_mappings (
 		exporter VARCHAR NOT NULL,
 		if_index UINTEGER NOT NULL,
 		name VARCHAR NOT NULL,
 		source VARCHAR NOT NULL,
 		valid_from TIMESTAMP NOT NULL,
 		valid_to TIMESTAMP
-	)`,
+	)`),
 	// 5: Interface Roles, by interface name.
-	`CREATE TABLE interface_roles (exporter VARCHAR NOT NULL, name VARCHAR NOT NULL, role VARCHAR NOT NULL, PRIMARY KEY (exporter, name))`,
+	stmt(`CREATE TABLE interface_roles (exporter VARCHAR NOT NULL, name VARCHAR NOT NULL, role VARCHAR NOT NULL, PRIMARY KEY (exporter, name))`),
 	// 6: when an Exporter's classification changed, for chart markers.
-	`CREATE TABLE classification_changes (exporter VARCHAR NOT NULL, changed_at TIMESTAMP NOT NULL, description VARCHAR NOT NULL)`,
+	stmt(`CREATE TABLE classification_changes (exporter VARCHAR NOT NULL, changed_at TIMESTAMP NOT NULL, description VARCHAR NOT NULL)`),
 	// 7: SNMP settings per Exporter, as JSON with secrets encrypted.
-	`CREATE TABLE snmp_configs (exporter VARCHAR PRIMARY KEY, config VARCHAR NOT NULL)`,
+	stmt(`CREATE TABLE snmp_configs (exporter VARCHAR PRIMARY KEY, config VARCHAR NOT NULL)`),
 	// 8: SNMP interface counter deltas per hour, for Reconciliation.
-	`CREATE TABLE snmp_hours (
+	stmt(`CREATE TABLE snmp_hours (
 		exporter VARCHAR NOT NULL,
 		if_name VARCHAR NOT NULL,
 		hour TIMESTAMP NOT NULL,
@@ -132,7 +165,26 @@ var migrations = []string{
 		out_packets UBIGINT NOT NULL,
 		complete BOOLEAN NOT NULL,
 		PRIMARY KEY (exporter, if_name, hour)
-	)`,
+	)`),
+	// 9: GeoIP enrichment of the Peer on every raw Flow, and ASN Owner names.
+	func(ctx context.Context, tx *sql.Tx) error {
+		tables, err := queryStrings(ctx, tx, `SELECT table_name FROM flow_days`)
+		if err != nil {
+			return err
+		}
+		for _, t := range tables {
+			for _, q := range []string{
+				`ALTER TABLE ` + t + ` ADD COLUMN peer_country VARCHAR DEFAULT ''`,
+				`ALTER TABLE ` + t + ` ADD COLUMN peer_asn UINTEGER DEFAULT 0`,
+			} {
+				if _, err := tx.ExecContext(ctx, q); err != nil {
+					return fmt.Errorf("%s: %w", t, err)
+				}
+			}
+		}
+		_, err = tx.ExecContext(ctx, `CREATE TABLE asn_names (asn UINTEGER PRIMARY KEY, name VARCHAR NOT NULL, updated TIMESTAMP NOT NULL)`)
+		return err
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -151,7 +203,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, migrations[v-1]); err != nil {
+		if err := migrations[v-1](ctx, tx); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("flow store migration %d: %w", v, err)
 		}
@@ -239,7 +291,9 @@ const dayColumns = `(
 	peer VARCHAR,
 	local_port USMALLINT NOT NULL,
 	peer_port USMALLINT NOT NULL,
-	fields BLOB NOT NULL
+	fields BLOB NOT NULL,
+	peer_country VARCHAR DEFAULT '',
+	peer_asn UINTEGER DEFAULT 0
 )`
 
 func (s *Store) ensureDay(ctx context.Context, day time.Time) (string, error) {
@@ -318,8 +372,62 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 				return fmt.Errorf("flushing %s: %w", name, err)
 			}
 		}
-		return s.writeRollups(ctx, dc.(driver.Conn), flows, time.Time{})
+		if err := s.writeRollups(ctx, dc.(driver.Conn), flows, time.Time{}); err != nil {
+			return err
+		}
+		return s.saveASNNames(ctx, flows)
 	})
+}
+
+func (s *Store) loadASNNames(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT asn, name FROM asn_names`)
+	if err != nil {
+		return fmt.Errorf("loading ASN names: %w", err)
+	}
+	defer rows.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for rows.Next() {
+		var asn uint32
+		var name string
+		if err := rows.Scan(&asn, &name); err != nil {
+			return err
+		}
+		s.asns[asn] = name
+	}
+	return rows.Err()
+}
+
+// saveASNNames records ASN Owner names that are new or changed. Names are kept per ASN,
+// latest wins, rather than on every Flow.
+func (s *Store) saveASNNames(ctx context.Context, flows []flow.Flow) error {
+	changed := map[uint32]string{}
+	s.mu.Lock()
+	for i := range flows {
+		f := &flows[i]
+		if f.PeerASN != 0 && f.PeerASNOrg != "" && s.asns[f.PeerASN] != f.PeerASNOrg {
+			changed[f.PeerASN] = f.PeerASNOrg
+		}
+	}
+	s.mu.Unlock()
+	now := time.Now().UTC()
+	for asn, name := range changed {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO asn_names VALUES (?, ?, ?)
+			ON CONFLICT (asn) DO UPDATE SET name = excluded.name, updated = excluded.updated`, asn, name, now); err != nil {
+			return fmt.Errorf("saving ASN names: %w", err)
+		}
+		s.mu.Lock()
+		s.asns[asn] = name
+		s.mu.Unlock()
+	}
+	return nil
+}
+
+// ASNName returns the stored ASN Owner name for asn, or "".
+func (s *Store) ASNName(asn uint32) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.asns[asn]
 }
 
 // flowRow is a Flow in day-table column order.
@@ -330,7 +438,7 @@ func flowRow(f *flow.Flow) []driver.Value {
 		nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
 		f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
 		uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
-		f.Fields,
+		f.Fields, f.PeerCountry, f.PeerASN,
 	}
 }
 

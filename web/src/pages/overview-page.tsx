@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
+import { lazy, Suspense, type ReactNode } from "react"
+import { Link } from "react-router"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +22,10 @@ import {
   type TopDimension,
   type TopItem,
 } from "@/lib/api"
+import { DBIPAttribution } from "@/components/geoip"
+import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
+import { countryName } from "@/lib/countries"
 import {
   formatBitsPerSecond,
   formatBytes,
@@ -32,6 +37,9 @@ import {
 } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
+
+// The map and its shapes are a separate chunk, loaded when the Overview first needs them.
+const WorldMap = lazy(() => import("@/components/world-map"))
 
 const chartConfig = {
   inboundBps: { label: "Inbound", color: "var(--chart-1)" },
@@ -78,25 +86,36 @@ export function OverviewPage() {
       </Card>
 
       <div className="flex flex-col gap-2">
-        <div className="grid gap-6 lg:grid-cols-3">
-          <TopCard
-            dimension="hosts"
-            title="Local Hosts"
-            what="Local Hosts"
-            description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
-          />
-          <TopCard
-            dimension="protocols"
-            title="Protocols"
-            what="protocols"
-            description="The busiest IP protocols, as Network Totals."
-          />
-          <TopCard
-            dimension="ports"
-            title="Service Ports"
-            what="Service Ports"
-            description="The busiest Service Ports, as Network Totals."
-          />
+        <div className="flex flex-col gap-6">
+          <CountriesCard />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <TopCard
+              dimension="hosts"
+              title="Local Hosts"
+              what="Local Hosts"
+              description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
+            />
+            <TopCard
+              dimension="asns"
+              title="ASN Owners"
+              what="ASN Owners"
+              description="The organisations announcing the Remote IPs, by bytes sent and received."
+              mono={false}
+              footer={<GeoIPNote />}
+            />
+            <TopCard
+              dimension="ports"
+              title="Service Ports"
+              what="Service Ports"
+              description="The busiest Service Ports, as Network Totals."
+            />
+            <TopCard
+              dimension="protocols"
+              title="Protocols"
+              what="protocols"
+              description="The busiest IP protocols, as Network Totals."
+            />
+          </div>
         </div>
         {incomplete && (
           <p className="text-xs text-muted-foreground">
@@ -237,7 +256,95 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
       return item.servicePort === 0
         ? `${protocolName(item.protocol)} (no port)`
         : `${item.servicePort}/${protocolName(item.protocol).toLowerCase()}`
+    case "countries":
+      return item.country ? `${countryName(item.country)} (${item.country})` : "Unknown"
+    case "asns":
+      return item.asn ? `AS${item.asn}${item.asnOrg ? ` ${item.asnOrg}` : ""}` : "Unknown"
   }
+}
+
+function itemKey(item: TopItem) {
+  return `${item.host}/${item.protocol}/${item.servicePort}/${item.country}/${item.asn}`
+}
+
+/** Under GeoIP data: why it is missing, or the attribution DB-IP's licence asks for. */
+function GeoIPNote() {
+  const geoip = useGeoIP()
+  if (geoip.data && geoip.data.databases.every((d) => !d.source)) {
+    return (
+      <>
+        No GeoIP database is loaded yet, so countries and ASN Owners show as Unknown.{" "}
+        <Link to="/settings" className="underline underline-offset-4">
+          Settings
+        </Link>{" "}
+        says why.
+      </>
+    )
+  }
+  return usesDBIP(geoip.data) ? <DBIPAttribution /> : null
+}
+
+/** Where Remote IPs are: a world map and the top countries. */
+function CountriesCard() {
+  const { preset } = useTimeRange()
+  const { exporter } = useExporterFilter()
+  // One query feeds both the map (every country) and the list (the top few).
+  const countries = useQuery({
+    queryKey: ["top", "countries", preset.value, exporter],
+    queryFn: ({ signal }) => fetchTop("countries", { ...resolveRange(preset), exporter }, signal, 300),
+    refetchInterval: 30_000,
+    placeholderData: (previous) => previous,
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Countries</CardTitle>
+        <CardDescription>
+          Where Remote IPs are, by bytes sent and received. Shades are on a log scale; hover a country for its numbers.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {countries.isPending ? (
+          <Skeleton className="aspect-[2.2] w-full" />
+        ) : countries.isError ? (
+          <QueryError title="Couldn't load the busiest countries" error={countries.error} />
+        ) : (
+          <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
+            <Suspense fallback={<Skeleton className="aspect-[2.2] w-full" />}>
+              <WorldMap items={countries.data.result.items} total={countries.data.result.totalBytes} />
+            </Suspense>
+            <TopList dimension="countries" items={countries.data.result.items.slice(0, 8)} mono={false} />
+          </div>
+        )}
+        <CardFooterNote>
+          <GeoIPNote />
+        </CardFooterNote>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CardFooterNote({ children }: { children: ReactNode }) {
+  return <p className="text-xs text-muted-foreground empty:hidden">{children}</p>
+}
+
+function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
+  return (
+    <ol className="flex flex-col gap-3">
+      {items.map((item) => (
+        <TopRow
+          key={itemKey(item)}
+          label={itemLabel(dimension, item)}
+          item={item}
+          max={items[0].totalBytes}
+          mono={mono}
+          exporterHost={dimension === "hosts" && item.localIsExporterHost}
+        />
+      ))}
+    </ol>
+  )
 }
 
 function TopCard({
@@ -245,12 +352,17 @@ function TopCard({
   title,
   what,
   description,
+  mono = true,
+  footer,
 }: {
   dimension: TopDimension
   title: string
   /** How errors name the list, e.g. "Service Ports". */
   what: string
   description: string
+  /** Addresses and ports read best in a monospace font; names don't. */
+  mono?: boolean
+  footer?: ReactNode
 }) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
@@ -267,26 +379,15 @@ function TopCard({
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
         {query.isPending ? (
           <SectionSkeleton rows={5} />
         ) : query.isError ? (
           <QueryError title={`Couldn't load the busiest ${what}`} error={query.error} />
-        ) : query.data.result.items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
         ) : (
-          <ol className="flex flex-col gap-3">
-            {query.data.result.items.map((item) => (
-              <TopRow
-                key={`${item.host}/${item.protocol}/${item.servicePort}`}
-                label={itemLabel(dimension, item)}
-                item={item}
-                max={query.data.result.items[0].totalBytes}
-                exporterHost={dimension === "hosts" && item.localIsExporterHost}
-              />
-            ))}
-          </ol>
+          <TopList dimension={dimension} items={query.data.result.items} mono={mono} />
         )}
+        {footer && <CardFooterNote>{footer}</CardFooterNote>}
       </CardContent>
     </Card>
   )
@@ -296,11 +397,13 @@ function TopRow({
   label,
   item,
   max,
+  mono,
   exporterHost,
 }: {
   label: string
   item: TopItem
   max: number
+  mono: boolean
   exporterHost?: boolean
 }) {
   const width = max > 0 ? Math.max(2, (item.totalBytes / max) * 100) : 0
@@ -310,7 +413,9 @@ function TopRow({
     <li className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-xs">{label}</span>
+          <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={label}>
+            {label}
+          </span>
           {exporterHost && <Badge variant="outline">Exporter Host</Badge>}
         </span>
         <span className="shrink-0 tabular-nums">{formatBytes(item.totalBytes)}</span>

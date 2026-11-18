@@ -51,7 +51,8 @@ func outboundRecord(exportTime time.Time) ipfix.Record {
 
 func TestPipelineNormalisesClassifiesAndWrites(t *testing.T) {
 	w := &memWriter{}
-	p := New(Options{Writer: w, FlushInterval: 10 * time.Millisecond, Now: func() time.Time { return now.Add(2 * time.Second) }})
+	enrich := func(f *flow.Flow) { f.PeerCountry = "classified as " + f.Direction.String() }
+	p := New(Options{Writer: w, FlushInterval: 10 * time.Millisecond, Enrich: enrich, Now: func() time.Time { return now.Add(2 * time.Second) }})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { p.Run(ctx); close(done) }()
@@ -75,6 +76,10 @@ func TestPipelineNormalisesClassifiesAndWrites(t *testing.T) {
 	f := w.flows[0]
 	if f.Direction != flow.DirectionOutbound || f.Local != netip.MustParseAddr("192.168.10.44") || f.Bytes != 1500 {
 		t.Errorf("flow %+v", f)
+	}
+	// Enrichment runs after classification.
+	if f.PeerCountry != "classified as outbound" {
+		t.Errorf("enrichment saw %q", f.PeerCountry)
 	}
 	st := p.Stats()
 	if st.Written != 1 || st.Options != 1 || st.NoAddresses != 1 {

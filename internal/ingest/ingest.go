@@ -28,7 +28,9 @@ type Writer interface {
 type Options struct {
 	Writer     Writer
 	Classifier *classify.Classifier
-	Logger     *slog.Logger
+	// Enrich, if set, adds GeoIP data to each classified Flow just before it is stored.
+	Enrich func(*flow.Flow)
+	Logger *slog.Logger
 	// BatchSize and FlushInterval bound how long Flows wait before being written.
 	BatchSize     int
 	FlushInterval time.Duration
@@ -139,6 +141,11 @@ func (p *Pipeline) Run(ctx context.Context) {
 	flush := func() {
 		if len(batch) == 0 {
 			return
+		}
+		if p.opts.Enrich != nil {
+			for i := range batch {
+				p.opts.Enrich(&batch[i])
+			}
 		}
 		// A shutdown must not lose the last batch, so writes get their own context.
 		wctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

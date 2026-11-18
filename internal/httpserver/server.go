@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
+	"github.com/jkop-xyz/flowmon/internal/geoip"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 )
 
@@ -51,6 +54,8 @@ type Options struct {
 	Interfaces *InterfaceOptions
 	// SNMP wires SNMP settings and Reconciliation.
 	SNMP *SNMPOptions
+	// GeoIP reports the GeoIP databases in use. Nil reports none.
+	GeoIP interface{ Status() geoip.Status }
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -120,15 +125,30 @@ func New(opts Options) http.Handler {
 			return
 		}
 		q := flowstore.TopQuery{Dimension: flowstore.TopDimension(r.URL.Query().Get("dimension")), From: bq.From, To: bq.To, Exporter: bq.Exporter, Limit: 10}
+		if s := r.URL.Query().Get("limit"); s != "" {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 1 || n > flowstore.MaxTopLimit {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit must be between 1 and %d", flowstore.MaxTopLimit)})
+				return
+			}
+			q.Limit = n
+		}
 		res, err := opts.Flows.Top(r.Context(), q)
 		if errors.Is(err, flowstore.ErrUnknownDimension) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, protocols or ports"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, protocols, ports, countries or asns"})
 			return
 		}
 		if queryError(w, opts.Logger, "top", err) {
 			return
 		}
 		writeJSON(w, http.StatusOK, withIncomplete{Result: res, IncompleteFrom: incompleteFrom(opts)})
+	})
+	mux.HandleFunc("GET /api/geoip", func(w http.ResponseWriter, _ *http.Request) {
+		if opts.GeoIP == nil {
+			writeJSON(w, http.StatusOK, geoip.Status{Databases: []geoip.DatabaseStatus{}, Warnings: []string{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, opts.GeoIP.Status())
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

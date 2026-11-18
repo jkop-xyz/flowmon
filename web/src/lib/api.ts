@@ -171,13 +171,18 @@ export function fetchBandwidth(range: RangeParams, signal?: AbortSignal) {
   return getJSON<WithIncomplete<BandwidthResult>>(`/api/overview/bandwidth?${rangeParams(range)}`, signal)
 }
 
-export type TopDimension = "hosts" | "protocols" | "ports"
+export type TopDimension = "hosts" | "protocols" | "ports" | "countries" | "asns"
 
 export type TopItem = {
   host?: string
   localIsExporterHost?: boolean
   protocol: number
   servicePort: number
+  /** ISO alpha-2; empty for traffic whose Remote IP had no GeoIP data. */
+  country?: string
+  /** 0 or absent for traffic whose Remote IP had no GeoIP data. */
+  asn?: number
+  asnOrg?: string
   receivedBytes: number
   sentBytes: number
   internalBytes: number
@@ -192,9 +197,10 @@ export type TopResult = {
   totalBytes: number
 }
 
-export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: AbortSignal) {
+export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: AbortSignal, limit?: number) {
   const params = rangeParams(range)
   params.set("dimension", dimension)
+  if (limit) params.set("limit", String(limit))
   return getJSON<WithIncomplete<TopResult>>(`/api/overview/top?${params}`, signal)
 }
 
@@ -334,3 +340,29 @@ export type Reconciliation = {
 
 export const fetchReconciliation = (address: string, signal?: AbortSignal) =>
   getJSON<Reconciliation>(`${exporterPath(address)}/reconciliation`, signal)
+
+export type GeoIPSource = "file" | "maxmind" | "dbip"
+
+export type GeoIPDatabase = {
+  kind: "country" | "asn"
+  /** Absent when no database is loaded for this kind. */
+  source?: GeoIPSource
+  type?: string
+  path?: string
+  builtAt?: string
+  updatedAt?: string
+  lastAttempt?: string
+  error?: string
+}
+
+export type GeoIPStatus = {
+  downloadsEnabled: boolean
+  maxMindConfigured: boolean
+  dir: string
+  databases: GeoIPDatabase[]
+  warnings: string[]
+}
+
+export function fetchGeoIP(signal?: AbortSignal) {
+  return getJSON<GeoIPStatus>("/api/geoip", signal)
+}

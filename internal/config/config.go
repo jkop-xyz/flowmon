@@ -56,6 +56,12 @@ type Config struct {
 	ExporterAutoAccept bool
 	// ExporterAllowlist approves new Exporters in these CIDRs without asking.
 	ExporterAllowlist string
+	// GeoIPDir holds MMDB files the user provides; they win over downloads.
+	GeoIPDir string
+	// GeoIPDownload enables downloading GeoIP databases (MaxMind with an account, else DB-IP Lite).
+	GeoIPDownload bool
+	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads.
+	MaxMindAccountID, MaxMindLicenseKey string
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -151,6 +157,23 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, fmt.Errorf("FLOWMON_EXPORTER_AUTO_ACCEPT: must be true or false")
 	}
 	cfg.ExporterAllowlist = get("FLOWMON_EXPORTER_ALLOWLIST", "")
+
+	cfg.GeoIPDir = get("FLOWMON_GEOIP_DIR", strings.TrimRight(cfg.DataDir, "/")+"/geoip")
+	if cfg.GeoIPDownload, err = strconv.ParseBool(get("FLOWMON_GEOIP_DOWNLOAD", "true")); err != nil {
+		return Config{}, fmt.Errorf("FLOWMON_GEOIP_DOWNLOAD: must be true or false")
+	}
+	cfg.MaxMindAccountID = get("FLOWMON_MAXMIND_ACCOUNT_ID", "")
+	cfg.MaxMindLicenseKey = get("FLOWMON_MAXMIND_LICENSE_KEY", "")
+	if f := get("FLOWMON_MAXMIND_LICENSE_KEY_FILE", ""); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return Config{}, fmt.Errorf("FLOWMON_MAXMIND_LICENSE_KEY_FILE: %w", err)
+		}
+		cfg.MaxMindLicenseKey = strings.TrimSpace(string(b))
+	}
+	if (cfg.MaxMindAccountID == "") != (cfg.MaxMindLicenseKey == "") {
+		return Config{}, fmt.Errorf("FLOWMON_MAXMIND_ACCOUNT_ID and FLOWMON_MAXMIND_LICENSE_KEY must be set together")
+	}
 	cfg.SecureCookies = strings.ToLower(get("FLOWMON_SECURE_COOKIES", "auto"))
 	if cfg.SecureCookies != "auto" && cfg.SecureCookies != "always" && cfg.SecureCookies != "never" {
 		return Config{}, fmt.Errorf("FLOWMON_SECURE_COOKIES: must be auto, always or never")

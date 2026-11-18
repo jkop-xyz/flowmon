@@ -40,7 +40,11 @@ func main() {
 
 	tmpl := ipfixtest.MikroTikLikeTemplate(256)
 	locals := [][]byte{{192, 168, 10, 44}, {192, 168, 10, 50}, {10, 0, 20, 14}, {10, 0, 20, 15}}
-	remotes := [][]byte{{1, 1, 1, 1}, {142, 250, 74, 46}, {151, 101, 1, 140}, {104, 16, 132, 229}, {9, 9, 9, 9}}
+	// Remote IPs around the world, so GeoIP enrichment has something to show. Earlier ones
+	// are picked more often, like real traffic, where a few destinations dominate.
+	remotes := [][]byte{{142, 250, 74, 46}, {104, 16, 132, 229}, {151, 101, 1, 140}, {1, 1, 1, 1}, {9, 9, 9, 9},
+		{185, 15, 59, 224}, {193, 0, 6, 139}, {81, 2, 69, 142}, {194, 242, 2, 2}, {77, 88, 8, 8},
+		{133, 242, 0, 3}, {202, 12, 29, 205}, {200, 160, 4, 6}, {196, 216, 2, 6}, {223, 5, 5, 5}}
 	wan := []byte{203, 0, 113, 7}
 	start := time.Now()
 	var seq uint32
@@ -54,7 +58,7 @@ func main() {
 		var records [][][]byte
 		for j := 0; j < *perMessage; j++ {
 			uptime := uint32(time.Since(start).Milliseconds()) + 60_000
-			local, remote := locals[rand.IntN(len(locals))], remotes[rand.IntN(len(remotes))]
+			local, remote := locals[rand.IntN(len(locals))], remotes[min(len(remotes)-1, int(rand.ExpFloat64()*3))]
 			localPort := ipfixtest.U16(uint16(32768 + rand.IntN(28000)))
 			service := ipfixtest.U16([]uint16{443, 53, 80, 123}[rand.IntN(4)])
 			proto := ipfixtest.U8([]uint8{6, 17}[rand.IntN(2)])
