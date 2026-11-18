@@ -341,10 +341,11 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
 		},
-		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
-		GeoIP:  geo,
-		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
-		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		SNMP:     &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		GeoIP:    geo,
+		Remote:   &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
+		Hosts:    &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		Explorer: store,
 		Services: services.NewDirectory(func() services.Store {
 			if s := holder.Get(); s != nil {
 				return s

@@ -157,11 +157,11 @@ func TestTopRemoteIPsQueries(t *testing.T) {
 	}
 
 	// Its raw Flows, newest first, with a limit.
-	list, err := s.RemoteFlows(ctx, netip.MustParseAddr("1.1.1.1"), t0.Add(-time.Hour), now, netip.Addr{}, 5)
+	list, err := s.Flows(ctx, FlowQuery{Remote: netip.MustParseAddr("1.1.1.1"), From: t0.Add(-time.Hour), To: now, Limit: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 5 || !list.More || !list.Items[0].End.Equal(now.Add(-2*time.Minute)) || list.Items[0].Direction != "outbound" || list.RawFrom == nil {
+	if len(list.Items) != 5 || list.Total <= 5 || !list.Items[0].End.Equal(now.Add(-2*time.Minute)) || list.Items[0].Direction != "outbound" || list.RawFrom == nil {
 		t.Errorf("flows %+v", list)
 	}
 

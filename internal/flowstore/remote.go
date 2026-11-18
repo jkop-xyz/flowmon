@@ -2,14 +2,12 @@ package flowstore
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/netip"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/rollup"
 )
 
@@ -547,92 +545,6 @@ FROM u GROUP BY local_host ORDER BY sum(rx) + sum(tx) DESC, local_host`, src)
 	return d, rows.Err()
 }
 
-// FlowItem is one raw Flow, as the Remote IP page lists them.
-type FlowItem struct {
-	Exporter            string    `json:"exporter"`
-	Start               time.Time `json:"start"`
-	End                 time.Time `json:"end"`
-	Direction           string    `json:"direction"`
-	LocalHost           string    `json:"localHost"`
-	LocalIsExporterHost bool      `json:"localIsExporterHost,omitempty"`
-	LocalPort           uint16    `json:"localPort"`
-	Peer                string    `json:"peer"`
-	PeerPort            uint16    `json:"peerPort"`
-	Protocol            uint8     `json:"protocol"`
-	// ServicePort is whichever of the two ports identifies the service.
-	ServicePort uint16 `json:"servicePort"`
-	Bytes       uint64 `json:"bytes"`
-	Packets     uint64 `json:"packets"`
-}
-
-// FlowList is a page of raw Flows, newest first.
-type FlowList struct {
-	Items []FlowItem `json:"items"`
-	// More is set when there were more Flows than the limit.
-	More bool `json:"more"`
-	// RawFrom is the start of the oldest raw Flows still kept; nil when there are none.
-	RawFrom *time.Time `json:"rawFrom,omitempty"`
-}
-
-// MaxFlowList is the most Flows one list returns.
-const MaxFlowList = 1000
-
-// RemoteFlows lists the raw Flows with a Remote IP that overlap [from, to), newest first.
-func (s *Store) RemoteFlows(ctx context.Context, ip netip.Addr, from, to time.Time, exporter netip.Addr, limit int) (FlowList, error) {
-	if !to.After(from) || to.Sub(from) > MaxRange {
-		return FlowList{}, ErrInvalidRange
-	}
-	if limit <= 0 || limit > MaxFlowList {
-		limit = 200
-	}
-	list := FlowList{Items: []FlowItem{}}
-	if days := s.RawDays(time.Time{}); len(days) > 0 {
-		list.RawFrom = &days[0]
-	}
-	tables := s.tablesFor(from, to.Add(rollup.MaxSpread))
-	if len(tables) == 0 {
-		return list, nil
-	}
-	a := &sqlArgs{}
-	where := fmt.Sprintf(`peer = %s AND direction IN (1, 2) AND end_ts >= %s AND start_ts < %s`, a.add(ip.String()), a.add(from.UTC()), a.add(to.UTC()))
-	if exporter.IsValid() {
-		where += ` AND exporter = ` + a.add(exporter.String())
-	}
-	var parts []string
-	for _, t := range tables {
-		parts = append(parts, fmt.Sprintf(`SELECT exporter, start_ts, end_ts, direction, local_host, local_is_exporter_host, local_port, peer, peer_port,
-			protocol, bytes, packets FROM %s WHERE %s`, t, where))
-	}
-	query := strings.Join(parts, "\nUNION ALL\n") + fmt.Sprintf("\nORDER BY end_ts DESC, start_ts DESC LIMIT %d", limit+1)
-	rows, err := s.db.QueryContext(ctx, query, a.args...)
-	if err != nil {
-		return FlowList{}, fmt.Errorf("remote flows query: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var f FlowItem
-		var dir uint8
-		var local sql.NullString
-		if err := rows.Scan(&f.Exporter, &f.Start, &f.End, &dir, &local, &f.LocalIsExporterHost, &f.LocalPort, &f.Peer, &f.PeerPort,
-			&f.Protocol, &f.Bytes, &f.Packets); err != nil {
-			return FlowList{}, err
-		}
-		if len(list.Items) == limit {
-			list.More = true
-			continue
-		}
-		f.Start, f.End, f.LocalHost = f.Start.UTC(), f.End.UTC(), local.String
-		f.ServicePort = flow.ServicePort(f.Protocol, f.LocalPort, f.PeerPort)
-		f.Direction = "inbound"
-		if dir == 2 {
-			f.Direction = "outbound"
-		}
-		list.Items = append(list.Items, f)
-	}
-	return list, rows.Err()
-}
-
-// sortedPeriods is for tests.
 func (s *Store) sortedPeriods(gran string) []time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -31,11 +31,6 @@ func (f *fakeRemote) RemoteIP(_ context.Context, ip netip.Addr, q flowstore.Remo
 	return flowstore.RemoteDetail{RemoteIP: ip.String(), Country: "US", LocalHosts: []flowstore.RemoteHost{}}, nil
 }
 
-func (f *fakeRemote) RemoteFlows(_ context.Context, ip netip.Addr, from, _ time.Time, _ netip.Addr, limit int) (flowstore.FlowList, error) {
-	f.ip, f.from, f.lim = ip, from, limit
-	return flowstore.FlowList{Items: []flowstore.FlowItem{}}, nil
-}
-
 type fakeLookup struct{}
 
 func (fakeLookup) Lookup(netip.Addr) geoip.Info {
@@ -55,11 +50,7 @@ func TestRemoteEndpoints(t *testing.T) {
 	if rec.Code != http.StatusOK || f.ip != netip.MustParseAddr("8.8.8.8") || !strings.Contains(rec.Body.String(), `"current":{"country":"CA","asn":15169`) {
 		t.Errorf("detail: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = get(t, h, "/api/remote-ips/2001:db8::1/flows?limit=20&from=2026-11-18T10:00:00Z")
-	if rec.Code != http.StatusOK || f.lim != 20 || f.ip != netip.MustParseAddr("2001:db8::1") || f.from.Hour() != 10 {
-		t.Errorf("flows: %d %s", rec.Code, rec.Body.String())
-	}
-	for _, path := range []string{"/api/remote-ips/example.com", "/api/remote-ips/8.8.8.8/flows?limit=5000", "/api/remote-ips?limit=0", "/api/remote-ips?from=yesterday"} {
+	for _, path := range []string{"/api/remote-ips/example.com", "/api/remote-ips?limit=0", "/api/remote-ips?from=yesterday"} {
 		if rec := get(t, h, path); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", path, rec.Code)
 		}

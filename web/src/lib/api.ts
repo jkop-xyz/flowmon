@@ -427,24 +427,96 @@ export type RemoteDetail = Coverage &
     current?: GeoInfo
   }
 
+export type Direction = "inbound" | "outbound" | "internal" | "transit"
+
 export type FlowItem = {
+  /** Finds the Flow again for its detail view. */
+  id: string
   exporter: string
   start: string
   end: string
-  direction: "inbound" | "outbound"
-  localHost: string
+  direction: Direction
+  src: string
+  dst: string
+  srcPort: number
+  dstPort: number
+  /** Absent for transit Flows. */
+  localHost?: string
   localIsExporterHost?: boolean
   localPort: number
-  peer: string
+  peer?: string
   peerPort: number
   protocol: number
   /** Whichever of the two ports identifies the service. */
   servicePort: number
   bytes: number
   packets: number
+  country?: string
+  asn?: number
+  asnOrg?: string
 }
 
-export type FlowList = { items: FlowItem[]; more: boolean; rawFrom?: string }
+export type FlowPage = { items: FlowItem[]; total: number; rawFrom?: string }
+
+export type FieldView = {
+  enterprise?: number
+  id: number
+  name: string
+  /** IANA defines the field, so value is decoded by its type. */
+  known: boolean
+  type?: string
+  value: string
+  raw: string
+  error?: string
+}
+
+export type FlowDetail = FlowItem & {
+  observationDomain: number
+  received: string
+  exportTime: string
+  timeEstimated: boolean
+  postNatSrc?: string
+  postNatDst?: string
+  postNatSrcPort?: number
+  postNatDstPort?: number
+  ingressInterface: number
+  egressInterface: number
+  fields: FieldView[]
+  fieldsError?: string
+}
+
+export type FlowSort = "end" | "start" | "bytes" | "packets" | "duration"
+
+/** Flow Explorer filters, as the API and the page URL name them. */
+export type FlowFilters = {
+  host?: string
+  remote?: string
+  asn?: string
+  country?: string
+  protocol?: string
+  port?: string
+  /** Comma-separated Directions. */
+  direction?: string
+}
+
+export function fetchFlows(
+  range: RangeParams,
+  filters: FlowFilters,
+  page: { sort: FlowSort; asc: boolean; limit: number; offset: number },
+  signal?: AbortSignal,
+) {
+  const params = rangeParams(range)
+  for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v)
+  params.set("sort", page.sort)
+  params.set("order", page.asc ? "asc" : "desc")
+  params.set("limit", String(page.limit))
+  params.set("offset", String(page.offset))
+  return getJSON<FlowPage>(`/api/flows?${params}`, signal)
+}
+
+export function fetchFlow(id: string, signal?: AbortSignal) {
+  return getJSON<FlowDetail>(`/api/flows/${encodeURIComponent(id)}`, signal)
+}
 
 export function fetchRemoteIPs(range: RangeParams, sort: "bytes" | "flows", signal?: AbortSignal) {
   const params = rangeParams(range)
@@ -457,11 +529,6 @@ export function fetchRemoteIP(ip: string, range: RangeParams, signal?: AbortSign
   return getJSON<WithIncomplete<RemoteDetail>>(`/api/remote-ips/${encodeURIComponent(ip)}?${rangeParams(range)}`, signal)
 }
 
-export function fetchRemoteFlows(ip: string, range: RangeParams, signal?: AbortSignal) {
-  const params = rangeParams(range)
-  params.set("limit", "100")
-  return getJSON<FlowList>(`/api/remote-ips/${encodeURIComponent(ip)}/flows?${params}`, signal)
-}
 
 export type ReverseDNSName = {
   name?: string

@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ApiError } from "@/lib/api"
 import { navItems } from "@/lib/navigation"
 import { ExportersPage } from "@/pages/exporters-page"
+import { FlowExplorerPage } from "@/pages/flow-explorer-page"
 import { LocalHostPage, LocalHostsPage } from "@/pages/host-pages"
 import { MikroTikGuidePage } from "@/pages/mikrotik-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
@@ -23,6 +24,7 @@ const screens: Record<string, React.ReactNode> = {
   "/": <OverviewPage />,
   "/exporters": <ExportersPage />,
   "/hosts": <LocalHostsPage />,
+  "/flows": <FlowExplorerPage />,
   "/remote": <RemoteIPsPage />,
   "/settings": <SettingsPage />,
 }
