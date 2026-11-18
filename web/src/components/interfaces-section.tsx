@@ -4,10 +4,19 @@ import { useState } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { ClassificationModeField } from "@/components/classification-mode-field"
+import {
+  Field,
+  FormActions,
+  FormError,
+  QueryError,
+  Section,
+  SectionHeading,
+  SectionSkeleton,
+  TimeAgo,
+} from "@/components/page"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -37,13 +46,28 @@ export function InterfacesSection({ address }: { address: string }) {
     queryFn: ({ signal }) => fetchInterfaces(address, signal),
     refetchInterval: (q) => (q.state.data?.reprocess.running ? 2_000 : 15_000),
   })
-  if (!query.data) return null
+  if (query.isPending) {
+    return (
+      <Section>
+        <SectionHeading title="Interfaces" />
+        <SectionSkeleton />
+      </Section>
+    )
+  }
+  if (query.isError) {
+    return (
+      <Section>
+        <SectionHeading title="Interfaces" />
+        <QueryError title="Couldn't load Interfaces" error={query.error} />
+      </Section>
+    )
+  }
   // Remount the editor when the saved state changes, so drafts start from it.
   const key = `${query.data.classificationMode}|${query.data.interfaces.map((i) => `${i.index}:${i.name}:${i.role}`).join(",")}`
-  return <InterfacesEditor key={key} address={address} data={query.data} />
+  return <InterfacesEditor key={key} address={address} data={query.data} now={query.dataUpdatedAt} />
 }
 
-function InterfacesEditor({ address, data }: { address: string; data: InterfacesResponse }) {
+function InterfacesEditor({ address, data, now }: { address: string; data: InterfacesResponse; now: number }) {
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<ClassificationMode>(data.classificationMode)
   const [roles, setRoles] = useState<Record<string, InterfaceRole>>(() =>
@@ -71,16 +95,14 @@ function InterfacesEditor({ address, data }: { address: string; data: Interfaces
   const thisJob = rp.exporter === address
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">Interfaces</h3>
-        <p className="text-xs text-muted-foreground">
-          Flows are counted since Flowmon started. Interface 0 means the Exporter itself.
-        </p>
-      </div>
+    <Section>
+      <SectionHeading
+        title="Interfaces"
+        aside="Flows counted since Flowmon started. Interface 0 is the Exporter itself."
+      />
 
       {data.changes.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="warning">
           <AlertTriangle />
           <AlertTitle>Interface mappings changed</AlertTitle>
           <AlertDescription>
@@ -90,7 +112,9 @@ function InterfacesEditor({ address, data }: { address: string; data: Interfaces
                   {c.conflict
                     ? `The Exporter reports interface ${c.index} as "${c.newName}" (${c.source}), but you named it "${c.oldName}".`
                     : `Interface ${c.index} changed from "${c.oldName}" to "${c.newName}" (${c.source}).`}{" "}
-                  <span className="text-muted-foreground">{formatDateTime(c.at)}</span>
+                  <span className="text-muted-foreground">
+                    (<TimeAgo iso={c.at} now={now} />)
+                  </span>
                 </li>
               ))}
             </ul>
@@ -109,7 +133,7 @@ function InterfacesEditor({ address, data }: { address: string; data: Interfaces
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead className="w-40">Role</TableHead>
+                <TableHead className="w-36">Interface Role</TableHead>
                 <TableHead className="text-right">Flows in</TableHead>
                 <TableHead className="text-right">Flows out</TableHead>
               </TableRow>
@@ -130,33 +154,25 @@ function InterfacesEditor({ address, data }: { address: string; data: Interfaces
         </div>
       )}
 
-      <div className="flex flex-col gap-3 rounded-lg border p-3">
-        <Label>Classification</Label>
-        <RadioGroup
+      <Field label="Classification" hint="Applies to Flows from now on.">
+        <ClassificationModeField
+          idPrefix={`interfaces-${address}`}
           value={mode}
-          onValueChange={(v) => setMode(v as ClassificationMode)}
-          className="flex flex-wrap gap-6"
-        >
-          <label className="flex items-center gap-2 text-sm">
-            <RadioGroupItem value="address" /> By address (Local Networks)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <RadioGroupItem value="interface" disabled={!data.hasInterfaceNumbers} /> By interface (WAN Interfaces)
-          </label>
-        </RadioGroup>
-        {mode === "interface" && !hasWAN && (
-          <p className="text-sm text-muted-foreground">
-            Mark at least one WAN Interface. Flows crossing interfaces without a role are still classified by address.
-          </p>
-        )}
-        {save.error && <p className="text-sm text-destructive">{save.error.message}</p>}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            Save classification
-          </Button>
-          <span className="text-xs text-muted-foreground">Applies to Flows from now on.</span>
-        </div>
-      </div>
+          onChange={setMode}
+          interfaceAvailable={data.hasInterfaceNumbers}
+        />
+      </Field>
+      {mode === "interface" && !hasWAN && (
+        <p className="text-sm text-muted-foreground">
+          Mark at least one WAN Interface. Flows crossing interfaces without a role are still classified by address.
+        </p>
+      )}
+      <FormError error={save.error} />
+      <FormActions>
+        <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Saving…" : "Save classification"}
+        </Button>
+      </FormActions>
 
       {(saved || (thisJob && (rp.running || rp.finishedAt))) && (
         <Alert>
@@ -188,15 +204,15 @@ function InterfacesEditor({ address, data }: { address: string; data: Interfaces
             {!rp.running && (
               <div>
                 <Button size="sm" variant="outline" disabled={reprocess.isPending} onClick={() => reprocess.mutate()}>
-                  <RefreshCw /> Reprocess the last days
+                  <RefreshCw /> {reprocess.isPending ? "Starting…" : "Reprocess the last days"}
                 </Button>
               </div>
             )}
-            {reprocess.error && <span className="text-destructive">{reprocess.error.message}</span>}
+            <FormError error={reprocess.error} />
           </AlertDescription>
         </Alert>
       )}
-    </section>
+    </Section>
   )
 }
 
@@ -225,7 +241,7 @@ function InterfaceRow({
       <TableCell>
         <div className="flex items-center gap-2">
           <Input
-            className="h-8 max-w-56 font-mono text-xs"
+            className="h-8 w-full max-w-56 min-w-32 font-mono text-xs"
             placeholder="Name this interface"
             value={name}
             maxLength={64}
@@ -239,7 +255,7 @@ function InterfaceRow({
             <span className="text-xs text-muted-foreground">from {iface.source}</span>
           )}
         </div>
-        {rename.error && <p className="text-xs text-destructive">{rename.error.message}</p>}
+        <FormError error={rename.error} />
       </TableCell>
       <TableCell>
         <Select
@@ -247,7 +263,7 @@ function InterfaceRow({
           disabled={!iface.name}
           onValueChange={(v) => onRole(v === NO_ROLE ? "" : (v as InterfaceRole))}
         >
-          <SelectTrigger size="sm" className="w-32" aria-label={`Role of interface ${iface.index}`}>
+          <SelectTrigger size="sm" className="w-full" aria-label={`Role of interface ${iface.index}`}>
             <SelectValue placeholder={iface.name ? "No role" : "Name it first"} />
           </SelectTrigger>
           <SelectContent>

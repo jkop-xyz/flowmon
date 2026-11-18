@@ -20,7 +20,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Account">
+        <Button variant="ghost" size="icon-sm" aria-label="Account">
           <UserIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>

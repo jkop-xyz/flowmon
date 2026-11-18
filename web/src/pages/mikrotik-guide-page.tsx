@@ -1,6 +1,7 @@
-import { ExternalLink, TriangleAlert } from "lucide-react"
+import { AlertTriangle, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
 
+import { Page } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -41,16 +42,16 @@ function Settings({ rows }: { rows: [string, ReactNode, ReactNode][] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-44">Setting</TableHead>
-            <TableHead className="w-56">Value</TableHead>
+            <TableHead className="w-1/4">Setting</TableHead>
+            <TableHead className="w-1/3">Value</TableHead>
             <TableHead>Why</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map(([k, v, why]) => (
             <TableRow key={k}>
-              <TableCell className="font-medium">{k}</TableCell>
-              <TableCell>{v}</TableCell>
+              <TableCell className="font-medium whitespace-normal">{k}</TableCell>
+              <TableCell className="whitespace-normal">{v}</TableCell>
               <TableCell className="whitespace-normal text-muted-foreground">{why}</TableCell>
             </TableRow>
           ))}
@@ -101,9 +102,8 @@ const ipfixFields: [string, string][] = [
 
 export function MikroTikGuidePage() {
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <Page>
       <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold">Setting up a MikroTik</h2>
         <p className="text-sm text-muted-foreground">
           What to set on a router running RouterOS 7, and where to find it. There are no copy-paste scripts on purpose:
           the settings are few, and setting them in WinBox or WebFig shows what each one does. MikroTik's documentation
@@ -120,17 +120,15 @@ export function MikroTikGuidePage() {
             [
               "Interfaces",
               <code key="i">all</code>,
-              "Flowmon needs to see traffic on both your WAN and your LAN interfaces",
+              "Flowmon needs to see traffic on both your WAN and your LAN interfaces.",
             ],
             [
               "Active Flow Timeout",
-              <span key="a">
-                <strong>15 s</strong> at 500 Mbit/s or more, <strong>1 min</strong> below
-              </span>,
+              <span key="a">15 s at 500 Mbit/s or more, 1 min below</span>,
               "The default of 30 min turns a long download into one record half an hour later. Some RouterOS versions send a 4-byte byte counter, which wraps after 4 GiB per export (about 34 s at 1 Gbit/s); Flowmon warns if yours does.",
             ],
             ["Inactive Flow Timeout", "15 s (the default)", ""],
-            ["Packet Sampling", "off (the default)", "Flowmon counts every packet"],
+            ["Packet Sampling", "off (the default)", "Flowmon counts every packet."],
           ]}
         />
       </Step>
@@ -140,18 +138,12 @@ export function MikroTikGuidePage() {
         <Settings
           rows={[
             ["Dst. Address", "the address of this Flowmon host", ""],
-            [
-              "Port",
-              <span key="p">
-                <strong>4739</strong> (IPFIX) or 2055
-              </span>,
-              "Flowmon listens on both by default",
-            ],
-            ["Version", <strong key="v">IPFIX</strong>, "NetFlow v9 comes in Flowmon v1.1"],
+            ["Port", <span key="p">4739 (IPFIX) or 2055</span>, "Flowmon listens on both by default."],
+            ["Version", "IPFIX", "NetFlow v9 comes in Flowmon v1.1."],
             [
               "Src. Address",
               "the router's LAN address",
-              "Flowmon identifies an Exporter by its source address; pinning it keeps it stable",
+              "Flowmon identifies an Exporter by its source address; pinning it keeps it stable.",
             ],
           ]}
         />
@@ -163,7 +155,7 @@ export function MikroTikGuidePage() {
           {ipfixFields.map(([fields, why]) => (
             <li key={fields}>
               <code className="font-mono">{fields}</code>
-              {why && <span className="text-muted-foreground"> — {why}</span>}
+              {why && <span className="text-muted-foreground">: {why}</span>}
             </li>
           ))}
         </ul>
@@ -210,8 +202,8 @@ export function MikroTikGuidePage() {
         </ol>
       </Step>
 
-      <Alert>
-        <TriangleAlert />
+      <Alert variant="warning">
+        <AlertTriangle />
         <AlertTitle>Traffic the router can't show</AlertTitle>
         <AlertDescription className="flex flex-col gap-2">
           <p>
@@ -229,6 +221,6 @@ export function MikroTikGuidePage() {
           <p>With SNMP set up, Reconciliation shows this as a lasting gap between WAN counters and Flows.</p>
         </AlertDescription>
       </Alert>
-    </div>
+    </Page>
   )
 }

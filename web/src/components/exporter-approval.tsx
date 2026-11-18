@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { MoreHorizontal, ShieldQuestion } from "lucide-react"
 import { useState } from "react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ClassificationModeField } from "@/components/classification-mode-field"
+import { Field, FormActions, FormError, Section, SectionHeading } from "@/components/page"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   approveExporter,
@@ -43,68 +43,64 @@ export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
   const error = approve.error ?? ignore.error
 
   return (
-    <Alert className="border-primary/40">
-      <ShieldQuestion />
-      <AlertTitle>{pending ? "This Exporter is waiting for approval" : "This Exporter is ignored"}</AlertTitle>
-      <AlertDescription className="flex flex-col gap-4">
-        <p>
-          {pending
-            ? `Flowmon keeps its Templates but drops its Flows until you approve it (${formatNumber(exporter.pendingDroppedRecords)} dropped so far). Only approve addresses you recognise: anyone who can reach the collector port can send data.`
-            : `Its datagrams are dropped without decoding (${formatNumber(exporter.ignoredDatagrams)} so far).`}
-        </p>
-        <div className="grid w-full gap-4 text-foreground sm:grid-cols-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`name-${exporter.address}`}>Name</Label>
-            <Input
-              id={`name-${exporter.address}`}
-              placeholder="e.g. MikroTik"
-              value={name}
-              maxLength={64}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>Role</Label>
-            <Select value="edge">
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="edge">Edge</SelectItem>
-                <SelectItem value="internal" disabled>
-                  Internal (v1.1)
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>Classification</Label>
-            <Select value={mode} onValueChange={(v) => setMode(v as ClassificationMode)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="interface" disabled={!sendsInterfaces}>
-                  By interface{sendsInterfaces ? "" : " (no interface numbers)"}
-                </SelectItem>
-                <SelectItem value="address">By address</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        {error && <p className="text-destructive">{error.message}</p>}
-        <div className="flex gap-2">
-          <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
-            Approve
+    <Section className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+      <SectionHeading
+        title={
+          <>
+            <ShieldQuestion className="size-4 text-warning-foreground" />
+            {pending ? "This Exporter is waiting for approval" : "This Exporter is ignored"}
+          </>
+        }
+      />
+      <p className="text-sm text-muted-foreground">
+        {pending
+          ? `Flowmon keeps its Templates but drops its Flows until you approve it (${formatNumber(exporter.pendingDroppedRecords)} dropped so far). Only approve addresses you recognise: anyone who can reach the collector port can send data.`
+          : `Its datagrams are dropped without decoding (${formatNumber(exporter.ignoredDatagrams)} so far).`}
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id={`name-${exporter.address}`} label="Name">
+          <Input
+            id={`name-${exporter.address}`}
+            placeholder="e.g. MikroTik"
+            value={name}
+            maxLength={64}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field id={`role-${exporter.address}`} label="Exporter role">
+          <Select value="edge">
+            <SelectTrigger id={`role-${exporter.address}`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="edge">Edge</SelectItem>
+              <SelectItem value="internal" disabled>
+                Internal (v1.1)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+      <Field label="Classification">
+        <ClassificationModeField
+          idPrefix={`approve-${exporter.address}`}
+          value={mode}
+          onChange={setMode}
+          interfaceAvailable={sendsInterfaces}
+        />
+      </Field>
+      <FormError error={error} />
+      <FormActions>
+        {pending && (
+          <Button size="sm" variant="outline" onClick={() => ignore.mutate()} disabled={ignore.isPending}>
+            {ignore.isPending ? "Ignoring…" : "Ignore"}
           </Button>
-          {pending && (
-            <Button variant="outline" onClick={() => ignore.mutate()} disabled={ignore.isPending}>
-              Ignore
-            </Button>
-          )}
-        </div>
-      </AlertDescription>
-    </Alert>
+        )}
+        <Button size="sm" onClick={() => approve.mutate()} disabled={approve.isPending}>
+          {approve.isPending ? "Approving…" : "Approve"}
+        </Button>
+      </FormActions>
+    </Section>
   )
 }
 
@@ -117,8 +113,8 @@ export function ExporterActions({ exporter }: { exporter: ExporterStatus }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="ml-auto" aria-label="Exporter actions">
-          <MoreHorizontal className="size-4" />
+        <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Exporter actions">
+          <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
