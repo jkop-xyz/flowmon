@@ -63,13 +63,24 @@ func main() {
 			service := ipfixtest.U16([]uint16{443, 53, 80, 123}[rand.IntN(4)])
 			proto := ipfixtest.U8([]uint8{6, 17}[rand.IntN(2)])
 			times := [][]byte{ipfixtest.U32(uptime - 15_000), ipfixtest.U32(uptime)}
-			if rand.IntN(3) == 0 {
+			switch {
+			case rand.IntN(8) == 0:
+				// Internal: one LAN host to another (file sharing), not NATed.
+				peer := locals[rand.IntN(len(locals))]
+				if string(peer) == string(local) {
+					continue
+				}
+				records = append(records, append([][]byte{
+					local, peer, localPort, ipfixtest.U16(445), ipfixtest.U8(6), ipfixtest.U32(1), ipfixtest.U32(1),
+					ipfixtest.U32(uint32(5_000 + rand.IntN(5_000_000))), ipfixtest.U32(uint32(1 + rand.IntN(3000))),
+				}, append(times, local, peer)...))
+			case rand.IntN(3) == 0:
 				// Outbound request: the LAN host is the pre-NAT source, the router's WAN address the post-NAT one.
 				records = append(records, append([][]byte{
 					local, remote, localPort, service, proto, ipfixtest.U32(1), ipfixtest.U32(3),
 					ipfixtest.U32(uint32(500 + rand.IntN(200_000))), ipfixtest.U32(uint32(1 + rand.IntN(200))),
 				}, append(times, wan, remote)...))
-			} else {
+			default:
 				// Download reply, as MikroTik reports it: sent to the WAN address, with the LAN host
 				// only in the post-NAT destination.
 				records = append(records, append([][]byte{

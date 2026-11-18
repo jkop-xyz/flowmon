@@ -2,7 +2,7 @@
 
 A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow from your router (MikroTik first, but any exporter that follows the standard), and shows where traffic goes and who is on the other end: country, ASN owner, reverse DNS and registration details.
 
-> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Remote IPs show their reverse DNS names, and each has a page with its registration details (RDAP), the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. The Exporters page shows each Exporter with its Templates. Local Host pages and the Flow Explorer are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
+> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Remote IPs show their reverse DNS names, and each has a page with its registration details (RDAP), the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. Local Hosts show Host Names, from Host Labels you set or from reverse DNS against your own resolver, and each has a page with its traffic over time, Peers and Service Ports. The Exporters page shows each Exporter with its Templates. The Flow Explorer is next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
 
 ## Run it
 
@@ -43,6 +43,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_GEOIP_DIR` | `/data/geoip` | Your own GeoIP MMDB files (country, city or ASN, from MaxMind or DB-IP). They win over downloads |
 | `FLOWMON_GEOIP_DOWNLOAD` | `true` | Download GeoIP databases weekly: MaxMind GeoLite2 with an account, DB-IP Lite otherwise. `false` uses only your own files |
 | `FLOWMON_MAXMIND_ACCOUNT_ID`, `FLOWMON_MAXMIND_LICENSE_KEY` (or `_FILE`) | none | Your free MaxMind account, for GeoLite2 instead of DB-IP Lite |
+| `FLOWMON_LOCAL_DNS_SERVER` | system resolver | The DNS server that knows your Local Hosts' names, such as the router or a Pi-hole: `192.168.88.1` or `[fd00::1]:53` |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |
 | `FLOWMON_DEBUG_CAPTURE_FILES` | `3` | Capture files kept, including the current one |

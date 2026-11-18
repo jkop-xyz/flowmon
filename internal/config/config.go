@@ -7,6 +7,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -62,6 +63,9 @@ type Config struct {
 	GeoIPDownload bool
 	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads.
 	MaxMindAccountID, MaxMindLicenseKey string
+	// LocalDNSServer (host:port) answers reverse DNS for Local Hosts, such as the router
+	// or a Pi-hole. Empty uses the system resolver.
+	LocalDNSServer string
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -174,6 +178,11 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 	if (cfg.MaxMindAccountID == "") != (cfg.MaxMindLicenseKey == "") {
 		return Config{}, fmt.Errorf("FLOWMON_MAXMIND_ACCOUNT_ID and FLOWMON_MAXMIND_LICENSE_KEY must be set together")
 	}
+	if s := strings.TrimSpace(get("FLOWMON_LOCAL_DNS_SERVER", "")); s != "" {
+		if cfg.LocalDNSServer, err = dnsServer(s); err != nil {
+			return Config{}, fmt.Errorf("FLOWMON_LOCAL_DNS_SERVER: %w", err)
+		}
+	}
 	cfg.SecureCookies = strings.ToLower(get("FLOWMON_SECURE_COOKIES", "auto"))
 	if cfg.SecureCookies != "auto" && cfg.SecureCookies != "always" && cfg.SecureCookies != "never" {
 		return Config{}, fmt.Errorf("FLOWMON_SECURE_COOKIES: must be auto, always or never")
@@ -186,6 +195,22 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, fmt.Errorf("FLOWMON_LOG_FORMAT: must be \"text\" or \"json\", got %q", cfg.LogFormat)
 	}
 	return cfg, nil
+}
+
+// dnsServer reads a DNS server as host, host:port, IPv6 address or [IPv6]:port; the port
+// defaults to 53.
+func dnsServer(s string) (string, error) {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		host, port = strings.Trim(s, "[]"), "53"
+	}
+	if host == "" || strings.ContainsAny(host, "/ ") {
+		return "", fmt.Errorf("must be a host or address, optionally with a port, got %q", s)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("invalid port in %q", s)
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 func positiveInt(s string) (int, error) {

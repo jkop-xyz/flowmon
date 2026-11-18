@@ -34,6 +34,9 @@ type TopQuery struct {
 	From, To  time.Time
 	Exporter  netip.Addr
 	Limit     int
+	// HostGroups are Host Labels' prefixes: the addresses that count towards a wider one
+	// (see hostKey) are one Local Host, ranked under the prefix. Only for TopLocalHosts.
+	HostGroups []netip.Prefix
 }
 
 // TopItem is one ranked value. For Local Hosts, Received/Sent are the host's own
@@ -41,7 +44,10 @@ type TopQuery struct {
 // are Network Totals: Received/Sent from and to Remote IPs, Internal counted once.
 // Countries and ASN Owners only have traffic with Remote IPs.
 type TopItem struct {
-	Host                string  `json:"host,omitempty"`
+	// Host is a Local Host's address, or a host group's prefix.
+	Host string `json:"host,omitempty"`
+	// Addresses is how many addresses a host group's row merges.
+	Addresses           int     `json:"addresses,omitempty"`
 	LocalIsExporterHost bool    `json:"localIsExporterHost,omitempty"`
 	Protocol            uint8   `json:"protocol"`
 	ServicePort         uint16  `json:"servicePort"`
@@ -136,12 +142,18 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 		parts = append(parts, fmt.Sprintf(`SELECT * FROM %s WHERE %s`, t, where))
 	}
 	union := strings.Join(parts, "\nUNION ALL\n")
+	// Host groups are merged below, so every Local Host is read.
+	grouping := q.Dimension == TopLocalHosts && len(q.HostGroups) > 0
+	limit := fmt.Sprintf("LIMIT %d", q.Limit)
+	if grouping {
+		limit = ""
+	}
 
 	query := fmt.Sprintf(`
 WITH r AS (%[1]s),
 g AS (SELECT %[2]s, %[3]s AS rx, %[4]s AS tx, %[5]s AS internal FROM r GROUP BY %[6]s)
 SELECT *, rx + tx + internal AS total, sum(rx + tx + internal) OVER () AS grand_total
-FROM g ORDER BY total DESC LIMIT %[7]d`, union, selectKey, received, sent, internal, group, q.Limit)
+FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, group, limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -159,5 +171,11 @@ FROM g ORDER BY total DESC LIMIT %[7]d`, union, selectKey, received, sent, inter
 		}
 		res.Items = append(res.Items, it)
 	}
-	return res, rows.Err()
+	if err := rows.Err(); err != nil {
+		return TopResult{}, err
+	}
+	if grouping {
+		res.Items = groupTopHosts(res.Items, q.HostGroups, q.Limit)
+	}
+	return res, nil
 }

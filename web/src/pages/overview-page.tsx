@@ -1,24 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 import { lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation } from "react-router"
-import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   fetchBandwidth,
   fetchTop,
-  type BandwidthPoint,
-  type ClassificationChange,
+  type HostName,
   type TopDimension,
   type ReverseDNSName,
   type TopItem,
@@ -26,29 +16,25 @@ import {
 import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
+import { BarList, BarRow } from "@/components/bar-list"
+import { HostLink } from "@/components/host"
 import { RemoteIPLink } from "@/components/remote"
+import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
+import { useHostNames } from "@/lib/hosts"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { countryName } from "@/lib/countries"
-import {
-  formatBitsPerSecond,
-  formatBytes,
-  formatDateTime,
-  formatSeconds,
-  formatTick,
-  protocolName,
-  timeTicks,
-} from "@/lib/format"
+import { protocolName } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
 
-const chartConfig = {
-  inboundBps: { label: "Inbound", color: "var(--chart-1)" },
-  outboundBps: { label: "Outbound", color: "var(--chart-2)" },
-} satisfies ChartConfig
+const bandwidthSeries: TrafficSeries<"inboundBps" | "outboundBps">[] = [
+  { key: "inboundBps", label: "Inbound", color: "var(--chart-1)" },
+  { key: "outboundBps", label: "Outbound", color: "var(--chart-2)" },
+]
 
 export function OverviewPage() {
   const { search } = useLocation()
@@ -79,8 +65,9 @@ export function OverviewPage() {
           ) : query.isError ? (
             <QueryError title="Couldn't load bandwidth" error={query.error} />
           ) : (
-            <BandwidthChart
+            <TrafficChart
               points={query.data.result.points}
+              series={bandwidthSeries}
               stepSeconds={query.data.result.stepSeconds}
               rangeMs={preset.ms}
               incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
@@ -99,6 +86,11 @@ export function OverviewPage() {
               title="Local Hosts"
               what="Local Hosts"
               description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
+              action={
+                <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
+                  All Local Hosts
+                </Link>
+              }
             />
             <TopCard
               dimension="remotes"
@@ -142,125 +134,6 @@ export function OverviewPage() {
         )}
       </div>
     </Page>
-  )
-}
-
-function BandwidthChart({
-  points,
-  stepSeconds,
-  rangeMs,
-  incompleteFrom,
-  changes,
-}: {
-  points: BandwidthPoint[]
-  stepSeconds: number
-  rangeMs: number
-  incompleteFrom: number
-  changes: ClassificationChange[]
-}) {
-  const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
-  const empty = points.every((p) => p.inboundBps === 0 && p.outboundBps === 0)
-  const last = data.length > 0 ? data[data.length - 1].time : 0
-  const end = last + stepSeconds * 1000
-  const shadeFrom = Math.max(incompleteFrom - stepSeconds * 1000, data[0]?.time ?? 0)
-
-  return (
-    <div className="relative w-full min-w-0">
-      <ChartContainer
-        config={chartConfig}
-        className="aspect-auto h-72 w-full min-w-0 [&_.recharts-responsive-container]:min-w-0"
-      >
-        <AreaChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
-          <defs>
-            {(["inboundBps", "outboundBps"] as const).map((key) => (
-              <linearGradient key={key} id={`fill-${key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={`var(--color-${key})`} stopOpacity={0.5} />
-                <stop offset="95%" stopColor={`var(--color-${key})`} stopOpacity={0.05} />
-              </linearGradient>
-            ))}
-          </defs>
-          <CartesianGrid vertical={false} />
-          <XAxis
-            dataKey="time"
-            type="number"
-            scale="time"
-            domain={[data[0]?.time ?? 0, end]}
-            tickLine={false}
-            axisLine={false}
-            ticks={data.length > 0 ? timeTicks(data[0].time, end) : []}
-            tickFormatter={(v: number) => formatTick(v, rangeMs)}
-          />
-          <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => formatBitsPerSecond(v)} />
-          {end > shadeFrom && (
-            <ReferenceArea
-              x1={shadeFrom}
-              x2={end}
-              fill="var(--muted-foreground)"
-              fillOpacity={0.08}
-              ifOverflow="hidden"
-            />
-          )}
-          {changes.map((c) => (
-            <ReferenceLine
-              key={`${c.exporter}/${c.t}`}
-              x={new Date(c.t).getTime()}
-              stroke="var(--muted-foreground)"
-              strokeDasharray="4 4"
-            />
-          ))}
-          <ChartTooltip
-            content={
-              <ChartTooltipContent
-                indicator="dot"
-                labelFormatter={(_, payload) => {
-                  const time = payload?.[0]?.payload?.time as number | undefined
-                  if (time === undefined) return ""
-                  const label = formatDateTime(new Date(time).toISOString())
-                  return time + stepSeconds * 1000 > incompleteFrom ? `${label} (incomplete)` : label
-                }}
-                formatter={(value, name) => (
-                  <div className="flex w-full items-center justify-between gap-4">
-                    <span className="text-muted-foreground">
-                      {chartConfig[name as keyof typeof chartConfig]?.label ?? name}
-                    </span>
-                    <span className="font-mono tabular-nums">{formatBitsPerSecond(Number(value))}</span>
-                  </div>
-                )}
-              />
-            }
-          />
-          {(["inboundBps", "outboundBps"] as const).map((key) => (
-            <Area
-              key={key}
-              dataKey={key}
-              type="monotone"
-              stroke={`var(--color-${key})`}
-              fill={`url(#fill-${key})`}
-              strokeWidth={1.5}
-              isAnimationActive={false}
-            />
-          ))}
-          <ChartLegend content={<ChartLegendContent />} />
-        </AreaChart>
-      </ChartContainer>
-      {empty && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          No Flows in this time range yet.
-        </p>
-      )}
-      <p className="mt-2 text-xs text-muted-foreground">
-        Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
-      </p>
-      {changes.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
-          {changes.map((c) => (
-            <li key={`${c.exporter}/${c.t}`}>
-              Dashed line at {formatDateTime(c.t)}: {c.description} (Exporter {c.exporter}).
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }
 
@@ -351,9 +224,10 @@ function CardFooterNote({ children }: { children: ReactNode }) {
 
 function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
   const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
+  const hostNames = useHostNames(dimension === "hosts" ? items.map((i) => i.host ?? "") : [])
   if (items.length === 0) return <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
   return (
-    <ol className="flex flex-col gap-3">
+    <BarList>
       {items.map((item) => (
         <TopRow
           key={itemKey(item)}
@@ -364,9 +238,11 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
           exporterHost={dimension === "hosts" && item.localIsExporterHost}
           remote={dimension === "remotes"}
           name={dimension === "remotes" ? names[item.remoteIp ?? ""] : undefined}
+          host={dimension === "hosts"}
+          hostName={dimension === "hosts" ? hostNames[item.host ?? ""] : undefined}
         />
       ))}
-    </ol>
+    </BarList>
   )
 }
 
@@ -437,6 +313,8 @@ function TopRow({
   exporterHost,
   remote,
   name,
+  host,
+  hostName,
 }: {
   label: string
   item: TopItem
@@ -447,15 +325,21 @@ function TopRow({
   remote?: boolean
   /** Its reverse DNS name, for Remote IPs. */
   name?: ReverseDNSName
+  /** The label is a Local Host: show its Host Name and link to its page. */
+  host?: boolean
+  hostName?: HostName
 }) {
-  const width = max > 0 ? Math.max(2, (item.totalBytes / max) * 100) : 0
-  const received = item.receivedBytes
-  const sent = item.sentBytes + item.internalBytes
   return (
-    <li className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-2 text-sm">
-        <span className="flex min-w-0 items-center gap-2">
-          {remote ? (
+    <BarRow
+      total={item.totalBytes}
+      received={item.receivedBytes}
+      sent={item.sentBytes + item.internalBytes}
+      max={max}
+      label={
+        <>
+          {host ? (
+            <HostLink host={label} name={hostName} exporterHost={exporterHost} addresses={item.addresses} />
+          ) : remote ? (
             <>
               <RemoteIPLink ip={label} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
               <ReverseDNS name={name} className="min-w-0" />
@@ -465,14 +349,9 @@ function TopRow({
               {label}
             </span>
           )}
-          {exporterHost && <Badge variant="outline">Exporter Host</Badge>}
-        </span>
-        <span className="shrink-0 tabular-nums">{formatBytes(item.totalBytes)}</span>
-      </div>
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" style={{ width: `${width}%` }}>
-        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${formatBytes(received)}`} />
-        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`Sent ${formatBytes(sent)}`} />
-      </div>
-    </li>
+          {exporterHost && !host && <Badge variant="outline">Exporter Host</Badge>}
+        </>
+      }
+    />
   )
 }

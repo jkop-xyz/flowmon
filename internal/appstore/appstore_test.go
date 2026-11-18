@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -221,6 +222,45 @@ func TestIPCache(t *testing.T) {
 		}
 		if n, err := s.DeleteExpiredIPInfo(ctx, now.Add(2*time.Hour)); err != nil || n != 1 {
 			t.Errorf("deleted %d %v", n, err)
+		}
+	})
+}
+
+func TestHostLabels(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *Store) {
+		laptop, err := s.CreateHostLabel(ctx, netip.MustParsePrefix("2001:db8:0:1::17/120"), "Laptop", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if laptop.Prefix.String() != "2001:db8:0:1::/120" {
+			t.Errorf("prefix not masked: %v", laptop.Prefix)
+		}
+		nas, err := s.CreateHostLabel(ctx, netip.PrefixFrom(netip.MustParseAddr("192.168.1.10"), 32), "NAS", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.CreateHostLabel(ctx, netip.MustParsePrefix("192.168.1.10/32"), "Other", t0); !errors.Is(err, ErrExists) {
+			t.Errorf("duplicate prefix: %v", err)
+		}
+		got, err := s.UpdateHostLabel(ctx, nas.ID, nas.Prefix, "Storage", t0.Add(time.Hour))
+		if err != nil || got.Name != "Storage" || !got.UpdatedAt.Equal(t0.Add(time.Hour)) || !got.CreatedAt.Equal(t0) {
+			t.Fatalf("updated %+v %v", got, err)
+		}
+		if _, err := s.UpdateHostLabel(ctx, nas.ID, laptop.Prefix, "x", t0); !errors.Is(err, ErrExists) {
+			t.Errorf("update onto a taken prefix: %v", err)
+		}
+		if _, err := s.UpdateHostLabel(ctx, "missing", nas.Prefix, "x", t0); !errors.Is(err, ErrNotFound) {
+			t.Errorf("update missing: %v", err)
+		}
+		all, err := s.HostLabels(ctx)
+		if err != nil || len(all) != 2 || all[0].Name != "Laptop" || all[1].Prefix != nas.Prefix {
+			t.Fatalf("labels %+v %v", all, err)
+		}
+		if err := s.DeleteHostLabel(ctx, laptop.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteHostLabel(ctx, laptop.ID); !errors.Is(err, ErrNotFound) {
+			t.Errorf("delete twice: %v", err)
 		}
 	})
 }

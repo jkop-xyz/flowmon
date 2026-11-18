@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/geoip"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
+	"github.com/jkop-xyz/flowmon/internal/hosts"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/internal/interfaces"
@@ -307,6 +309,22 @@ func serve(stderr io.Writer) int {
 	reverseDNS := enrichment.NewReverseDNS(enrichment.ReverseDNSOptions{Store: ipCache, Logger: logger})
 	go reverseDNS.Run(pipelineCtx)
 	rdap := enrichment.NewRDAP(enrichment.RDAPOptions{Store: ipCache, UserAgent: "flowmon/" + version})
+	// Local Hosts are named by the resolver that knows them (the router, a Pi-hole), so
+	// their names are cached apart from Remote IPs' and kept for less time: DHCP moves them.
+	localDNS := enrichment.NewReverseDNS(enrichment.ReverseDNSOptions{
+		Resolver: localResolver(cfg.LocalDNSServer), Store: ipCache, Kind: "local-rdns", TTL: time.Hour,
+		Allow: func(a netip.Addr) bool {
+			return a.IsValid() && !a.IsUnspecified() && !a.IsLoopback() && !a.IsMulticast()
+		},
+		Logger: logger,
+	})
+	go localDNS.Run(pipelineCtx)
+	hostDirectory := hosts.NewDirectory(func() hosts.LabelStore {
+		if s := holder.Get(); s != nil {
+			return s
+		}
+		return nil
+	}, localDNS)
 
 	srv := httpserver.NewServer(cfg.HTTPAddr, httpserver.New(httpserver.Options{
 		Version:   version,
@@ -325,6 +343,7 @@ func serve(stderr io.Writer) int {
 		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
 		GeoIP:  geo,
 		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
+		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
 	}))
 
 	errCh := make(chan error, 1)
@@ -348,6 +367,18 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// localResolver asks server (host:port) for Local Hosts' names, or the system resolver
+// when it is empty.
+func localResolver(server string) *net.Resolver {
+	if server == "" {
+		return net.DefaultResolver
+	}
+	return &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, server)
+	}}
 }
 
 // interfaceClassification tells the classifier which Exporters classify by interface

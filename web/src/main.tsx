@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ApiError } from "@/lib/api"
 import { navItems } from "@/lib/navigation"
 import { ExportersPage } from "@/pages/exporters-page"
+import { LocalHostPage, LocalHostsPage } from "@/pages/host-pages"
 import { MikroTikGuidePage } from "@/pages/mikrotik-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
@@ -21,6 +22,7 @@ import { SettingsPage } from "@/pages/settings-page"
 const screens: Record<string, React.ReactNode> = {
   "/": <OverviewPage />,
   "/exporters": <ExportersPage />,
+  "/hosts": <LocalHostsPage />,
   "/remote": <RemoteIPsPage />,
   "/settings": <SettingsPage />,
 }
@@ -54,6 +56,7 @@ createRoot(document.getElementById("root")!).render(
                       element={screens[item.path] ?? <PlaceholderPage item={item} />}
                     />
                   ))}
+                  <Route path="/hosts/*" element={<LocalHostPage />} />
                   <Route path="/remote/:ip" element={<RemoteIPPage />} />
                   <Route path="/guide/mikrotik" element={<MikroTikGuidePage />} />
                   <Route path="*" element={<NotFoundPage />} />

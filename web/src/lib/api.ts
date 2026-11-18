@@ -174,7 +174,10 @@ export function fetchBandwidth(range: RangeParams, signal?: AbortSignal) {
 export type TopDimension = "hosts" | "remotes" | "protocols" | "ports" | "countries" | "asns"
 
 export type TopItem = {
+  /** A Local Host's address, or a Host Label's prefix whose addresses count as one. */
   host?: string
+  /** How many addresses a Host Label's prefix row merges. */
+  addresses?: number
   remoteIp?: string
   localIsExporterHost?: boolean
   protocol: number
@@ -493,4 +496,95 @@ export type RDAPResult = {
 
 export function fetchRDAP(ip: string, signal?: AbortSignal) {
   return getJSON<RDAPResult>(`/api/remote-ips/${encodeURIComponent(ip)}/rdap`, signal)
+}
+
+export type HostLabel = { id: string; prefix: string; name: string; createdAt: string; updatedAt: string }
+
+export function fetchHostLabels(signal?: AbortSignal) {
+  return getJSON<{ labels: HostLabel[] }>("/api/host-labels", signal)
+}
+
+export const createHostLabel = (label: { prefix: string; name: string }) => postJSON<HostLabel>("/api/host-labels", label)
+
+export const updateHostLabel = (id: string, label: { prefix: string; name: string }) =>
+  putJSON<HostLabel>(`/api/host-labels/${encodeURIComponent(id)}`, label)
+
+export async function deleteHostLabel(id: string) {
+  const path = `/api/host-labels/${encodeURIComponent(id)}`
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
+}
+
+export type HostName = {
+  name?: string
+  /** label wins over dns; absent when there is no name. */
+  source?: "label" | "dns"
+  status: ReverseDNSName["status"]
+  /** The Host Label that named it, which may be on a wider prefix. */
+  label?: { id: string; prefix: string; name: string }
+}
+
+export function fetchHostNames(hosts: string[], signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  for (const h of hosts) params.append("host", h)
+  return getJSON<{ names: Record<string, HostName> }>(`/api/host-names?${params}`, signal)
+}
+
+export type HostItem = {
+  protocol?: number
+  servicePort?: number
+  host?: string
+  addresses?: number
+  country?: string
+  asn?: number
+  asnOrg?: string
+  receivedBytes: number
+  sentBytes: number
+  totalBytes: number
+  flows: number
+}
+
+export type HostSummary = {
+  from: string
+  to: string
+  source: Source
+  addresses: { address: string; receivedBytes: number; sentBytes: number; totalBytes: number }[]
+  localIsExporterHost?: boolean
+  receivedBytes: number
+  sentBytes: number
+  remoteBytes: number
+  internalBytes: number
+  flows: number
+  ports: HostItem[]
+  localPeers: HostItem[]
+  countries: HostItem[]
+  asns: HostItem[]
+}
+
+export type HostTraffic = {
+  from: string
+  to: string
+  stepSeconds: number
+  source: Source
+  points: { t: string; receivedBps: number; sentBps: number }[]
+}
+
+function hostParams(host: string, range: RangeParams) {
+  const params = rangeParams(range)
+  params.set("host", host)
+  return params
+}
+
+export function fetchHostSummary(host: string, range: RangeParams, signal?: AbortSignal) {
+  return getJSON<WithIncomplete<HostSummary>>(`/api/local-hosts/summary?${hostParams(host, range)}`, signal)
+}
+
+export function fetchHostTraffic(host: string, range: RangeParams, signal?: AbortSignal) {
+  return getJSON<WithIncomplete<HostTraffic>>(`/api/local-hosts/traffic?${hostParams(host, range)}`, signal)
+}
+
+export function fetchHostRemoteIPs(host: string, range: RangeParams, signal?: AbortSignal) {
+  const params = hostParams(host, range)
+  params.set("limit", "20")
+  return getJSON<WithIncomplete<RemoteResult>>(`/api/local-hosts/remote-ips?${params}`, signal)
 }

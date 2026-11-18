@@ -28,8 +28,8 @@ export const navItems: NavItem[] = [
   {
     title: "Local Hosts",
     path: "/hosts",
-    ready: false,
-    filters: none,
+    ready: true,
+    filters: { exporter: true, timeRange: true },
     icon: Monitor,
     summary: "Each Local Host's traffic over time, its Peers and the Service Ports it uses.",
   },
@@ -78,6 +78,9 @@ export type RouteMeta = {
 export function routeMeta(pathname: string): RouteMeta {
   const item = navItems.find((i) => i.path === pathname)
   if (item) return { title: item.title, activePath: item.path, filters: item.ready ? item.filters : none }
+  if (pathname.startsWith("/hosts/")) {
+    return { title: "Local Host", activePath: "/hosts", filters: { exporter: true, timeRange: true } }
+  }
   if (pathname.startsWith("/remote/")) {
     return { title: "Remote IP", activePath: "/remote", filters: { exporter: true, timeRange: true } }
   }

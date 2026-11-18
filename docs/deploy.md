@@ -72,6 +72,13 @@ Reverse DNS names are looked up only for Remote IPs shown on screen, through a r
 
 Both send the address you look at to your DNS resolver or to a registry (ARIN, RIPE NCC, APNIC, LACNIC or AFRINIC). Flows themselves never trigger a lookup.
 
+## Local Host names
+
+A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts page wins, then its reverse DNS name, then the address.
+
+- **Reverse DNS** for Local Hosts asks the server in `FLOWMON_LOCAL_DNS_SERVER`, or the container's resolver when it is unset. Point it at the server that knows your hosts by name, such as the MikroTik or a Pi-hole. Names are cached for an hour, because DHCP can move them.
+- **Host Labels** are stored in the App Store. A label on a single address names that host. A label on a prefix, such as an IPv6 `/64` or a DHCP range written as a prefix, makes every address in it one Local Host. Use it for a device whose addresses rotate. A label on an address inside a labelled prefix keeps that address separate, because the longest prefix wins.
+
 ## Backups
 
 Back up the `/data` volume as a whole. It holds:
