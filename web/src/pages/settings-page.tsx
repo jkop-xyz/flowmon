@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react"
 
+import { LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
 import { DBIPAttribution } from "@/components/geoip"
 import { ServiceNamesCard } from "@/components/service-names-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
@@ -16,6 +17,8 @@ const kindLabels: Record<GeoIPDatabase["kind"], string> = { country: "Countries"
 export function SettingsPage() {
   return (
     <Page>
+      <LocalNetworksCard />
+      <RetentionCard />
       <GeoIPCard />
       <ServiceNamesCard />
     </Page>

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -34,10 +35,15 @@ type Options struct {
 	TTL           time.Duration
 	Proxies       Proxies
 	SecureCookies SecureCookies
-	// CacheTTL keeps recently checked sessions valid in memory, so a short App Store
-	// outage doesn't log everyone out.
+	// CacheTTL keeps recently checked sessions valid in memory without asking the App
+	// Store again.
 	CacheTTL time.Duration
-	Now      func() time.Time
+	// OutageGrace keeps sessions confirmed this recently valid while the App Store is
+	// unavailable, so an outage doesn't log everyone out. 0 means an hour.
+	OutageGrace time.Duration
+	// Available reports whether the App Store answers; nil means it always does.
+	Available func() bool
+	Now       func() time.Time
 }
 
 // Manager issues and checks sessions.
@@ -66,6 +72,12 @@ func NewManager(store func() *appstore.Store, opts Options) *Manager {
 	if opts.CacheTTL <= 0 {
 		opts.CacheTTL = time.Minute
 	}
+	if opts.OutageGrace <= 0 {
+		opts.OutageGrace = time.Hour
+	}
+	if opts.Available == nil {
+		opts.Available = func() bool { return true }
+	}
 	if opts.SecureCookies == "" {
 		opts.SecureCookies = SecureAuto
 	}
@@ -88,6 +100,8 @@ var (
 	ErrRateLimited    = errors.New("auth: too many failed logins")
 	ErrNoStore        = errors.New("auth: the App Store isn't available")
 	ErrNoSession      = errors.New("auth: not logged in")
+	// ErrUnavailable means the App Store is set up but not answering.
+	ErrUnavailable = errors.New("auth: the App Store is unavailable")
 )
 
 // RateLimitError says how long to wait.
@@ -115,6 +129,9 @@ func (m *Manager) Login(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if store == nil {
 		return appstore.User{}, ErrNoStore
 	}
+	if !m.opts.Available() {
+		return appstore.User{}, ErrUnavailable
+	}
 
 	user, err := store.UserByUsername(ctx, username)
 	hash := user.PasswordHash
@@ -123,7 +140,7 @@ func (m *Manager) Login(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	}
 	match, verr := VerifyPassword(hash, password)
 	if err != nil && !errors.Is(err, appstore.ErrNotFound) {
-		return appstore.User{}, err
+		return appstore.User{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	if err != nil || verr != nil || !match || user.Disabled || user.PasswordHash == "" {
 		m.IPLimiter.Fail(ip, now)
@@ -196,17 +213,27 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) (appstore.U
 	if store == nil {
 		return appstore.User{}, ErrNoStore
 	}
+	// During an outage, a session confirmed recently stays valid from memory.
+	outage := func(err error) (appstore.User, error) {
+		if ok && now.Sub(hit.checked) < m.opts.OutageGrace {
+			return hit.user, nil
+		}
+		return appstore.User{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	if !m.opts.Available() {
+		return outage(errors.New("not answering"))
+	}
 	sess, err := store.SessionByTokenHash(ctx, key, now)
 	if errors.Is(err, appstore.ErrNotFound) {
 		m.forget(key)
 		return appstore.User{}, ErrNoSession
 	}
 	if err != nil {
-		return appstore.User{}, err
+		return outage(err)
 	}
 	user, err := store.UserByID(ctx, sess.UserID)
 	if err != nil {
-		return appstore.User{}, err
+		return outage(err)
 	}
 	if user.Disabled {
 		return appstore.User{}, ErrNoSession

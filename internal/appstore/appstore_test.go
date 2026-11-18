@@ -288,3 +288,26 @@ func TestServiceNames(t *testing.T) {
 		}
 	})
 }
+
+func TestHolderHealth(t *testing.T) {
+	var h Holder
+	if h.Usable() != nil || h.Health().Available {
+		t.Fatal("an empty holder is usable")
+	}
+	s, err := Open(ctx, Config{Driver: SQLite, Path: filepath.Join(t.TempDir(), "flowmon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Set(s)
+	if h.Usable() != s || !h.Health().Available {
+		t.Fatal("a newly set store isn't usable")
+	}
+	if _, changed := h.Check(ctx, time.Second); changed {
+		t.Error("a healthy check reported a change")
+	}
+	s.Close()
+	st, changed := h.Check(ctx, time.Second)
+	if !changed || st.Available || st.Error == "" || h.Usable() != nil || h.Get() != s {
+		t.Errorf("after closing: %+v %v", st, changed)
+	}
+}

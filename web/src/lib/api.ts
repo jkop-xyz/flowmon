@@ -689,3 +689,33 @@ export async function deleteServiceName(protocol: number, port: number) {
   const response = await fetch(path, { method: "DELETE" })
   if (!response.ok) await parse(path, response)
 }
+
+export type AppStoreStatus = {
+  configured: boolean
+  available: boolean
+  since?: string
+  error?: string
+  driver?: "sqlite" | "postgres"
+}
+
+export function fetchStatus(signal?: AbortSignal) {
+  return getJSON<{ appStore?: AppStoreStatus }>("/api/status", signal)
+}
+
+export type RetentionSetting = { seconds: number; locked: boolean; env: string }
+
+export type Settings = {
+  localNetworks: { value: string[]; defaults: string[]; locked: boolean; env: string }
+  retention: Record<"raw" | "minute" | "hour", RetentionSetting>
+  minRetentionDays: number
+  maxRetentionDays: number
+}
+
+export function fetchSettings(signal?: AbortSignal) {
+  return getJSON<Settings>("/api/settings", signal)
+}
+
+export const saveSettings = (change: {
+  localNetworks?: string[]
+  retentionDays?: Partial<Record<"raw" | "minute" | "hour", number>>
+}) => putJSON<Settings>("/api/settings", change)

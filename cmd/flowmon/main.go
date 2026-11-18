@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/reprocess"
 	"github.com/jkop-xyz/flowmon/internal/secret"
 	"github.com/jkop-xyz/flowmon/internal/services"
+	"github.com/jkop-xyz/flowmon/internal/settings"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 	"github.com/jkop-xyz/flowmon/internal/snmp"
 	"github.com/jkop-xyz/flowmon/web"
@@ -121,12 +123,11 @@ func serve(stderr io.Writer) int {
 			"path", cfg.DebugCapture, "max_duration", cfg.DebugCaptureMaxDuration)
 	}
 
-	extra, err := classify.ParseLocalNetworks(cfg.ExtraLocalNetworks)
+	settingsEnv, err := settings.FromConfig(cfg)
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error: FLOWMON_LOCAL_NETWORKS:", err)
+		fmt.Fprintln(stderr, "configuration error:", err)
 		return 2
 	}
-	classifier := classify.New(append(classify.DefaultLocalNetworks(), extra...))
 
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		logger.Error("data directory", "err", err)
@@ -141,6 +142,15 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	defer store.Close()
+
+	// Local Networks and retention: environment variables win, then what was set in
+	// Settings, then the defaults.
+	collectionSettings, err := settings.Load(ctx, store, settingsEnv)
+	if err != nil {
+		logger.Error("settings", "err", err)
+		return 1
+	}
+	classifier := classify.New(collectionSettings.Current().LocalNetworks)
 
 	ifaceRegistry, err := interfaces.Load(ctx, store)
 	if err != nil {
@@ -175,8 +185,7 @@ func serve(stderr io.Writer) int {
 		pipelineDone.Wait()
 	}()
 
-	retention := flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour}
-	go maintain(pipelineCtx, logger, store, pipeline, retention)
+	go maintain(pipelineCtx, logger, store, pipeline, func() flowstore.Retention { return collectionSettings.Current().Retention })
 	go geo.Run(pipelineCtx)
 
 	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
@@ -190,6 +199,24 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
+	collectionSettings.OnChange(func(v settings.Values) {
+		before := classifier.LocalNetworks()
+		classifier.SetLocalNetworks(v.LocalNetworks)
+		if slices.Equal(before, v.LocalNetworks) {
+			return
+		}
+		// Flows from now on are classified with the new Local Networks; charts mark when.
+		now := time.Now()
+		for _, c := range registry.Configs() {
+			if c.Status != exporters.StatusApproved {
+				continue
+			}
+			if err := store.AddClassificationChange(context.Background(), c.Address, now, "Local Networks changed"); err != nil {
+				logger.Warn("recording a classification change", "exporter", c.Address.String(), "err", err)
+			}
+		}
+		logger.Info("local networks changed", "networks", v.LocalNetworks)
+	})
 	reprocessor := reprocess.New(store, func(f *flow.Flow) {
 		peer := f.Peer
 		classifier.Classify(f, f.End)
@@ -267,6 +294,16 @@ func serve(stderr io.Writer) int {
 	authManager := auth.NewManager(holder.Get, auth.Options{
 		Proxies:       auth.Proxies{Trusted: proxies},
 		SecureCookies: auth.SecureCookies(cfg.SecureCookies),
+		Available:     func() bool { return holder.Health().Available },
+	})
+	// Watch the App Store, so an outage is noticed once, shown in the UI, and skipped
+	// by everything that can do without it. Collection never touches it.
+	go holder.Monitor(ctx, 15*time.Second, func(h appstore.Health) {
+		if h.Available {
+			logger.Info("app store available again")
+		} else {
+			logger.Error("app store unavailable; collection continues, logins and changes to accounts, labels and names wait", "err", h.Error)
+		}
 	})
 	storeCfg, locked, storeErr := appStoreConfig(cfg)
 	setupCtl := setup.New(setup.Options{
@@ -302,7 +339,7 @@ func serve(stderr io.Writer) int {
 
 	// Reverse DNS and RDAP are cached in the App Store when it is reachable.
 	ipCache := func() enrichment.Persister {
-		if s := holder.Get(); s != nil {
+		if s := holder.Usable(); s != nil {
 			return s
 		}
 		return nil
@@ -321,7 +358,7 @@ func serve(stderr io.Writer) int {
 	})
 	go localDNS.Run(pipelineCtx)
 	hostDirectory := hosts.NewDirectory(func() hosts.LabelStore {
-		if s := holder.Get(); s != nil {
+		if s := holder.Usable(); s != nil {
 			return s
 		}
 		return nil
@@ -339,15 +376,17 @@ func serve(stderr io.Writer) int {
 		Setup:     setupCtl,
 		Exporters: registry,
 		Interfaces: &httpserver.InterfaceOptions{
-			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
+			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: func() time.Duration { return collectionSettings.Current().Retention.Raw },
 		},
 		SNMP:     &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
 		GeoIP:    geo,
 		Remote:   &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 		Hosts:    &httpserver.HostOptions{Store: store, Directory: hostDirectory},
 		Explorer: store,
+		Settings: collectionSettings,
+		AppStore: holder,
 		Services: services.NewDirectory(func() services.Store {
-			if s := holder.Get(); s != nil {
+			if s := holder.Usable(); s != nil {
 				return s
 			}
 			return nil
@@ -442,7 +481,7 @@ func expireSessions(ctx context.Context, logger *slog.Logger, s *appstore.Store)
 }
 
 // maintain compacts Rollups, builds Top Remote IPs and applies retention every ten minutes.
-func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, r flowstore.Retention) {
+func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, retention func() flowstore.Retention) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -454,7 +493,7 @@ func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, 
 		} else if n > 0 {
 			logger.Debug("Top Remote IPs built", "periods", n)
 		}
-		dropped, err := store.ApplyRetention(ctx, r, time.Now(), pipeline.MaxWatermark())
+		dropped, err := store.ApplyRetention(ctx, retention(), time.Now(), pipeline.MaxWatermark())
 		if err != nil && ctx.Err() == nil {
 			logger.Error("applying retention", "err", err)
 		}

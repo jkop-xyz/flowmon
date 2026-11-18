@@ -28,8 +28,8 @@ type InterfaceOptions struct {
 		ClassificationChanges(ctx context.Context, from, to time.Time, exporter netip.Addr) ([]flowstore.ClassificationChange, error)
 	}
 	Reprocess *reprocess.Runner
-	// RawRetention bounds how far back reprocessing can reach.
-	RawRetention time.Duration
+	// RawRetention bounds how far back reprocessing can reach; it can change in Settings.
+	RawRetention func() time.Duration
 }
 
 // InterfaceView is one interface number of an Exporter, with its live counts.
@@ -69,7 +69,7 @@ func registerInterfaces(mux *http.ServeMux, opts Options) {
 	}
 	view := func(a netip.Addr) InterfacesResponse {
 		res := InterfacesResponse{ClassificationMode: exporters.ByAddress, Interfaces: []InterfaceView{},
-			Changes: io.Registry.Changes(a, opts.Now()), ReprocessFrom: opts.Now().Add(-io.RawRetention).UTC()}
+			Changes: io.Registry.Changes(a, opts.Now()), ReprocessFrom: opts.Now().Add(-io.RawRetention()).UTC()}
 		if c, ok := opts.Exporters.Config(a); ok {
 			res.ClassificationMode = c.ClassificationMode
 		}
@@ -186,7 +186,7 @@ func registerInterfaces(mux *http.ServeMux, opts Options) {
 		if !ok || io.Reprocess == nil {
 			return
 		}
-		if err := io.Reprocess.Start(a, opts.Now().Add(-io.RawRetention)); errors.Is(err, reprocess.ErrBusy) {
+		if err := io.Reprocess.Start(a, opts.Now().Add(-io.RawRetention())); errors.Is(err, reprocess.ErrBusy) {
 			errorJSON(w, http.StatusConflict, "a reprocessing job is already running")
 			return
 		}

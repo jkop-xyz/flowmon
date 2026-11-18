@@ -26,6 +26,9 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+// unavailableMessage explains an App Store outage to someone trying to log in.
+const unavailableMessage = "The App Store isn't answering, so logins can't be checked right now. Flowmon is still collecting Flows."
+
 func errorJSON(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
@@ -140,6 +143,8 @@ func registerAuth(mux *http.ServeMux, opts Options) {
 			errorJSON(w, http.StatusUnauthorized, "wrong username or password")
 		case errors.Is(err, auth.ErrNoStore):
 			errorJSON(w, http.StatusServiceUnavailable, "the App Store isn't available")
+		case errors.Is(err, auth.ErrUnavailable):
+			errorJSON(w, http.StatusServiceUnavailable, unavailableMessage)
 		default:
 			opts.Logger.Error("login", "err", err)
 			errorJSON(w, http.StatusServiceUnavailable, "the App Store isn't available")
@@ -167,6 +172,9 @@ func unauthenticated(w http.ResponseWriter, opts Options, err error) {
 		errorJSON(w, http.StatusUnauthorized, "unauthenticated")
 	case errors.Is(err, auth.ErrNoStore):
 		errorJSON(w, http.StatusUnauthorized, "setup_required")
+	case errors.Is(err, auth.ErrUnavailable):
+		// The App Store monitor logs the outage once; don't log every request.
+		errorJSON(w, http.StatusServiceUnavailable, unavailableMessage)
 	default:
 		opts.Logger.Error("checking session", "err", err)
 		errorJSON(w, http.StatusServiceUnavailable, "the App Store isn't available")
