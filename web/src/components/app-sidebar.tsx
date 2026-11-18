@@ -14,7 +14,8 @@ import {
 import { navItems } from "@/lib/navigation"
 
 export function AppSidebar() {
-  const { pathname } = useLocation()
+  // Links keep the query string so the global time range survives navigation.
+  const { pathname, search } = useLocation()
 
   return (
     <Sidebar collapsible="icon">
@@ -39,7 +40,7 @@ export function AppSidebar() {
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.path}>
                   <SidebarMenuButton asChild isActive={pathname === item.path} tooltip={item.title}>
-                    <NavLink to={item.path} end>
+                    <NavLink to={{ pathname: item.path, search }} end>
                       <item.icon />
                       <span>{item.title}</span>
                     </NavLink>

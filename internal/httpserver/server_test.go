@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,8 +9,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
 
 func newTestHandler(ui fstest.MapFS) http.Handler {
@@ -61,6 +64,39 @@ func TestExportersFromCollector(t *testing.T) {
 	}
 	if len(st.Exporters) != 1 || st.Exporters[0].Address != "192.168.10.1" {
 		t.Errorf("status %+v", st)
+	}
+}
+
+type fakeFlows struct{ got flowstore.BandwidthQuery }
+
+func (f *fakeFlows) Bandwidth(_ context.Context, q flowstore.BandwidthQuery) (flowstore.BandwidthResult, error) {
+	f.got = q
+	if q.To.Sub(q.From) > flowstore.MaxRawRange {
+		return flowstore.BandwidthResult{}, flowstore.ErrInvalidRange
+	}
+	return flowstore.BandwidthResult{From: q.From, To: q.To, StepS: 10, Points: []flowstore.BandwidthPoint{{Time: q.From, InboundBps: 8}}}, nil
+}
+
+func TestBandwidthEndpoint(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	flows := &fakeFlows{}
+	h := New(Options{UI: builtUI, Flows: flows, Now: func() time.Time { return now }})
+
+	rec := get(t, h, "/api/overview/bandwidth")
+	if rec.Code != http.StatusOK || !flows.got.From.Equal(now.Add(-time.Hour)) || !flows.got.To.Equal(now) {
+		t.Errorf("default range: %d %+v", rec.Code, flows.got)
+	}
+	rec = get(t, h, "/api/overview/bandwidth?from=2026-11-18T11:00:00Z&to=2026-11-18T11:30:00Z&exporter=192.168.10.1")
+	if rec.Code != http.StatusOK || flows.got.Exporter != netip.MustParseAddr("192.168.10.1") || !strings.Contains(rec.Body.String(), `"inboundBps":8`) {
+		t.Errorf("explicit: %d %+v %s", rec.Code, flows.got, rec.Body.String())
+	}
+	for _, bad := range []string{"?from=yesterday", "?exporter=router", "?from=2026-01-01T00:00:00Z"} {
+		if rec := get(t, h, "/api/overview/bandwidth"+bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, rec.Code)
+		}
+	}
+	if rec := get(t, New(Options{UI: builtUI}), "/api/overview/bandwidth"); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("no store: %d", rec.Code)
 	}
 }
 

@@ -2,16 +2,19 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
 
 // Options configures the handler.
@@ -24,12 +27,25 @@ type Options struct {
 	Logger *slog.Logger
 	// Collector provides the Exporters page. Nil serves an empty list.
 	Collector interface{ Status() collector.Status }
+	// Timing adds per-Exporter timing to the Exporters page.
+	Timing interface {
+		Timing(exporter netip.Addr) *collector.TimingStatus
+	}
+	// Flows answers the Overview's queries.
+	Flows interface {
+		Bandwidth(ctx context.Context, q flowstore.BandwidthQuery) (flowstore.BandwidthResult, error)
+	}
+	// Now returns the current time; tests replace it.
+	Now func() time.Time
 }
 
 // New returns the root handler: the API under /api/ and the single-page UI everywhere else.
 func New(opts Options) http.Handler {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 
 	mux := http.NewServeMux()
@@ -41,7 +57,37 @@ func New(opts Options) http.Handler {
 			writeJSON(w, http.StatusOK, collector.Status{Listeners: []string{}, Exporters: []collector.ExporterStatus{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, opts.Collector.Status())
+		st := opts.Collector.Status()
+		if opts.Timing != nil {
+			for i := range st.Exporters {
+				if addr, err := netip.ParseAddr(st.Exporters[i].Address); err == nil {
+					st.Exporters[i].Timing = opts.Timing.Timing(addr)
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
+	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Flows == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
+			return
+		}
+		q, err := bandwidthQuery(r, opts.Now())
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		res, err := opts.Flows.Bandwidth(r.Context(), q)
+		if errors.Is(err, flowstore.ErrInvalidRange) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the time range must be positive and at most 8 days"})
+			return
+		}
+		if err != nil {
+			opts.Logger.Error("bandwidth query", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -60,6 +106,29 @@ func NewServer(addr string, handler http.Handler) *http.Server {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+}
+
+// bandwidthQuery reads from, to (RFC 3339, default the last hour), exporter and points.
+func bandwidthQuery(r *http.Request, now time.Time) (flowstore.BandwidthQuery, error) {
+	v := r.URL.Query()
+	q := flowstore.BandwidthQuery{From: now.Add(-time.Hour), To: now}
+	var err error
+	if s := v.Get("from"); s != "" {
+		if q.From, err = time.Parse(time.RFC3339, s); err != nil {
+			return q, errors.New("from must be an RFC 3339 time")
+		}
+	}
+	if s := v.Get("to"); s != "" {
+		if q.To, err = time.Parse(time.RFC3339, s); err != nil {
+			return q, errors.New("to must be an RFC 3339 time")
+		}
+	}
+	if s := v.Get("exporter"); s != "" {
+		if q.Exporter, err = netip.ParseAddr(s); err != nil {
+			return q, errors.New("exporter must be an IP address")
+		}
+	}
+	return q, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -13,8 +13,9 @@ import {
   type ExporterStatus,
   type Finding,
   type TemplateStatus,
+  type TimingStatus,
 } from "@/lib/api"
-import { formatAgo, formatBytes, formatDateTime, formatNumber } from "@/lib/format"
+import { formatAgo, formatBytes, formatDateTime, formatNumber, formatSeconds } from "@/lib/format"
 
 /** An Exporter counts as receiving if it sent something in the last two minutes. */
 const RECEIVING_WINDOW_MS = 2 * 60 * 1000
@@ -160,6 +161,8 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
 
         {exporter.findings.length > 0 && <Findings findings={exporter.findings} />}
 
+        {exporter.timing && <Timing timing={exporter.timing} />}
+
         {exporter.deviations.length > 0 && <Deviations deviations={exporter.deviations} now={now} />}
 
         <section className="flex flex-col gap-2">
@@ -196,6 +199,26 @@ function Findings({ findings }: { findings: Finding[] }) {
         </Alert>
       ))}
     </div>
+  )
+}
+
+function Timing({ timing }: { timing: TimingStatus }) {
+  const offset = timing.clockOffsetSeconds
+  const clock =
+    Math.abs(offset) < 2 ? "in sync" : offset > 0 ? `${formatSeconds(offset)} behind` : `${formatSeconds(-offset)} ahead`
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium">Timing</h3>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <Stat label="Exporter clock vs Flowmon" value={clock} />
+        <Stat label="Flow end to export (median)" value={formatSeconds(timing.exportLagSeconds)} />
+        <Stat
+          label="Flows with estimated times"
+          value={`${formatNumber(timing.estimatedTimeFlows)} of ${formatNumber(timing.flows)}`}
+        />
+      </div>
+      {timing.findings.length > 0 && <Findings findings={timing.findings} />}
+    </section>
   )
 }
 

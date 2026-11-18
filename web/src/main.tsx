@@ -9,10 +9,12 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { navItems } from "@/lib/navigation"
 import { ExportersPage } from "@/pages/exporters-page"
+import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
 const screens: Record<string, React.ReactNode> = {
+  "/": <OverviewPage />,
   "/exporters": <ExportersPage />,
 }
 

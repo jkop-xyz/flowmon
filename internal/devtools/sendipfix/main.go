@@ -54,16 +54,25 @@ func main() {
 		var records [][][]byte
 		for j := 0; j < *perMessage; j++ {
 			uptime := uint32(time.Since(start).Milliseconds()) + 60_000
-			src, dst := locals[rand.IntN(len(locals))], remotes[rand.IntN(len(remotes))]
-			records = append(records, [][]byte{
-				src, dst,
-				ipfixtest.U16(uint16(32768 + rand.IntN(28000))), ipfixtest.U16([]uint16{443, 53, 80, 123}[rand.IntN(4)]),
-				ipfixtest.U8([]uint8{6, 17}[rand.IntN(2)]),
-				ipfixtest.U32(3), ipfixtest.U32(1),
-				ipfixtest.U32(uint32(500 + rand.IntN(2_000_000))), ipfixtest.U32(uint32(1 + rand.IntN(2000))),
-				ipfixtest.U32(uptime - 15_000), ipfixtest.U32(uptime),
-				wan, dst,
-			})
+			local, remote := locals[rand.IntN(len(locals))], remotes[rand.IntN(len(remotes))]
+			localPort := ipfixtest.U16(uint16(32768 + rand.IntN(28000)))
+			service := ipfixtest.U16([]uint16{443, 53, 80, 123}[rand.IntN(4)])
+			proto := ipfixtest.U8([]uint8{6, 17}[rand.IntN(2)])
+			times := [][]byte{ipfixtest.U32(uptime - 15_000), ipfixtest.U32(uptime)}
+			if rand.IntN(3) == 0 {
+				// Outbound request: the LAN host is the pre-NAT source, the router's WAN address the post-NAT one.
+				records = append(records, append([][]byte{
+					local, remote, localPort, service, proto, ipfixtest.U32(1), ipfixtest.U32(3),
+					ipfixtest.U32(uint32(500 + rand.IntN(200_000))), ipfixtest.U32(uint32(1 + rand.IntN(200))),
+				}, append(times, wan, remote)...))
+			} else {
+				// Download reply, as MikroTik reports it: sent to the WAN address, with the LAN host
+				// only in the post-NAT destination.
+				records = append(records, append([][]byte{
+					remote, wan, service, localPort, proto, ipfixtest.U32(3), ipfixtest.U32(1),
+					ipfixtest.U32(uint32(5_000 + rand.IntN(3_000_000))), ipfixtest.U32(uint32(1 + rand.IntN(2000))),
+				}, append(times, remote, local)...))
+			}
 		}
 		msg.DataSet(tmpl, records...)
 		seq += uint32(len(records))
