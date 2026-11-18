@@ -457,3 +457,40 @@ export function fetchRemoteFlows(ip: string, range: RangeParams, signal?: AbortS
   params.set("limit", "100")
   return getJSON<FlowList>(`/api/remote-ips/${encodeURIComponent(ip)}/flows?${params}`, signal)
 }
+
+export type ReverseDNSName = {
+  name?: string
+  /** pending until the background queue gets to it; failed is retried later. */
+  status: "resolved" | "none" | "pending" | "failed"
+}
+
+export function fetchReverseDNS(ips: string[], signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  for (const ip of ips) params.append("ip", ip)
+  return getJSON<{ names: Record<string, ReverseDNSName> }>(`/api/reverse-dns?${params}`, signal)
+}
+
+export type Registration = {
+  handle?: string
+  name?: string
+  type?: string
+  country?: string
+  cidrs: string[]
+  start?: string
+  end?: string
+  organisation?: string
+  abuseEmail?: string
+  registered?: string
+  lastChanged?: string
+  server?: string
+}
+
+export type RDAPResult = {
+  status: "found" | "not-found"
+  registration?: Registration
+  fetchedAt: string
+}
+
+export function fetchRDAP(ip: string, signal?: AbortSignal) {
+  return getJSON<RDAPResult>(`/api/remote-ips/${encodeURIComponent(ip)}/rdap`, signal)
+}

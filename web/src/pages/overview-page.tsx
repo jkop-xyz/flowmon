@@ -20,12 +20,15 @@ import {
   type BandwidthPoint,
   type ClassificationChange,
   type TopDimension,
+  type ReverseDNSName,
   type TopItem,
 } from "@/lib/api"
 import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
 import { RemoteIPLink } from "@/components/remote"
+import { ReverseDNS } from "@/components/reverse-dns"
+import { useReverseDNS } from "@/lib/reverse-dns"
 import { countryName } from "@/lib/countries"
 import {
   formatBitsPerSecond,
@@ -347,6 +350,7 @@ function CardFooterNote({ children }: { children: ReactNode }) {
 }
 
 function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
+  const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
   if (items.length === 0) return <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
   return (
     <ol className="flex flex-col gap-3">
@@ -359,6 +363,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
           mono={mono}
           exporterHost={dimension === "hosts" && item.localIsExporterHost}
           remote={dimension === "remotes"}
+          name={dimension === "remotes" ? names[item.remoteIp ?? ""] : undefined}
         />
       ))}
     </ol>
@@ -431,6 +436,7 @@ function TopRow({
   mono,
   exporterHost,
   remote,
+  name,
 }: {
   label: string
   item: TopItem
@@ -439,6 +445,8 @@ function TopRow({
   exporterHost?: boolean
   /** The label is a Remote IP: link to its page. */
   remote?: boolean
+  /** Its reverse DNS name, for Remote IPs. */
+  name?: ReverseDNSName
 }) {
   const width = max > 0 ? Math.max(2, (item.totalBytes / max) * 100) : 0
   const received = item.receivedBytes
@@ -448,7 +456,10 @@ function TopRow({
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">
           {remote ? (
-            <RemoteIPLink ip={label} className="truncate font-mono text-xs underline-offset-4 hover:underline" />
+            <>
+              <RemoteIPLink ip={label} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
+              <ReverseDNS name={name} className="min-w-0" />
+            </>
           ) : (
             <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={label}>
               {label}

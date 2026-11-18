@@ -66,6 +66,12 @@ Downloads go to `/data/geoip-downloads`. With `FLOWMON_GEOIP_DOWNLOAD=false`, no
 
 A Flow keeps the country and ASN Owner it was stored with. A newer database applies to Flows from then on; it doesn't rewrite history.
 
+## Reverse DNS and RDAP
+
+Reverse DNS names are looked up only for Remote IPs shown on screen, through a rate-limited queue and the host's DNS resolver. Registration details (RDAP) are fetched only when you open a Remote IP's page, from the regional registry the [IANA bootstrap files](https://data.iana.org/rdap/) name for it. Results are cached in the App Store: reverse DNS for 24 hours, RDAP for 7 days.
+
+Both send the address you look at to your DNS resolver or to a registry (ARIN, RIPE NCC, APNIC, LACNIC or AFRINIC). Flows themselves never trigger a lookup.
+
 ## Backups
 
 Back up the `/data` volume as a whole. It holds:
