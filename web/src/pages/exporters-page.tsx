@@ -4,9 +4,11 @@ import { AlertTriangle, Cable, ChevronRight, Info, Radio } from "lucide-react"
 
 import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
 import { InterfacesSection } from "@/components/interfaces-section"
+import { EmptyState, Page, QueryError, Section, SectionHeading, Stat, TimeAgo } from "@/components/page"
 import { SNMPSection } from "@/components/snmp-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,7 +22,7 @@ import {
   type TimingStatus,
 } from "@/lib/api"
 import { useExporterFilter } from "@/lib/exporter-filter"
-import { formatAgo, formatBytes, formatDateTime, formatNumber, formatSeconds } from "@/lib/format"
+import { formatBytes, formatNumber, formatSeconds } from "@/lib/format"
 
 /** An Exporter counts as receiving if it sent something in the last two minutes. */
 const RECEIVING_WINDOW_MS = 2 * 60 * 1000
@@ -66,19 +68,17 @@ export function ExportersPage() {
 
   if (query.isPending) {
     return (
-      <div className="flex flex-col gap-4">
+      <Page>
         <Skeleton className="h-6 w-72" />
         <Skeleton className="h-48 w-full" />
-      </div>
+      </Page>
     )
   }
   if (query.isError) {
     return (
-      <Alert variant="destructive" className="max-w-2xl">
-        <AlertTriangle />
-        <AlertTitle>Couldn't load Exporters</AlertTitle>
-        <AlertDescription>{query.error.message}</AlertDescription>
-      </Alert>
+      <Page>
+        <QueryError title="Couldn't load Exporters" error={query.error} />
+      </Page>
     )
   }
 
@@ -92,11 +92,8 @@ export function ExportersPage() {
   const now = query.dataUpdatedAt
 
   return (
-    <div className="flex flex-col gap-6">
+    <Page>
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <Link to="/guide/mikrotik" className="order-last ml-auto underline underline-offset-4">
-          MikroTik setup guide
-        </Link>
         <Radio className="size-4" />
         <span>Listening on</span>
         {listeners.length === 0 ? (
@@ -108,84 +105,87 @@ export function ExportersPage() {
             </Badge>
           ))
         )}
+        <Link to="/guide/mikrotik" className="ml-auto underline underline-offset-4">
+          MikroTik setup guide
+        </Link>
       </div>
 
       {droppedOverExporterLimit > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="warning">
           <AlertTriangle />
           <AlertTitle>Exporter limit reached</AlertTitle>
           <AlertDescription>
             {formatNumber(droppedOverExporterLimit)} datagrams from new sources were ignored because Flowmon already
-            tracks {maxExporters} Exporters (FLOWMON_MAX_EXPORTERS).
+            tracks {formatNumber(maxExporters)} Exporters (FLOWMON_MAX_EXPORTERS).
           </AlertDescription>
         </Alert>
       )}
 
       {droppedOverPendingLimit > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="warning">
           <AlertTriangle />
           <AlertTitle>Too many Exporters waiting for approval</AlertTitle>
           <AlertDescription>
             {formatNumber(droppedOverPendingLimit)} datagrams from further new sources were ignored: at most{" "}
-            {maxPending} Exporters can wait for approval at once. Approve or ignore the ones below.
+            {formatNumber(maxPending)} Exporters can wait for approval at once. Approve or ignore the ones below.
           </AlertDescription>
         </Alert>
       )}
 
       {exporters.length === 0 ? (
-        <EmptyState />
+        <EmptyState
+          icon={Cable}
+          title="No Exporters yet"
+          action={
+            <Button asChild size="sm" variant="outline">
+              <Link to="/guide/mikrotik">Open the MikroTik setup guide</Link>
+            </Button>
+          }
+        >
+          <p>
+            Point your router's flow export (IPFIX) at this host, on one of the ports above. An Exporter appears here as
+            soon as its first packet arrives, with every Template it sends.
+          </p>
+        </EmptyState>
       ) : (
         exporters.map((exporter) => <ExporterCard key={exporter.address} exporter={exporter} now={now} />)
       )}
-    </div>
+    </Page>
   )
 }
 
-function EmptyState() {
-  return (
-    <Card className="max-w-2xl">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Cable className="size-5 text-muted-foreground" />
-          <CardTitle>No Exporters yet</CardTitle>
-        </div>
-        <CardDescription>
-          Point your router's flow export (IPFIX) at this host, on one of the ports above. An Exporter appears here as
-          soon as its first packet arrives, with every Template it sends. Using a MikroTik? Follow the{" "}
-          <Link to="/guide/mikrotik" className="underline underline-offset-4">
-            MikroTik setup guide
-          </Link>
-          .
-        </CardDescription>
-      </CardHeader>
-    </Card>
-  )
+const roleLabels: Record<string, string> = { edge: "Edge", internal: "Internal" }
+const modeLabels: Record<string, string> = { interface: "By interface", address: "By address" }
+
+function ApprovalBadge({ exporter, receiving }: { exporter: ExporterStatus; receiving: boolean }) {
+  switch (exporter.approval) {
+    case "pending":
+      return <Badge variant="warning">Waiting for approval</Badge>
+    case "ignored":
+      return <Badge variant="secondary">Ignored</Badge>
+  }
+  if (!exporter.seen) return <Badge variant="secondary">Not seen yet</Badge>
+  return <Badge variant={receiving ? "default" : "secondary"}>{receiving ? "Receiving" : "Silent"}</Badge>
 }
 
 function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number }) {
   const receiving = now - new Date(exporter.lastSeen).getTime() < RECEIVING_WINDOW_MS
   const domains = exporter.observationDomains ?? []
+  const approved = exporter.approval === "approved"
 
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle className="text-base">
+          <CardTitle className="min-w-0 break-all">
             {exporter.name && <span className="mr-2">{exporter.name}</span>}
             <span className={exporter.name ? "font-mono text-muted-foreground" : "font-mono"}>{exporter.address}</span>
           </CardTitle>
-          {exporter.approval === "approved" ? (
-            exporter.seen && (
-              <Badge variant={receiving ? "default" : "secondary"}>{receiving ? "Receiving" : "Silent"}</Badge>
-            )
-          ) : (
-            <Badge variant={exporter.approval === "pending" ? "destructive" : "secondary"}>
-              {exporter.approval === "pending" ? "Waiting for approval" : "Ignored"}
-            </Badge>
-          )}
-          {exporter.approval === "approved" && (
+          <ApprovalBadge exporter={exporter} receiving={receiving} />
+          {approved && (
             <Badge variant="outline">
-              Edge · by {exporter.classificationMode === "interface" ? "interface" : "address"}
+              {roleLabels[exporter.role] ?? exporter.role} ·{" "}
+              {modeLabels[exporter.classificationMode] ?? exporter.classificationMode}
             </Badge>
           )}
           <ExporterActions exporter={exporter} />
@@ -193,52 +193,45 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
         <CardDescription>
           {exporter.seen ? (
             <>
-              <span title={formatDateTime(exporter.lastSeen)}>Last seen {formatAgo(exporter.lastSeen, now)}</span>
+              Last seen <TimeAgo iso={exporter.lastSeen} now={now} />
               {" · "}from <span className="font-mono">{exporter.lastSource}</span>
               {domains.length > 0 && <> · Observation Domain {domains.join(", ")}</>}
             </>
           ) : (
-            "Not heard from since Flowmon started."
+            "Not heard from since Flowmon started"
           )}
         </CardDescription>
       </CardHeader>
+      {/* The same sections in the same order for every Exporter. */}
       <CardContent className="flex flex-col gap-6">
-        {exporter.approval !== "approved" && <ApprovalPanel exporter={exporter} />}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="Datagrams" value={formatNumber(exporter.datagrams)} />
-          <Stat label="IPFIX messages" value={formatNumber(exporter.messages)} />
-          <Stat label="Flows decoded" value={formatNumber(exporter.records)} />
-          <Stat label="Received" value={formatBytes(exporter.bytes)} />
-        </div>
-
+        {!approved && <ApprovalPanel exporter={exporter} />}
         {exporter.findings.length > 0 && <Findings findings={exporter.findings} />}
 
+        <Section>
+          <SectionHeading title="Traffic" aside="Since Flowmon started" />
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat label="Datagrams" value={formatNumber(exporter.datagrams)} />
+            <Stat label="IPFIX messages" value={formatNumber(exporter.messages)} />
+            <Stat label="Flows decoded" value={formatNumber(exporter.records)} />
+            <Stat label="Export data received" value={formatBytes(exporter.bytes)} />
+          </div>
+        </Section>
+
         {exporter.timing && <Timing timing={exporter.timing} />}
-
         {exporter.deviations.length > 0 && <Deviations deviations={exporter.deviations} now={now} />}
+        {approved && <InterfacesSection address={exporter.address} />}
+        {approved && <SNMPSection address={exporter.address} />}
 
-        {exporter.approval === "approved" && <InterfacesSection address={exporter.address} />}
-        {exporter.approval === "approved" && <SNMPSection address={exporter.address} />}
-
-        <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium">Templates</h3>
+        <Section>
+          <SectionHeading title="Templates" />
           {exporter.templates.length === 0 ? (
             <p className="text-sm text-muted-foreground">No Templates received yet.</p>
           ) : (
             exporter.templates.map((t) => <TemplateRow key={`${t.observationDomain}/${t.id}`} template={t} now={now} />)
           )}
-        </section>
+        </Section>
       </CardContent>
     </Card>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg border p-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-lg font-semibold tabular-nums">{value}</span>
-    </div>
   )
 }
 
@@ -246,7 +239,7 @@ function Findings({ findings }: { findings: Finding[] }) {
   return (
     <div className="flex flex-col gap-2">
       {findings.map((f) => (
-        <Alert key={f.code} variant={f.severity === "warning" ? "destructive" : "default"}>
+        <Alert key={f.code} variant={f.severity === "warning" ? "warning" : "default"}>
           {f.severity === "warning" ? <AlertTriangle /> : <Info />}
           <AlertDescription>{f.message}</AlertDescription>
         </Alert>
@@ -259,13 +252,13 @@ function Timing({ timing }: { timing: TimingStatus }) {
   const offset = timing.clockOffsetSeconds
   const clock =
     Math.abs(offset) < 2
-      ? "in sync"
+      ? "In sync"
       : offset > 0
         ? `${formatSeconds(offset)} behind`
         : `${formatSeconds(-offset)} ahead`
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Timing</h3>
+    <Section>
+      <SectionHeading title="Timing" />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Exporter clock vs Flowmon" value={clock} />
         <Stat label="Flow end to export (median)" value={formatSeconds(timing.exportLagSeconds)} />
@@ -276,14 +269,14 @@ function Timing({ timing }: { timing: TimingStatus }) {
         />
       </div>
       {timing.findings.length > 0 && <Findings findings={timing.findings} />}
-    </section>
+    </Section>
   )
 }
 
 function Deviations({ deviations, now }: { deviations: DeviationStatus[]; now: number }) {
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Deviations and drops</h3>
+    <Section>
+      <SectionHeading title="Deviations and drops" />
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
@@ -302,15 +295,15 @@ function Deviations({ deviations, now }: { deviations: DeviationStatus[]; now: n
                 <TableCell className="max-w-md truncate text-muted-foreground" title={d.lastDetail}>
                   {d.lastDetail}
                 </TableCell>
-                <TableCell className="text-muted-foreground" title={formatDateTime(d.lastSeen)}>
-                  {formatAgo(d.lastSeen, now)}
+                <TableCell className="text-muted-foreground">
+                  <TimeAgo iso={d.lastSeen} now={now} />
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
-    </section>
+    </Section>
   )
 }
 
@@ -319,58 +312,60 @@ function TemplateRow({ template, now }: { template: TemplateStatus; now: number 
 
   return (
     <Collapsible className="rounded-lg border">
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50">
+      <CollapsibleTrigger className="group flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left text-sm hover:bg-muted/50">
         <ChevronRight className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-        <span className="font-medium">
+        <span className="font-medium whitespace-nowrap">
           {template.options ? "Options Template" : "Template"} {template.id}
         </span>
         <span className="text-muted-foreground">
-          · domain {template.observationDomain} · {template.fields.length} fields
+          · Observation Domain {template.observationDomain} · {formatNumber(template.fields.length)} fields
         </span>
         <span className="ml-auto flex items-center gap-2">
           {warnings > 0 && (
-            <Badge variant="destructive">
+            <Badge variant="warning">
               {warnings} warning{warnings === 1 ? "" : "s"}
             </Badge>
           )}
-          <span className="text-xs text-muted-foreground" title={formatDateTime(template.lastSeen)}>
-            refreshed {formatAgo(template.lastSeen, now)}
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            Refreshed <TimeAgo iso={template.lastSeen} now={now} />
           </span>
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="flex flex-col gap-3 border-t p-3">
         {template.findings.length > 0 && <Findings findings={template.findings} />}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">#</TableHead>
-              <TableHead>Field</TableHead>
-              <TableHead>Element</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="text-right">Length</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {template.fields.map((f, i) => (
-              <TableRow key={i}>
-                <TableCell className="text-muted-foreground tabular-nums">{i + 1}</TableCell>
-                <TableCell className="font-mono text-xs">
-                  {f.name}
-                  {f.scope && (
-                    <Badge variant="outline" className="ml-2">
-                      scope
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground tabular-nums">
-                  {f.enterprise ? `${f.enterprise}/${f.id}` : f.id}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{f.type || "unknown"}</TableCell>
-                <TableCell className="text-right tabular-nums">{f.variable ? "variable" : `${f.length} B`}</TableCell>
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10">#</TableHead>
+                <TableHead>Field</TableHead>
+                <TableHead>Element</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Length</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {template.fields.map((f, i) => (
+                <TableRow key={i}>
+                  <TableCell className="text-muted-foreground tabular-nums">{i + 1}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {f.name}
+                    {f.scope && (
+                      <Badge variant="outline" className="ml-2">
+                        Scope
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {f.enterprise ? `${f.enterprise}/${f.id}` : f.id}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{f.type || "unknown"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{f.variable ? "variable" : `${f.length} B`}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </CollapsibleContent>
     </Collapsible>
   )

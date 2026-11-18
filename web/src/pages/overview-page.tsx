@@ -1,8 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -22,7 +20,16 @@ import {
   type TopDimension,
   type TopItem,
 } from "@/lib/api"
-import { formatBitsPerSecond, formatBytes, formatTick, protocolName } from "@/lib/format"
+import { Page, QueryError, SectionSkeleton } from "@/components/page"
+import {
+  formatBitsPerSecond,
+  formatBytes,
+  formatDateTime,
+  formatSeconds,
+  formatTick,
+  protocolName,
+  timeTicks,
+} from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
@@ -41,8 +48,10 @@ export function OverviewPage() {
     placeholderData: (previous) => previous,
   })
 
+  const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
+
   return (
-    <div className="flex flex-col gap-6">
+    <Page>
       <Card>
         <CardHeader>
           <CardTitle>Bandwidth</CardTitle>
@@ -68,30 +77,34 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <TopCard
-          dimension="hosts"
-          title="Top Local Hosts"
-          description="Sent and received by each Local Host, including Internal traffic."
-        />
-        <TopCard dimension="protocols" title="Top protocols" description="Network Totals by IP protocol." />
-        <TopCard
-          dimension="ports"
-          title="Top Service Ports"
-          description="Network Totals by protocol and Service Port."
-        />
+      <div className="flex flex-col gap-2">
+        <div className="grid gap-6 lg:grid-cols-3">
+          <TopCard
+            dimension="hosts"
+            title="Local Hosts"
+            what="Local Hosts"
+            description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
+          />
+          <TopCard
+            dimension="protocols"
+            title="Protocols"
+            what="protocols"
+            description="The busiest IP protocols, as Network Totals."
+          />
+          <TopCard
+            dimension="ports"
+            title="Service Ports"
+            what="Service Ports"
+            description="The busiest Service Ports, as Network Totals."
+          />
+        </div>
+        {incomplete && (
+          <p className="text-xs text-muted-foreground">
+            The chart and lists include the last few minutes, which are incomplete: Flows for them may still arrive.
+          </p>
+        )}
       </div>
-    </div>
-  )
-}
-
-function QueryError({ title, error }: { title: string; error: Error }) {
-  return (
-    <Alert variant="destructive">
-      <AlertTriangle />
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{error.message}</AlertDescription>
-    </Alert>
+    </Page>
   )
 }
 
@@ -115,8 +128,11 @@ function BandwidthChart({
   const shadeFrom = Math.max(incompleteFrom - stepSeconds * 1000, data[0]?.time ?? 0)
 
   return (
-    <div className="relative">
-      <ChartContainer config={chartConfig} className="aspect-auto h-72 w-full">
+    <div className="relative w-full min-w-0">
+      <ChartContainer
+        config={chartConfig}
+        className="aspect-auto h-72 w-full min-w-0 [&_.recharts-responsive-container]:min-w-0"
+      >
         <AreaChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
           <defs>
             {(["inboundBps", "outboundBps"] as const).map((key) => (
@@ -134,7 +150,7 @@ function BandwidthChart({
             domain={[data[0]?.time ?? 0, end]}
             tickLine={false}
             axisLine={false}
-            minTickGap={48}
+            ticks={data.length > 0 ? timeTicks(data[0].time, end) : []}
             tickFormatter={(v: number) => formatTick(v, rangeMs)}
           />
           <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => formatBitsPerSecond(v)} />
@@ -153,12 +169,6 @@ function BandwidthChart({
               x={new Date(c.t).getTime()}
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
-              label={{
-                value: "classification changed",
-                position: "insideTopLeft",
-                fontSize: 11,
-                fill: "var(--muted-foreground)",
-              }}
             />
           ))}
           <ChartTooltip
@@ -168,7 +178,7 @@ function BandwidthChart({
                 labelFormatter={(_, payload) => {
                   const time = payload?.[0]?.payload?.time as number | undefined
                   if (time === undefined) return ""
-                  const label = new Date(time).toLocaleString()
+                  const label = formatDateTime(new Date(time).toISOString())
                   return time + stepSeconds * 1000 > incompleteFrom ? `${label} (incomplete)` : label
                 }}
                 formatter={(value, name) => (
@@ -202,17 +212,19 @@ function BandwidthChart({
         </p>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        Each point averages {formatStep(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
-        {changes.length > 0 && " Dashed lines mark changes to how an Exporter's traffic is classified."}
+        Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
       </p>
+      {changes.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+          {changes.map((c) => (
+            <li key={`${c.exporter}/${c.t}`}>
+              Dashed line at {formatDateTime(c.t)}: {c.description} (Exporter {c.exporter}).
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
-}
-
-function formatStep(seconds: number) {
-  if (seconds < 60) return `${seconds} seconds`
-  if (seconds < 3600) return `${seconds / 60} minute${seconds === 60 ? "" : "s"}`
-  return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`
 }
 
 function itemLabel(dimension: TopDimension, item: TopItem) {
@@ -228,7 +240,18 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
   }
 }
 
-function TopCard({ dimension, title, description }: { dimension: TopDimension; title: string; description: string }) {
+function TopCard({
+  dimension,
+  title,
+  what,
+  description,
+}: {
+  dimension: TopDimension
+  title: string
+  /** How errors name the list, e.g. "Service Ports". */
+  what: string
+  description: string
+}) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const query = useQuery({
@@ -241,39 +264,28 @@ function TopCard({ dimension, title, description }: { dimension: TopDimension; t
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         {query.isPending ? (
-          <div className="flex flex-col gap-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </div>
+          <SectionSkeleton rows={5} />
         ) : query.isError ? (
-          <QueryError title={`Couldn't load ${title.toLowerCase()}`} error={query.error} />
+          <QueryError title={`Couldn't load the busiest ${what}`} error={query.error} />
         ) : query.data.result.items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No traffic in this time range yet.</p>
+          <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
         ) : (
-          <>
-            <ol className="flex flex-col gap-3">
-              {query.data.result.items.map((item) => (
-                <TopRow
-                  key={`${item.host}/${item.protocol}/${item.servicePort}`}
-                  label={itemLabel(dimension, item)}
-                  item={item}
-                  max={query.data.result.items[0].totalBytes}
-                  exporterHost={dimension === "hosts" && item.localIsExporterHost}
-                />
-              ))}
-            </ol>
-            {new Date(query.data.result.to) > new Date(query.data.incompleteFrom) && (
-              <p className="mt-4 text-xs text-muted-foreground">
-                Includes the last few minutes, which are incomplete: Flows for them may still arrive.
-              </p>
-            )}
-          </>
+          <ol className="flex flex-col gap-3">
+            {query.data.result.items.map((item) => (
+              <TopRow
+                key={`${item.host}/${item.protocol}/${item.servicePort}`}
+                label={itemLabel(dimension, item)}
+                item={item}
+                max={query.data.result.items[0].totalBytes}
+                exporterHost={dimension === "hosts" && item.localIsExporterHost}
+              />
+            ))}
+          </ol>
         )}
       </CardContent>
     </Card>
@@ -299,17 +311,13 @@ function TopRow({
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-xs">{label}</span>
-          {exporterHost && <Badge variant="outline">router</Badge>}
+          {exporterHost && <Badge variant="outline">Exporter Host</Badge>}
         </span>
         <span className="shrink-0 tabular-nums">{formatBytes(item.totalBytes)}</span>
       </div>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" style={{ width: `${width}%` }}>
-        <div
-          className="h-full bg-[var(--chart-1)]"
-          style={{ flexGrow: received }}
-          title={`Received ${formatBytes(received)}`}
-        />
-        <div className="h-full bg-[var(--chart-2)]" style={{ flexGrow: sent }} title={`Sent ${formatBytes(sent)}`} />
+        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${formatBytes(received)}`} />
+        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`Sent ${formatBytes(sent)}`} />
       </div>
     </li>
   )

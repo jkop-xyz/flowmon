@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, CheckCircle2, KeyRound, Waves } from "lucide-react"
+import { AlertTriangle, CheckCircle2, KeyRound } from "lucide-react"
 import { useState, type FormEvent, type ReactNode } from "react"
 
+import { Field, FormActions, FormError, Logo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -15,33 +16,11 @@ function Screen({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted/40 p-4">
       <div className="flex items-center gap-2 text-lg font-semibold">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Waves className="size-4" />
-        </div>
+        <Logo />
         Flowmon
       </div>
       {children}
     </div>
-  )
-}
-
-function Field({ id, label, children, hint }: { id: string; label: string; children: ReactNode; hint?: string }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
-
-function ErrorAlert({ error }: { error: Error | null }) {
-  if (!error) return null
-  return (
-    <Alert variant="destructive">
-      <AlertTriangle />
-      <AlertDescription>{error.message}</AlertDescription>
-    </Alert>
   )
 }
 
@@ -87,19 +66,17 @@ export function LoginPage() {
                 required
               />
             </Field>
-            <ErrorAlert error={mutation.error} />
-          </CardContent>
-          <CardFooter>
+            <FormError error={mutation.error} />
             <Button type="submit" className="w-full" disabled={mutation.isPending}>
               {mutation.isPending ? "Logging in…" : "Log in"}
             </Button>
-          </CardFooter>
+            <p className="text-xs text-muted-foreground">
+              Forgot the password? Run <code className="font-mono">flowmon admin reset-password &lt;username&gt;</code>{" "}
+              where Flowmon runs.
+            </p>
+          </CardContent>
         </form>
       </Card>
-      <p className="max-w-sm text-center text-xs text-muted-foreground">
-        Forgot the password? Run <code className="font-mono">flowmon admin reset-password &lt;username&gt;</code> where
-        Flowmon runs.
-      </p>
     </Screen>
   )
 }
@@ -133,7 +110,12 @@ export function SetupPage({ status }: { status: SetupStatus }) {
           <Field
             id="token"
             label="Setup token"
-            hint="Printed in Flowmon's logs when it starts, e.g. docker logs flowmon. It proves you run this server."
+            hint={
+              <>
+                Printed in Flowmon's logs when it starts, e.g. <code className="font-mono">docker logs flowmon</code>.
+                It proves you run this server.
+              </>
+            }
           >
             <div className="relative">
               <KeyRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -301,9 +283,9 @@ function DatabaseStep({ status, token }: { status: SetupStatus; token: string })
           <AlertDescription>Connected to PostgreSQL.</AlertDescription>
         </Alert>
       )}
-      <ErrorAlert error={test.error ?? save.error} />
+      <FormError error={test.error ?? save.error} />
 
-      <div className="flex justify-end gap-2">
+      <FormActions>
         {driver === "postgres" && (
           <Button type="button" variant="outline" disabled={!token || test.isPending} onClick={() => test.mutate()}>
             {test.isPending ? "Testing…" : "Test connection"}
@@ -312,7 +294,7 @@ function DatabaseStep({ status, token }: { status: SetupStatus; token: string })
         <Button type="submit" disabled={!token || save.isPending}>
           {save.isPending ? "Setting up…" : "Continue"}
         </Button>
-      </div>
+      </FormActions>
     </form>
   )
 }
@@ -368,12 +350,12 @@ function AdminStep({ token }: { token: string }) {
         />
       </Field>
       {mismatch && <p className="text-sm text-destructive">The passwords don't match.</p>}
-      <ErrorAlert error={mutation.error} />
-      <div className="flex justify-end">
+      <FormError error={mutation.error} />
+      <FormActions>
         <Button type="submit" disabled={!token || mismatch || mutation.isPending}>
           {mutation.isPending ? "Creating…" : "Create account and open Flowmon"}
         </Button>
-      </div>
+      </FormActions>
     </form>
   )
 }

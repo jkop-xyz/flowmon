@@ -54,11 +54,32 @@ export function formatTick(ms: number, rangeMs: number): string {
   return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
 }
 
+/** Durations in one short style everywhere: "0.5 s", "45 s", "2.3 min", "5 min", "1 h". */
 export function formatSeconds(s: number): string {
   const abs = Math.abs(s)
-  if (abs < 1) return `${s.toFixed(2)} s`
-  if (abs < 120) return `${s.toFixed(0)} s`
-  return `${(s / 60).toFixed(1)} min`
+  const trim = (v: number, digits: number) => String(Number(v.toFixed(digits)))
+  if (abs < 10) return `${trim(s, 1)} s`
+  if (abs < 120) return `${Math.round(s)} s`
+  if (abs < 7200) return `${trim(s / 60, 1)} min`
+  return `${trim(s / 3600, 1)} h`
+}
+
+/** An hour bucket, e.g. "Wed 14:00". */
+export function formatHour(iso: string): string {
+  return new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
+}
+
+const tickSteps = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400].map((s) => s * 1000)
+
+/** Evenly spaced axis ticks on round times (every 2 min, 1 h, 6 h …), about `count` of them. */
+export function timeTicks(start: number, end: number, count = 7): number[] {
+  const step = tickSteps.find((s) => (end - start) / s <= count) ?? tickSteps[tickSteps.length - 1]
+  // Align to local wall-clock time, so ticks land on :00, :05 and so on.
+  const offset = new Date(start).getTimezoneOffset() * 60_000
+  const first = Math.ceil((start - offset) / step) * step + offset
+  const out: number[] = []
+  for (let t = first; t <= end; t += step) out.push(t)
+  return out
 }
 
 const protocolNames: Record<number, string> = {

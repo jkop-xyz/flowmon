@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Cable, Info } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { fetchExporterOptions } from "@/lib/api"
@@ -17,14 +18,14 @@ export function ExporterPicker() {
   })
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex min-w-0 flex-1 items-center gap-1 sm:flex-none">
       <Select value={exporter || ALL} onValueChange={(v) => setExporter(v === ALL ? "" : v)}>
-        <SelectTrigger size="sm" className="w-48" aria-label="Exporter">
+        <SelectTrigger size="sm" className="min-w-0 flex-1 *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:text-left sm:w-52 sm:flex-none" aria-label="Exporter">
           <Cable className="size-4 text-muted-foreground" />
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
-          <SelectItem value={ALL}>All exporters</SelectItem>
+          <SelectItem value={ALL}>All Exporters</SelectItem>
           {(options.data ?? []).map((o) => (
             <SelectItem key={o.address} value={o.address}>
               {o.name ? `${o.name} (${o.address})` : o.address}
@@ -37,12 +38,12 @@ export function ExporterPicker() {
       </Select>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" className="text-muted-foreground" aria-label="About the Exporter filter">
-            <Info className="size-4" />
-          </button>
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="About the Exporter filter">
+            <Info />
+          </Button>
         </TooltipTrigger>
         <TooltipContent className="max-w-64">
-          "All exporters" adds up the traffic of every approved Exporter. Traffic seen by two Exporters counts twice
+          "All Exporters" adds up the traffic of every approved Exporter. Traffic seen by two Exporters counts twice
           until Internal Exporters arrive.
         </TooltipContent>
       </Tooltip>

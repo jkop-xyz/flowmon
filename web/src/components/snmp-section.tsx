@@ -2,12 +2,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react"
 import { useState } from "react"
 
+import {
+  Field,
+  FormActions,
+  FormError,
+  QueryError,
+  Section,
+  SectionHeading,
+  SectionSkeleton,
+  TimeAgo,
+} from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   fetchReconciliation,
@@ -18,9 +28,9 @@ import {
   type SNMPConfig,
   type SNMPView,
 } from "@/lib/api"
-import { formatAgo, formatBytes } from "@/lib/format"
+import { formatBytes, formatHour, formatNumber } from "@/lib/format"
 
-const presetLabels: Record<string, string> = {
+const overheadLabels: Record<string, string> = {
   none: "None (0 B)",
   ethernet: "Ethernet (14 B)",
   "ethernet-vlan": "Ethernet + VLAN (18 B)",
@@ -28,25 +38,60 @@ const presetLabels: Record<string, string> = {
   custom: "Custom",
 }
 
+// Protocol names as RouterOS shows them; the value is what Flowmon stores.
+const authProtocols: [string, string][] = [
+  ["none", "None"],
+  ["SHA", "SHA1 (RouterOS)"],
+  ["SHA256", "SHA-256"],
+  ["SHA384", "SHA-384"],
+  ["SHA512", "SHA-512"],
+  ["SHA224", "SHA-224"],
+  ["MD5", "MD5"],
+]
+const privProtocols: [string, string][] = [
+  ["none", "None"],
+  ["AES", "AES (RouterOS)"],
+  ["AES192", "AES-192"],
+  ["AES256", "AES-256"],
+  ["DES", "DES"],
+]
+
 /** SNMP settings and Reconciliation for an approved Exporter. */
 export function SNMPSection({ address }: { address: string }) {
   const query = useQuery({ queryKey: ["snmp", address], queryFn: ({ signal }) => fetchSNMP(address, signal) })
-  if (!query.data) return null
-  return <SNMPEditor key={JSON.stringify(query.data.config)} address={address} view={query.data} />
-}
-
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+  if (query.isPending) {
+    return (
+      <Section>
+        <SectionHeading title="SNMP" />
+        <SectionSkeleton rows={1} />
+      </Section>
+    )
+  }
+  if (query.isError) {
+    return (
+      <Section>
+        <SectionHeading title="SNMP" />
+        <QueryError title="Couldn't load the SNMP settings" error={query.error} />
+      </Section>
+    )
+  }
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-      </Label>
-      {children}
-    </div>
+    <SNMPEditor key={JSON.stringify(query.data.config)} address={address} view={query.data} now={query.dataUpdatedAt} />
   )
 }
 
-function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
+function statusLine(view: SNMPView, now: number) {
+  if (!view.config.enabled) return "Off"
+  if (view.status.lastError) return `Polling fails: ${view.status.lastError}`
+  if (!view.status.lastPoll) return "On, waiting for the first poll"
+  return (
+    <>
+      Polled <TimeAgo iso={view.status.lastPoll} now={now} />, {formatNumber(view.status.interfaces)} interface names
+    </>
+  )
+}
+
+function SNMPEditor({ address, view, now }: { address: string; view: SNMPView; now: number }) {
   const queryClient = useQueryClient()
   const [cfg, setCfg] = useState<SNMPConfig>({ ...view.config, community: "", authPassword: "", privPassword: "" })
   const set = <K extends keyof SNMPConfig>(key: K, value: SNMPConfig[K]) => setCfg({ ...cfg, [key]: value })
@@ -62,29 +107,27 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
   const id = (k: string) => `snmp-${address}-${k}`
 
   return (
-    <section className="flex flex-col gap-3">
-      <Collapsible defaultOpen={!view.config.enabled}>
-        <div className="flex flex-wrap items-center gap-2">
-          <CollapsibleTrigger className="group flex items-center gap-1 text-sm font-medium">
-            <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
-            SNMP
-          </CollapsibleTrigger>
-          <span className="text-xs text-muted-foreground">
-            {view.config.enabled
-              ? view.status.lastError
-                ? `Polling fails: ${view.status.lastError}`
-                : view.status.lastPoll
-                  ? `Polled ${formatAgo(view.status.lastPoll, Date.parse(view.status.lastPoll))}; ${view.status.interfaces} interface names`
-                  : "Enabled; waiting for the first poll"
-              : "Off. Fills in interface names and checks Flow totals against the router's own counters."}
-          </span>
-        </div>
-        <CollapsibleContent className="mt-3 flex flex-col gap-4 rounded-lg border p-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={cfg.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+    <Section>
+      <Collapsible defaultOpen={!view.config.enabled} className="flex flex-col gap-3">
+        <SectionHeading
+          title={
+            <CollapsibleTrigger className="group flex items-center gap-1">
+              <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
+              SNMP
+            </CollapsibleTrigger>
+          }
+          aside={statusLine(view, now)}
+        />
+        <CollapsibleContent className="flex flex-col gap-4 rounded-lg border p-4">
+          <p className="text-sm text-muted-foreground">
+            Fills in interface names and checks Flow totals against the router's own interface counters. Credentials are
+            stored encrypted; on RouterOS, allow SNMP only from Flowmon's address.
+          </p>
+          <label htmlFor={id("enabled")} className="flex items-center gap-3 text-sm">
+            <Switch id={id("enabled")} checked={cfg.enabled} onCheckedChange={(v) => set("enabled", v)} />
             Poll this Exporter every minute
           </label>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-3">
             <Field id={id("version")} label="Version">
               <Select value={cfg.version} onValueChange={(v) => set("version", v as SNMPConfig["version"])}>
                 <SelectTrigger id={id("version")} className="w-full">
@@ -99,6 +142,7 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
             <Field id={id("target")} label="Target">
               <Input
                 id={id("target")}
+                className="font-mono"
                 placeholder={`${address}:161`}
                 value={cfg.target}
                 onChange={(e) => set("target", e.target.value)}
@@ -110,7 +154,7 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(presetLabels).map(([k, label]) => (
+                  {Object.entries(overheadLabels).map(([k, label]) => (
                     <SelectItem key={k} value={k}>
                       {label}
                     </SelectItem>
@@ -130,7 +174,9 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
                 />
               </Field>
             )}
-            {cfg.version === "v2c" ? (
+          </div>
+          {cfg.version === "v2c" ? (
+            <div className="grid gap-4 sm:grid-cols-3">
               <Field id={id("community")} label="Community">
                 <Input
                   id={id("community")}
@@ -141,108 +187,105 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
                   onChange={(e) => set("community", e.target.value)}
                 />
               </Field>
-            ) : (
-              <>
-                <Field id={id("user")} label="User">
-                  <Input
-                    id={id("user")}
-                    autoComplete="off"
-                    value={cfg.user ?? ""}
-                    onChange={(e) => set("user", e.target.value)}
-                  />
-                </Field>
-                <Field id={id("auth")} label="Authentication">
-                  <div className="flex gap-2">
-                    <Select
-                      value={cfg.authProtocol || "none"}
-                      onValueChange={(v) => set("authProtocol", v === "none" ? "" : v)}
-                    >
-                      <SelectTrigger className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["none", "SHA", "SHA256", "SHA384", "SHA512", "SHA224", "MD5"].map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {p === "none" ? "None" : p === "SHA" ? "SHA (SHA1, RouterOS)" : p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      id={id("auth")}
-                      type="password"
-                      autoComplete="off"
-                      placeholder={stored(view.config.hasAuthPassword) || "Password"}
-                      value={cfg.authPassword}
-                      onChange={(e) => set("authPassword", e.target.value)}
-                    />
-                  </div>
-                </Field>
-                <Field id={id("priv")} label="Privacy (encryption)">
-                  <div className="flex gap-2">
-                    <Select
-                      value={cfg.privProtocol || "none"}
-                      onValueChange={(v) => set("privProtocol", v === "none" ? "" : v)}
-                    >
-                      <SelectTrigger className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["none", "AES256", "AES192", "AES", "DES"].map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {p === "none" ? "None" : p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      id={id("priv")}
-                      type="password"
-                      autoComplete="off"
-                      placeholder={stored(view.config.hasPrivPassword) || "Password"}
-                      value={cfg.privPassword}
-                      onChange={(e) => set("privPassword", e.target.value)}
-                    />
-                  </div>
-                </Field>
-              </>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Credentials are stored encrypted. On RouterOS, allow SNMP only from Flowmon's address.
-          </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field id={id("user")} label="User (community name on RouterOS)">
+                <Input
+                  id={id("user")}
+                  autoComplete="off"
+                  value={cfg.user ?? ""}
+                  onChange={(e) => set("user", e.target.value)}
+                />
+              </Field>
+              <Field id={id("authProtocol")} label="Authentication protocol">
+                <Select
+                  value={cfg.authProtocol || "none"}
+                  onValueChange={(v) => set("authProtocol", v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id={id("authProtocol")} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {authProtocols.map(([v, label]) => (
+                      <SelectItem key={v} value={v}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id={id("authPassword")} label="Authentication password">
+                <Input
+                  id={id("authPassword")}
+                  type="password"
+                  autoComplete="off"
+                  placeholder={stored(view.config.hasAuthPassword)}
+                  value={cfg.authPassword}
+                  onChange={(e) => set("authPassword", e.target.value)}
+                />
+              </Field>
+              <div className="hidden sm:block" />
+              <Field id={id("privProtocol")} label="Privacy (encryption) protocol">
+                <Select
+                  value={cfg.privProtocol || "none"}
+                  onValueChange={(v) => set("privProtocol", v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id={id("privProtocol")} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {privProtocols.map(([v, label]) => (
+                      <SelectItem key={v} value={v}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id={id("privPassword")} label="Privacy password">
+                <Input
+                  id={id("privPassword")}
+                  type="password"
+                  autoComplete="off"
+                  placeholder={stored(view.config.hasPrivPassword)}
+                  value={cfg.privPassword}
+                  onChange={(e) => set("privPassword", e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
           {test.isSuccess && (
             <Alert>
               <CheckCircle2 />
               <AlertDescription>
-                Connected: {test.data.interfaces.length} interfaces ({test.data.interfaces.slice(0, 6).join(", ")}
+                Connected: {formatNumber(test.data.interfaces.length)} interfaces (
+                {test.data.interfaces.slice(0, 6).join(", ")}
                 {test.data.interfaces.length > 6 ? ", …" : ""}).
               </AlertDescription>
             </Alert>
           )}
-          {(test.error ?? save.error) && (
-            <p className="text-sm text-destructive">{(test.error ?? save.error)?.message}</p>
-          )}
-          <div className="flex gap-2">
+          <FormError error={test.error ?? save.error} />
+          <FormActions>
             <Button size="sm" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
               {test.isPending ? "Testing…" : "Test connection"}
             </Button>
             <Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
-              Save
+              {save.isPending ? "Saving…" : "Save SNMP settings"}
             </Button>
-          </div>
+          </FormActions>
         </CollapsibleContent>
       </Collapsible>
       {view.config.enabled && <ReconciliationTable address={address} />}
-    </section>
+    </Section>
   )
 }
 
-function Cell({ d }: { d: ReconDirection }) {
-  if (d.gap === null) return <span className="text-muted-foreground">too little traffic</span>
+function Cell({ d, threshold }: { d: ReconDirection; threshold: number }) {
+  if (d.gap === null) return <span className="text-muted-foreground">Too little traffic</span>
   const pct = d.gap * 100
   return (
-    <span className={Math.abs(d.gap) > 0.15 ? "text-destructive" : undefined}>
+    <span className={Math.abs(d.gap) > threshold ? "text-warning-foreground" : undefined}>
       {formatBytes(d.interfaceBytes)} vs {formatBytes(d.flowBytes)}{" "}
       <span className="tabular-nums">
         ({pct > 0 ? "−" : "+"}
@@ -258,70 +301,87 @@ function ReconciliationTable({ address }: { address: string }) {
     queryFn: ({ signal }) => fetchReconciliation(address, signal),
     refetchInterval: 5 * 60_000,
   })
-  const data = query.data
-  if (!data) return null
-  if (data.interfaces.length === 0) {
-    return <p className="text-sm text-muted-foreground">Mark a WAN Interface above to reconcile its counters.</p>
+  const heading = <SectionHeading title="Reconciliation" />
+  if (query.isPending) {
+    return (
+      <Section>
+        {heading}
+        <SectionSkeleton rows={2} />
+      </Section>
+    )
   }
+  if (query.isError) {
+    return (
+      <Section>
+        {heading}
+        <QueryError title="Couldn't load the Reconciliation" error={query.error} />
+      </Section>
+    )
+  }
+  const data = query.data
+  const gapPct = Math.round(data.thresholds.gap * 100)
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium">Reconciliation</h3>
-      <p className="text-xs text-muted-foreground">
-        Bytes on each WAN Interface from SNMP (minus {data.overheadBytes} B per packet) against bytes in Flows, per
-        complete hour. A warning needs a gap above {data.thresholds.gap * 100}% for {data.thresholds.sustainedHours}{" "}
-        hours in a row.
-      </p>
-      {data.interfaces.map((i) => (
-        <div key={i.name} className="flex flex-col gap-2">
-          {i.warning && (
-            <Alert variant="destructive">
-              <AlertTriangle />
-              <AlertTitle>{i.name}: Flows and interface counters disagree</AlertTitle>
-              <AlertDescription>
-                Traffic is missing from the Flows or counted twice. Common causes: hardware offload (FastTrack HW, L3HW)
-                that Traffic Flow can't see, a long active timeout, or the wrong overhead preset.
-              </AlertDescription>
-            </Alert>
-          )}
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{i.name} · hour</TableHead>
-                  <TableHead>In: interface vs Flows</TableHead>
-                  <TableHead>Out: interface vs Flows</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {i.hours
-                  .filter((h) => h.complete)
-                  .slice(-6)
-                  .reverse()
-                  .map((h) => (
-                    <TableRow key={h.hour}>
-                      <TableCell className="tabular-nums">
-                        {new Date(h.hour).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}
-                      </TableCell>
-                      <TableCell>
-                        <Cell d={h.in} />
-                      </TableCell>
-                      <TableCell>
-                        <Cell d={h.out} />
-                      </TableCell>
+    <Section>
+      {heading}
+      {data.interfaces.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Mark a WAN Interface above to reconcile its counters.</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Bytes on each WAN Interface from SNMP (minus {data.overheadBytes} B per packet) against bytes in Flows, per
+            complete hour. A warning needs a gap above {gapPct}% for {data.thresholds.sustainedHours} hours in a row.
+          </p>
+          {data.interfaces.map((i) => (
+            <div key={i.name} className="flex flex-col gap-2">
+              {i.warning && (
+                <Alert variant="warning">
+                  <AlertTriangle />
+                  <AlertTitle>{i.name}: Flows and interface counters disagree</AlertTitle>
+                  <AlertDescription>
+                    Traffic is missing from the Flows or counted twice. Common causes: hardware offload (FastTrack HW,
+                    L3HW) that Traffic Flow can't see, a long active timeout, or the wrong overhead preset.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{i.name} · hour</TableHead>
+                      <TableHead>In: interface vs Flows</TableHead>
+                      <TableHead>Out: interface vs Flows</TableHead>
                     </TableRow>
-                  ))}
-                {i.hours.every((h) => !h.complete) && (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-muted-foreground">
-                      The first complete hour appears after an hour of polling.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      ))}
-    </div>
+                  </TableHeader>
+                  <TableBody>
+                    {i.hours
+                      .filter((h) => h.complete)
+                      .slice(-6)
+                      .reverse()
+                      .map((h) => (
+                        <TableRow key={h.hour}>
+                          <TableCell className="tabular-nums">{formatHour(h.hour)}</TableCell>
+                          <TableCell>
+                            <Cell d={h.in} threshold={data.thresholds.gap} />
+                          </TableCell>
+                          <TableCell>
+                            <Cell d={h.out} threshold={data.thresholds.gap} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {i.hours.every((h) => !h.complete) && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-muted-foreground">
+                          The first complete hour appears after an hour of polling.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </Section>
   )
 }
