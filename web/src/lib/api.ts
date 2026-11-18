@@ -3,8 +3,75 @@ export type Health = {
   version: string
 }
 
-export async function fetchHealth(signal?: AbortSignal): Promise<Health> {
-  const response = await fetch("/api/health", { signal })
-  if (!response.ok) throw new Error(`health check failed: ${response.status}`)
-  return (await response.json()) as Health
+async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { signal })
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`)
+  return (await response.json()) as T
+}
+
+export function fetchHealth(signal?: AbortSignal) {
+  return getJSON<Health>("/api/health", signal)
+}
+
+export type Severity = "warning" | "info"
+
+export type Finding = {
+  severity: Severity
+  code: string
+  message: string
+}
+
+export type DeviationStatus = {
+  kind: string
+  count: number
+  lastDetail: string
+  lastSeen: string
+}
+
+export type FieldStatus = {
+  enterprise: number
+  id: number
+  name: string
+  /** IANA abstract data type; empty for enterprise and unknown elements. */
+  type: string
+  length: number
+  variable: boolean
+  scope: boolean
+}
+
+export type TemplateStatus = {
+  observationDomain: number
+  id: number
+  options: boolean
+  scopeFieldCount: number
+  firstSeen: string
+  lastSeen: string
+  fields: FieldStatus[]
+  findings: Finding[]
+}
+
+export type ExporterStatus = {
+  address: string
+  lastSource: string
+  firstSeen: string
+  lastSeen: string
+  datagrams: number
+  bytes: number
+  messages: number
+  records: number
+  observationDomains: number[] | null
+  deviations: DeviationStatus[]
+  templates: TemplateStatus[]
+  findings: Finding[]
+}
+
+export type CollectorStatus = {
+  listeners: string[]
+  droppedOverExporterLimit: number
+  maxExporters: number
+  exporters: ExporterStatus[]
+}
+
+export function fetchExporters(signal?: AbortSignal) {
+  return getJSON<CollectorStatus>("/api/exporters", signal)
 }

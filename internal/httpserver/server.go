@@ -10,6 +10,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/jkop-xyz/flowmon/internal/collector"
 )
 
 // Options configures the handler.
@@ -20,6 +22,8 @@ type Options struct {
 	UI fs.FS
 	// Logger receives request errors.
 	Logger *slog.Logger
+	// Collector provides the Exporters page. Nil serves an empty list.
+	Collector interface{ Status() collector.Status }
 }
 
 // New returns the root handler: the API under /api/ and the single-page UI everywhere else.
@@ -31,6 +35,13 @@ func New(opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": opts.Version})
+	})
+	mux.HandleFunc("GET /api/exporters", func(w http.ResponseWriter, _ *http.Request) {
+		if opts.Collector == nil {
+			writeJSON(w, http.StatusOK, collector.Status{Listeners: []string{}, Exporters: []collector.ExporterStatus{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, opts.Collector.Status())
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
