@@ -161,9 +161,9 @@ function SNMPEditor({ address, view }: { address: string; view: SNMPView }) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {["none", "SHA512", "SHA384", "SHA256", "SHA224", "SHA", "MD5"].map((p) => (
+                        {["none", "SHA", "SHA256", "SHA384", "SHA512", "SHA224", "MD5"].map((p) => (
                           <SelectItem key={p} value={p}>
-                            {p === "none" ? "None" : p}
+                            {p === "none" ? "None" : p === "SHA" ? "SHA (SHA1, RouterOS)" : p}
                           </SelectItem>
                         ))}
                       </SelectContent>

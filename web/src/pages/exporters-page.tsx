@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "react-router"
 import { AlertTriangle, Cable, ChevronRight, Info, Radio } from "lucide-react"
 
 import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
@@ -93,6 +94,9 @@ export function ExportersPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <Link to="/guide/mikrotik" className="order-last ml-auto underline underline-offset-4">
+          MikroTik setup guide
+        </Link>
         <Radio className="size-4" />
         <span>Listening on</span>
         {listeners.length === 0 ? (
@@ -147,7 +151,11 @@ function EmptyState() {
         </div>
         <CardDescription>
           Point your router's flow export (IPFIX) at this host, on one of the ports above. An Exporter appears here as
-          soon as its first packet arrives, with every Template it sends.
+          soon as its first packet arrives, with every Template it sends. Using a MikroTik? Follow the{" "}
+          <Link to="/guide/mikrotik" className="underline underline-offset-4">
+            MikroTik setup guide
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
     </Card>
