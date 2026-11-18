@@ -150,9 +150,13 @@ export type BandwidthResult = {
 }
 
 /** Query results carry the time after which data may still change (the Watermark). */
+export type ClassificationChange = { exporter: string; t: string; description: string }
+
 export type WithIncomplete<T> = {
   result: T
   incompleteFrom: string
+  /** When an Exporter's classification changed (bandwidth only). */
+  changes?: ClassificationChange[]
 }
 
 type RangeParams = { from: Date; to: Date; exporter?: string }
@@ -200,7 +204,9 @@ export function fetchExporterOptions(signal?: AbortSignal) {
   return getJSON<ExporterOption[]>("/api/exporters/options", signal)
 }
 
-export type ApprovalRequest = { name: string; role: "edge"; classificationMode: "address" }
+export type ClassificationMode = "address" | "interface"
+
+export type ApprovalRequest = { name: string; role: "edge"; classificationMode: ClassificationMode }
 
 export const approveExporter = (address: string, req: ApprovalRequest) =>
   postJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/approve`, req)
@@ -212,3 +218,71 @@ export async function forgetExporter(address: string) {
   const response = await fetch(`/api/exporters/${encodeURIComponent(address)}`, { method: "DELETE" })
   if (!response.ok) throw new ApiError(response.status, "couldn't forget the Exporter")
 }
+
+export type InterfaceRole = "" | "wan" | "lan" | "tunnel"
+
+export type InterfaceView = {
+  index: number
+  name: string
+  source: string
+  role: InterfaceRole
+  suggestedWan: boolean
+  flowsIn: number
+  flowsOut: number
+  bytesIn: number
+  bytesOut: number
+  remoteIn: number
+}
+
+export type InterfaceChange = {
+  index: number
+  oldName: string
+  newName: string
+  source: string
+  at: string
+  conflict: boolean
+}
+
+export type ReprocessStatus = {
+  running: boolean
+  exporter?: string
+  from?: string
+  startedAt?: string
+  finishedAt?: string
+  daysDone: number
+  flows: number
+  error?: string
+}
+
+export type InterfacesResponse = {
+  classificationMode: ClassificationMode
+  hasInterfaceNumbers: boolean
+  interfaces: InterfaceView[]
+  changes: InterfaceChange[]
+  reprocess: ReprocessStatus
+  reprocessFrom: string
+}
+
+const exporterPath = (address: string) => `/api/exporters/${encodeURIComponent(address)}`
+
+export function fetchInterfaces(address: string, signal?: AbortSignal) {
+  return getJSON<InterfacesResponse>(`${exporterPath(address)}/interfaces`, signal)
+}
+
+async function putJSON<T>(path: string, body: unknown): Promise<T> {
+  return parse<T>(
+    path,
+    await fetch(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  )
+}
+
+export const setInterfaceName = (address: string, index: number, name: string) =>
+  putJSON<InterfacesResponse>(`${exporterPath(address)}/interfaces/${index}`, { name })
+
+export const setClassification = (
+  address: string,
+  classificationMode: ClassificationMode,
+  roles: Record<string, InterfaceRole>,
+) => putJSON<InterfacesResponse>(`${exporterPath(address)}/classification`, { classificationMode, roles })
+
+export const startReprocess = (address: string) => postJSON<ReprocessStatus>(`${exporterPath(address)}/reprocess`, {})

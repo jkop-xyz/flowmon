@@ -36,7 +36,10 @@ type Options struct {
 	QueueSize int
 	// WatermarkOverride, if set, replaces the Watermark learned from Flow durations.
 	WatermarkOverride time.Duration
-	Now               func() time.Time
+	// OnInterfaceName receives interface names an Exporter reports in Options records
+	// (interfaceName scoped by an interface number).
+	OnInterfaceName func(exporter netip.Addr, index uint32, name string, at time.Time)
+	Now             func() time.Time
 }
 
 // Watermark parameters (ADR 0004): the 99th percentile of Flow durations over the last
@@ -57,6 +60,7 @@ type Pipeline struct {
 
 	mu     sync.Mutex
 	timing map[netip.Addr]*timing
+	ifs    map[netip.Addr]map[uint32]*InterfaceStats
 
 	written      atomic.Uint64
 	dropped      atomic.Uint64
@@ -91,6 +95,7 @@ func New(opts Options) *Pipeline {
 		norm:   flow.NewNormalizer(),
 		queue:  make(chan flow.Flow, opts.QueueSize),
 		timing: map[netip.Addr]*timing{},
+		ifs:    map[netip.Addr]map[uint32]*InterfaceStats{},
 	}
 }
 
@@ -103,6 +108,7 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 		switch {
 		case errors.Is(err, flow.ErrOptionsRecord):
 			p.optionsCount.Add(1)
+			p.interfaceNames(exporter, rec, now)
 			continue
 		case errors.Is(err, flow.ErrNoAddresses):
 			p.noAddresses.Add(1)
@@ -111,6 +117,7 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 			continue
 		}
 		p.opts.Classifier.Classify(&f, now)
+		p.countInterfaces(exporter, &f)
 		if p.observe(exporter, &f, now) {
 			p.late.Add(1)
 			continue
@@ -342,4 +349,110 @@ func (p *Pipeline) Timing(exporter netip.Addr) *collector.TimingStatus {
 			Message: "Some Flows carried no usable absolute times, so their times were derived from the export time."})
 	}
 	return st
+}
+
+// Interface element IDs that scope an interfaceName in Options records.
+var interfaceScopes = []uint16{10, 14, 252, 253}
+
+const ieInterfaceName = 82
+
+// interfaceNames passes on interface names from an Options record.
+func (p *Pipeline) interfaceNames(exporter netip.Addr, rec ipfix.Record, now time.Time) {
+	if p.opts.OnInterfaceName == nil {
+		return
+	}
+	nameField, ok := rec.Get(ieInterfaceName)
+	if !ok {
+		return
+	}
+	v, err := nameField.Value()
+	if err != nil || v.Kind != ipfix.KindString || v.String == "" {
+		return
+	}
+	for i := 0; i < int(rec.ScopeFieldCount) && i < len(rec.Fields); i++ {
+		f := rec.Fields[i]
+		for _, id := range interfaceScopes {
+			if f.Spec.Enterprise == 0 && f.Spec.ID == id {
+				if idx, err := f.Value(); err == nil && idx.Kind == ipfix.KindUnsigned && idx.Uint > 0 && idx.Uint <= 0xFFFFFFFF {
+					p.opts.OnInterfaceName(exporter, uint32(idx.Uint), v.String, now)
+					return
+				}
+			}
+		}
+	}
+}
+
+// InterfaceStats are live counts for one interface number of an Exporter, since start.
+type InterfaceStats struct {
+	Index uint32 `json:"index"`
+	// FlowsIn and BytesIn count Flows that entered through the interface; Out, that left.
+	FlowsIn  uint64 `json:"flowsIn"`
+	FlowsOut uint64 `json:"flowsOut"`
+	BytesIn  uint64 `json:"bytesIn"`
+	BytesOut uint64 `json:"bytesOut"`
+	// RemoteIn counts Flows entering here whose source is outside the Local Networks:
+	// the WAN suggestion.
+	RemoteIn uint64 `json:"remoteIn"`
+}
+
+const maxInterfacesPerExporter = 256
+
+func (p *Pipeline) countInterfaces(exporter netip.Addr, f *flow.Flow) {
+	if f.IngressInterface == 0 && f.EgressInterface == 0 {
+		return
+	}
+	remote := !p.opts.Classifier.InLocalNetwork(f.Src)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	m := p.ifs[exporter]
+	if m == nil {
+		m = map[uint32]*InterfaceStats{}
+		p.ifs[exporter] = m
+	}
+	get := func(idx uint32) *InterfaceStats {
+		st := m[idx]
+		if st == nil && len(m) < maxInterfacesPerExporter {
+			st = &InterfaceStats{Index: idx}
+			m[idx] = st
+		}
+		return st
+	}
+	if f.IngressInterface != 0 {
+		if st := get(f.IngressInterface); st != nil {
+			st.FlowsIn++
+			st.BytesIn += f.Bytes
+			if remote {
+				st.RemoteIn++
+			}
+		}
+	}
+	if f.EgressInterface != 0 {
+		if st := get(f.EgressInterface); st != nil {
+			st.FlowsOut++
+			st.BytesOut += f.Bytes
+		}
+	}
+}
+
+// Interfaces returns an Exporter's live interface counts, and the interface number most
+// likely to be its WAN (0 if none stands out): the one where most Flows from Remote IPs
+// come in, if it carries more than half of them.
+func (p *Pipeline) Interfaces(exporter netip.Addr) ([]InterfaceStats, uint32) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []InterfaceStats
+	var total, best uint64
+	var suggested uint32
+	for _, st := range p.ifs[exporter] {
+		out = append(out, *st)
+		total += st.RemoteIn
+		if st.RemoteIn > best {
+			best, suggested = st.RemoteIn, st.Index
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	if total == 0 || best*2 <= total {
+		suggested = 0
+	}
+	return out, suggested
 }

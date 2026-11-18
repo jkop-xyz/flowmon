@@ -164,3 +164,42 @@ func TestLateFlowsAreDroppedAndCounted(t *testing.T) {
 		t.Errorf("late Flows don't produce timing samples: %+v", tm)
 	}
 }
+
+func TestInterfaceCountsAndWANSuggestion(t *testing.T) {
+	p := New(Options{Writer: &memWriter{}, Now: func() time.Time { return now }})
+	withIfs := func(rec ipfix.Record, in, out uint32) ipfix.Record {
+		rec.Fields = append(rec.Fields,
+			ipfix.Field{Spec: ipfix.FieldSpec{ID: 10, Length: 4}, Raw: ipfixtest.U32(in)},
+			ipfix.Field{Spec: ipfix.FieldSpec{ID: 14, Length: 4}, Raw: ipfixtest.U32(out)})
+		return rec
+	}
+	reply := outboundRecord(now)
+	reply.Fields[0].Raw, reply.Fields[1].Raw = []byte{1, 1, 1, 1}, []byte{192, 168, 10, 44} // remote → LAN
+	for i := 0; i < 10; i++ {
+		p.Records(exporter, []ipfix.Record{withIfs(reply, 1, 2)})
+	}
+	for i := 0; i < 4; i++ {
+		p.Records(exporter, []ipfix.Record{withIfs(outboundRecord(now), 2, 1)})
+	}
+	stats, wan := p.Interfaces(exporter)
+	if wan != 1 || len(stats) != 2 || stats[0].RemoteIn != 10 || stats[0].FlowsIn != 10 || stats[0].FlowsOut != 4 {
+		t.Errorf("wan %d, stats %+v", wan, stats)
+	}
+}
+
+func TestInterfaceNamesFromOptionsRecords(t *testing.T) {
+	type got struct {
+		idx  uint32
+		name string
+	}
+	var names []got
+	p := New(Options{Writer: &memWriter{}, Now: func() time.Time { return now },
+		OnInterfaceName: func(_ netip.Addr, idx uint32, name string, _ time.Time) { names = append(names, got{idx, name}) }})
+	p.Records(exporter, []ipfix.Record{{ScopeFieldCount: 1, ExportTime: now, Fields: []ipfix.Field{
+		{Spec: ipfix.FieldSpec{ID: 10, Length: 4}, Raw: ipfixtest.U32(3)},
+		{Spec: ipfix.FieldSpec{ID: 82, Length: ipfix.VariableLength}, Raw: []byte("ether1-WAN")},
+	}}})
+	if len(names) != 1 || names[0] != (got{3, "ether1-WAN"}) {
+		t.Errorf("names %+v", names)
+	}
+}

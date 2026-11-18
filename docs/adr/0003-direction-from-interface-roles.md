@@ -27,3 +27,10 @@ Interface roles are what the router itself knows.
 - **Interface names come from SNMP `ifName` when SNMP is set up.** Otherwise the user maps numbers to names on the Exporter page. RouterOS is not expected to send names in options templates. Flowmon suggests the WAN Interface from traffic: the interface where Remote IPs come in.
 - **"Same subnet" for Internal Exporters (v1.1)** uses the prefixes on each LAN Interface, never a broad Local Network such as 10.0.0.0/8, which would make every routed VLAN-to-VLAN Flow look like same-subnet traffic.
 - **Duplicate removal (v1.1)** happens only within a single Exporter, uses a NAT-aware key, and runs before Rollups.
+
+## As built (#9)
+
+- Interface number 0 means the Exporter itself (no input or output interface). Such Flows are attributed to the Exporter Host, which uses the Exporter's own address rather than its current WAN IP, in both Classification Modes.
+- A Flow crossing an interface with no role, or carrying no interface numbers, is classified by address even when the Exporter classifies by interface.
+- Interface names come from the user or from Options Templates (interfaceName scoped by an interface number); SNMP follows in #10. A name the user set is never overwritten by a reported one; a different reported name is listed as a conflict.
+- Only classification changes are marked on charts. Renaming an interface doesn't change classification, because roles follow names.

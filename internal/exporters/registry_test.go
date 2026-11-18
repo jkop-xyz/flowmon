@@ -100,8 +100,17 @@ func TestUnsupportedChoicesAreRefused(t *testing.T) {
 	if _, err := r.Approve(ctx, router, RoleInternal, ByAddress, "", "admin"); !errors.Is(err, ErrUnsupportedRole) {
 		t.Errorf("internal role: %v", err)
 	}
-	if _, err := r.Approve(ctx, router, RoleEdge, ByInterface, "", "admin"); !errors.Is(err, ErrUnsupportedMode) {
+	if _, err := r.Approve(ctx, router, RoleEdge, "magic", "", "admin"); !errors.Is(err, ErrUnsupportedMode) {
+		t.Errorf("unknown mode: %v", err)
+	}
+	if _, err := r.SetMode(ctx, router, ByInterface, "admin"); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("mode before approval: %v", err)
+	}
+	if _, err := r.Approve(ctx, router, RoleEdge, ByInterface, "", "admin"); err != nil || !r.ByInterface(router) {
 		t.Errorf("by interface: %v", err)
+	}
+	if c, err := r.SetMode(ctx, router, ByAddress, "admin"); err != nil || c.ClassificationMode != ByAddress || r.ByInterface(router) {
+		t.Errorf("set mode: %+v %v", c, err)
 	}
 }
 

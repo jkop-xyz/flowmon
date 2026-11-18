@@ -8,7 +8,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { approveExporter, forgetExporter, ignoreExporter, type ExporterStatus } from "@/lib/api"
+import {
+  approveExporter,
+  forgetExporter,
+  ignoreExporter,
+  type ClassificationMode,
+  type ExporterStatus,
+} from "@/lib/api"
 import { formatNumber } from "@/lib/format"
 
 function useInvalidate() {
@@ -23,8 +29,13 @@ function useInvalidate() {
 export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
   const invalidate = useInvalidate()
   const [name, setName] = useState(exporter.name)
+  // Classification by interface needs interface numbers in the Exporter's Templates.
+  const sendsInterfaces =
+    exporter.templates.some((t) => !t.options) &&
+    exporter.templates.every((t) => t.options || !t.findings.some((f) => f.code === "no_interfaces"))
+  const [mode, setMode] = useState<ClassificationMode>(sendsInterfaces ? "interface" : "address")
   const approve = useMutation({
-    mutationFn: () => approveExporter(exporter.address, { name, role: "edge", classificationMode: "address" }),
+    mutationFn: () => approveExporter(exporter.address, { name, role: "edge", classificationMode: mode }),
     onSuccess: invalidate,
   })
   const ignore = useMutation({ mutationFn: () => ignoreExporter(exporter.address), onSuccess: invalidate })
@@ -68,15 +79,15 @@ export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
           </div>
           <div className="flex flex-col gap-2">
             <Label>Classification</Label>
-            <Select value="address">
+            <Select value={mode} onValueChange={(v) => setMode(v as ClassificationMode)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="address">By address</SelectItem>
-                <SelectItem value="interface" disabled>
-                  By interface (later)
+                <SelectItem value="interface" disabled={!sendsInterfaces}>
+                  By interface{sendsInterfaces ? "" : " (no interface numbers)"}
                 </SelectItem>
+                <SelectItem value="address">By address</SelectItem>
               </SelectContent>
             </Select>
           </div>

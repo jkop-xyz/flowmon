@@ -105,6 +105,20 @@ var migrations = []string{
 		decided_at TIMESTAMP NOT NULL,
 		decided_by VARCHAR NOT NULL
 	)`,
+	// 4: interface number → name per Exporter, with the time range each mapping was valid,
+	// so reprocessing uses the mapping that applied when a Flow happened (ADR 0003/0004).
+	`CREATE TABLE interface_mappings (
+		exporter VARCHAR NOT NULL,
+		if_index UINTEGER NOT NULL,
+		name VARCHAR NOT NULL,
+		source VARCHAR NOT NULL,
+		valid_from TIMESTAMP NOT NULL,
+		valid_to TIMESTAMP
+	)`,
+	// 5: Interface Roles, by interface name.
+	`CREATE TABLE interface_roles (exporter VARCHAR NOT NULL, name VARCHAR NOT NULL, role VARCHAR NOT NULL, PRIMARY KEY (exporter, name))`,
+	// 6: when an Exporter's classification changed, for chart markers.
+	`CREATE TABLE classification_changes (exporter VARCHAR NOT NULL, changed_at TIMESTAMP NOT NULL, description VARCHAR NOT NULL)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -281,15 +295,7 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 				return fmt.Errorf("appender for %s: %w", name, err)
 			}
 			for _, f := range byDay[name] {
-				err := app.AppendRow(
-					f.Exporter.String(), f.ObservationDomain, f.Received.UTC(), f.ExportTime.UTC(), f.Start.UTC(), f.End.UTC(), f.TimeEstimated,
-					f.Src.String(), f.Dst.String(), f.SrcPort, f.DstPort, f.Protocol,
-					nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
-					f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
-					uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
-					f.Fields,
-				)
-				if err != nil {
+				if err := app.AppendRow(flowRow(f)...); err != nil {
 					_ = app.Close()
 					return fmt.Errorf("appending to %s: %w", name, err)
 				}
@@ -298,8 +304,20 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 				return fmt.Errorf("flushing %s: %w", name, err)
 			}
 		}
-		return s.writeRollups(ctx, dc.(driver.Conn), flows)
+		return s.writeRollups(ctx, dc.(driver.Conn), flows, time.Time{})
 	})
+}
+
+// flowRow is a Flow in day-table column order.
+func flowRow(f *flow.Flow) []driver.Value {
+	return []driver.Value{
+		f.Exporter.String(), f.ObservationDomain, f.Received.UTC(), f.ExportTime.UTC(), f.Start.UTC(), f.End.UTC(), f.TimeEstimated,
+		f.Src.String(), f.Dst.String(), f.SrcPort, f.DstPort, f.Protocol,
+		nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
+		f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
+		uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
+		f.Fields,
+	}
 }
 
 // tablesFor returns the existing day tables that can hold Flows overlapping [from, to).

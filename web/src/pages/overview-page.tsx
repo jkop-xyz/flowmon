@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle } from "lucide-react"
-import { Area, AreaChart, CartesianGrid, ReferenceArea, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +14,14 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchBandwidth, fetchTop, type BandwidthPoint, type TopDimension, type TopItem } from "@/lib/api"
+import {
+  fetchBandwidth,
+  fetchTop,
+  type BandwidthPoint,
+  type ClassificationChange,
+  type TopDimension,
+  type TopItem,
+} from "@/lib/api"
 import { formatBitsPerSecond, formatBytes, formatTick, protocolName } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
@@ -55,6 +62,7 @@ export function OverviewPage() {
               stepSeconds={query.data.result.stepSeconds}
               rangeMs={preset.ms}
               incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
+              changes={query.data.changes ?? []}
             />
           )}
         </CardContent>
@@ -92,15 +100,18 @@ function BandwidthChart({
   stepSeconds,
   rangeMs,
   incompleteFrom,
+  changes,
 }: {
   points: BandwidthPoint[]
   stepSeconds: number
   rangeMs: number
   incompleteFrom: number
+  changes: ClassificationChange[]
 }) {
   const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
   const empty = points.every((p) => p.inboundBps === 0 && p.outboundBps === 0)
   const last = data.length > 0 ? data[data.length - 1].time : 0
+  const end = last + stepSeconds * 1000
   const shadeFrom = Math.max(incompleteFrom - stepSeconds * 1000, data[0]?.time ?? 0)
 
   return (
@@ -120,22 +131,36 @@ function BandwidthChart({
             dataKey="time"
             type="number"
             scale="time"
-            domain={["dataMin", "dataMax"]}
+            domain={[data[0]?.time ?? 0, end]}
             tickLine={false}
             axisLine={false}
             minTickGap={48}
             tickFormatter={(v: number) => formatTick(v, rangeMs)}
           />
           <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => formatBitsPerSecond(v)} />
-          {last > shadeFrom && (
+          {end > shadeFrom && (
             <ReferenceArea
               x1={shadeFrom}
-              x2={last}
+              x2={end}
               fill="var(--muted-foreground)"
               fillOpacity={0.08}
               ifOverflow="hidden"
             />
           )}
+          {changes.map((c) => (
+            <ReferenceLine
+              key={`${c.exporter}/${c.t}`}
+              x={new Date(c.t).getTime()}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+              label={{
+                value: "classification changed",
+                position: "insideTopLeft",
+                fontSize: 11,
+                fill: "var(--muted-foreground)",
+              }}
+            />
+          ))}
           <ChartTooltip
             content={
               <ChartTooltipContent
@@ -178,6 +203,7 @@ function BandwidthChart({
       )}
       <p className="mt-2 text-xs text-muted-foreground">
         Each point averages {formatStep(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
+        {changes.length > 0 && " Dashed lines mark changes to how an Exporter's traffic is classified."}
       </p>
     </div>
   )

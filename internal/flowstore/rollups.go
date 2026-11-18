@@ -106,11 +106,16 @@ func (s *Store) ensureRollup(ctx context.Context, g Granularity, period time.Tim
 // writeRollups appends the Rollup contributions of flows. Rows are pre-aggregated per
 // batch; the same key can appear in many batches, so queries always sum, and Compact
 // merges rows later. Because Rollups only add, late Flows are simply added too.
-func (s *Store) writeRollups(ctx context.Context, dc driver.Conn, flows []flow.Flow) error {
+// Contributions to buckets before minBucket are skipped (reprocessing keeps those).
+func (s *Store) writeRollups(ctx context.Context, dc driver.Conn, flows []flow.Flow, minBucket time.Time) error {
 	for _, g := range []Granularity{Minute, Hour} {
 		var rows []rollup.Row
 		for i := range flows {
-			rows = append(rows, rollup.Contributions(&flows[i], g.bucket())...)
+			for _, r := range rollup.Contributions(&flows[i], g.bucket()) {
+				if !r.Key.Bucket.Before(minBucket) {
+					rows = append(rows, r)
+				}
+			}
 		}
 		byTable := map[string][]rollup.Key{}
 		agg := rollup.Aggregate(rows)

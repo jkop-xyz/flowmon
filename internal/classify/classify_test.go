@@ -85,14 +85,14 @@ func TestCountingTableByAddress(t *testing.T) {
 			direction: flow.DirectionInternal, local: lanHost, peer: lanVM, localPort: 50000, peerPort: 443,
 		},
 		{
-			name: "the router itself talks to the internet (Exporter Host)",
+			name: "the router itself talks to the internet (Exporter Host, attributed to the Exporter)",
 			src:  wan, dst: remote2, srcPort: 33000, dstPort: 53,
-			direction: flow.DirectionOutbound, local: wan, localIsEH: true, peer: remote2, localPort: 33000, peerPort: 53,
+			direction: flow.DirectionOutbound, local: exporter, localIsEH: true, peer: remote2, localPort: 33000, peerPort: 53,
 		},
 		{
 			name: "a reply to the router itself",
 			src:  remote2, dst: wan, srcPort: 53, dstPort: 33000,
-			direction: flow.DirectionInbound, local: wan, localIsEH: true, peer: remote2, localPort: 33000, peerPort: 53,
+			direction: flow.DirectionInbound, local: exporter, localIsEH: true, peer: remote2, localPort: 33000, peerPort: 53,
 		},
 		{
 			name: "CGNAT range is not local by default",
@@ -187,7 +187,7 @@ func TestTheExporterAddressIsAnExporterHost(t *testing.T) {
 	c := New(DefaultLocalNetworks())
 	f := flow.Flow{Exporter: vps, Src: vps, Dst: remote}
 	c.Classify(&f, now)
-	if f.Direction != flow.DirectionOutbound || f.Local != vps || !f.LocalIsExporterHost {
+	if f.Direction != flow.DirectionOutbound || f.Local != vps || !f.LocalIsExporterHost { // its own address either way
 		t.Errorf("%v local=%v eh=%v", f.Direction, f.Local, f.LocalIsExporterHost)
 	}
 }
