@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/flow"
@@ -52,9 +53,30 @@ const ExporterHostTTL = 24 * time.Hour
 // maxLearnedPerExporter bounds learned addresses per Exporter.
 const maxLearnedPerExporter = 16
 
+// InterfaceRole is the role of an interface a Flow crossed, as the classifier sees it.
+type InterfaceRole uint8
+
+// Interface roles. IfSelf is interface number 0: the Exporter itself sent or received
+// the Flow. IfUnknown means no role is set, and the Flow is classified by address.
+const (
+	IfUnknown InterfaceRole = iota
+	IfSelf
+	IfWAN
+	IfLAN
+	IfTunnel
+)
+
+// Interfaces tells the classifier which Exporters classify by interface and what each
+// interface's role was at a given time.
+type Interfaces interface {
+	ByInterface(exporter netip.Addr) bool
+	Role(exporter netip.Addr, ifIndex uint32, at time.Time) InterfaceRole
+}
+
 // Classifier is safe for concurrent use.
 type Classifier struct {
-	local []netip.Prefix
+	local  []netip.Prefix
+	ifaces atomic.Pointer[Interfaces]
 
 	mu      sync.Mutex
 	learned map[netip.Addr]map[netip.Addr]time.Time // Exporter → address → last seen
@@ -65,8 +87,14 @@ func New(local []netip.Prefix) *Classifier {
 	return &Classifier{local: local, learned: map[netip.Addr]map[netip.Addr]time.Time{}}
 }
 
+// SetInterfaces enables classification by interface for the Exporters that ask for it.
+func (c *Classifier) SetInterfaces(i Interfaces) { c.ifaces.Store(&i) }
+
 // LocalNetworks returns the configured Local Networks.
 func (c *Classifier) LocalNetworks() []netip.Prefix { return append([]netip.Prefix(nil), c.local...) }
+
+// InLocalNetwork reports whether an address is in a Local Network.
+func (c *Classifier) InLocalNetwork(a netip.Addr) bool { return c.inLocalNetwork(a) }
 
 func (c *Classifier) inLocalNetwork(a netip.Addr) bool {
 	if !a.IsValid() {
@@ -175,6 +203,10 @@ func (c *Classifier) Classify(f *flow.Flow, now time.Time) {
 	}
 
 	f.Local, f.Peer, f.LocalPort, f.PeerPort, f.LocalIsExporterHost = netip.Addr{}, netip.Addr{}, 0, 0, false
+	if c.classifyByInterface(f, src, dst) {
+		c.stableExporterHost(f)
+		return
+	}
 	switch {
 	case src.local && dst.local:
 		f.Direction = flow.DirectionInternal
@@ -192,6 +224,56 @@ func (c *Classifier) Classify(f *flow.Flow, now time.Time) {
 		f.Direction = flow.DirectionTransit
 	}
 	f.Local, f.Peer = f.Local.Unmap(), f.Peer.Unmap()
+	c.stableExporterHost(f)
+}
+
+// stableExporterHost attributes the Exporter's own traffic to the Exporter's address
+// rather than its (DHCP) WAN address, so its history doesn't split when that changes.
+func (c *Classifier) stableExporterHost(f *flow.Flow) {
+	if f.LocalIsExporterHost {
+		f.Local = f.Exporter.Unmap()
+	}
+}
+
+// classifyByInterface applies Interface Roles (ADR 0003). It reports false when the
+// Exporter classifies by address or a crossed interface has no role, so the caller
+// falls back to Local Networks.
+func (c *Classifier) classifyByInterface(f *flow.Flow, src, dst end) bool {
+	p := c.ifaces.Load()
+	if p == nil || !(*p).ByInterface(f.Exporter) || (f.IngressInterface == 0 && f.EgressInterface == 0) {
+		return false
+	}
+	in := (*p).Role(f.Exporter, f.IngressInterface, f.End)
+	out := (*p).Role(f.Exporter, f.EgressInterface, f.End)
+	if in == IfUnknown || out == IfUnknown {
+		return false
+	}
+	srcEnd := end{addr: f.Src, port: f.SrcPort}
+	if src.local && !src.exporterHost {
+		srcEnd = src
+	}
+	dstEnd := end{addr: f.Dst, port: f.DstPort}
+	if f.PostNATDst.IsValid() {
+		dstEnd = end{addr: f.PostNATDst, port: dst.port}
+	}
+	switch {
+	case in == IfWAN && out == IfWAN:
+		f.Direction = flow.DirectionTransit
+	case in == IfWAN:
+		f.Direction = flow.DirectionInbound
+		f.Local, f.LocalPort, f.LocalIsExporterHost = dstEnd.addr, dstEnd.port, out == IfSelf
+		f.Peer, f.PeerPort = f.Src, f.SrcPort
+	case out == IfWAN:
+		f.Direction = flow.DirectionOutbound
+		f.Local, f.LocalPort, f.LocalIsExporterHost = srcEnd.addr, srcEnd.port, in == IfSelf
+		f.Peer, f.PeerPort = f.Dst, f.DstPort
+	default:
+		f.Direction = flow.DirectionInternal
+		f.Local, f.LocalPort, f.LocalIsExporterHost = srcEnd.addr, srcEnd.port, in == IfSelf
+		f.Peer, f.PeerPort = dstEnd.addr, dstEnd.port
+	}
+	f.Local, f.Peer = f.Local.Unmap(), f.Peer.Unmap()
+	return true
 }
 
 // ExporterHosts returns the learned addresses of an Exporter that still count as local.

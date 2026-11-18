@@ -23,10 +23,13 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
+	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
+	"github.com/jkop-xyz/flowmon/internal/interfaces"
+	"github.com/jkop-xyz/flowmon/internal/reprocess"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 	"github.com/jkop-xyz/flowmon/web"
 )
@@ -132,7 +135,17 @@ func serve(stderr io.Writer) int {
 	}
 	defer store.Close()
 
-	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger, WatermarkOverride: cfg.WatermarkOverride})
+	ifaceRegistry, err := interfaces.Load(ctx, store)
+	if err != nil {
+		logger.Error("interfaces", "err", err)
+		return 1
+	}
+	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
+		OnInterfaceName: func(exp netip.Addr, idx uint32, name string, at time.Time) {
+			if _, err := ifaceRegistry.SetName(context.Background(), exp, idx, name, interfaces.SourceOptions, at); err != nil {
+				logger.Warn("saving an interface name from an Options Template", "exporter", exp.String(), "err", err)
+			}
+		}})
 	pipelineCtx, stopPipeline := context.WithCancel(ctx)
 	var pipelineDone sync.WaitGroup
 	pipelineDone.Add(1)
@@ -160,6 +173,9 @@ func serve(stderr io.Writer) int {
 		logger.Error("exporters", "err", err)
 		return 1
 	}
+	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
+	reprocessor := reprocess.New(store, func(f *flow.Flow) { classifier.Classify(f, f.End) }, logger)
+
 	gate := collector.GateFunc(func(a netip.Addr) collector.Admission {
 		switch registry.Status(a) {
 		case exporters.StatusApproved:
@@ -242,6 +258,9 @@ func serve(stderr io.Writer) int {
 		Auth:      authManager,
 		Setup:     setupCtl,
 		Exporters: registry,
+		Interfaces: &httpserver.InterfaceOptions{
+			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: cfg.RetentionRaw,
+		},
 	}))
 
 	errCh := make(chan error, 1)
@@ -265,6 +284,19 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// interfaceClassification tells the classifier which Exporters classify by interface
+// and what their interfaces' roles were.
+type interfaceClassification struct {
+	exporters  *exporters.Registry
+	interfaces *interfaces.Registry
+}
+
+func (i interfaceClassification) ByInterface(a netip.Addr) bool { return i.exporters.ByInterface(a) }
+
+func (i interfaceClassification) Role(a netip.Addr, idx uint32, at time.Time) classify.InterfaceRole {
+	return i.interfaces.RoleAt(a, idx, at)
 }
 
 // expireSessions deletes expired sessions every hour.

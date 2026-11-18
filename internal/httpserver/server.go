@@ -47,6 +47,8 @@ type Options struct {
 	Setup *setup.Controller
 	// Exporters holds approvals; nil treats every Exporter as approved (tests).
 	Exporters *exporters.Registry
+	// Interfaces wires Interfaces, Interface Roles and reprocessing.
+	Interfaces *InterfaceOptions
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -86,6 +88,7 @@ func New(opts Options) http.Handler {
 		writeJSON(w, http.StatusOK, st)
 	})
 	registerExporters(mux, opts)
+	registerInterfaces(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
@@ -100,7 +103,8 @@ func New(opts Options) http.Handler {
 		if queryError(w, opts.Logger, "bandwidth", err) {
 			return
 		}
-		writeJSON(w, http.StatusOK, withIncomplete{res, incompleteFrom(opts)})
+		writeJSON(w, http.StatusOK, withIncomplete{Result: res, IncompleteFrom: incompleteFrom(opts),
+			Changes: classificationChanges(r, opts, q.From, q.To, q.Exporter)})
 	})
 	mux.HandleFunc("GET /api/overview/top", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
@@ -121,7 +125,7 @@ func New(opts Options) http.Handler {
 		if queryError(w, opts.Logger, "top", err) {
 			return
 		}
-		writeJSON(w, http.StatusOK, withIncomplete{res, incompleteFrom(opts)})
+		writeJSON(w, http.StatusOK, withIncomplete{Result: res, IncompleteFrom: incompleteFrom(opts)})
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -149,6 +153,8 @@ type withIncomplete struct {
 	// IncompleteFrom is the time after which data may still change (now minus the
 	// largest Watermark). The UI shades it.
 	IncompleteFrom time.Time `json:"incompleteFrom"`
+	// Changes marks when an Exporter's classification changed (charts only).
+	Changes []flowstore.ClassificationChange `json:"changes,omitempty"`
 }
 
 func incompleteFrom(opts Options) time.Time {

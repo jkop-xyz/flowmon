@@ -167,8 +167,9 @@ func (r *Registry) Configs() []Config {
 // Errors from decisions.
 var (
 	ErrUnsupportedRole = errors.New("exporters: only the Edge role is available in this version")
-	ErrUnsupportedMode = errors.New("exporters: classification by interface isn't available yet")
+	ErrUnsupportedMode = errors.New("exporters: classification mode must be address or interface")
 	ErrNameTooLong     = errors.New("exporters: name must be at most 64 characters")
+	ErrNotApproved     = errors.New("exporters: approve the Exporter first")
 )
 
 // Approve approves an Exporter with a role and Classification Mode.
@@ -182,12 +183,31 @@ func (r *Registry) Approve(ctx context.Context, addr netip.Addr, role Role, mode
 	switch {
 	case role != RoleEdge:
 		return Config{}, ErrUnsupportedRole
-	case mode != ByAddress:
+	case mode != ByAddress && mode != ByInterface:
 		return Config{}, ErrUnsupportedMode
 	case len([]rune(name)) > 64:
 		return Config{}, ErrNameTooLong
 	}
 	return r.decide(ctx, Config{Address: addr.Unmap(), Status: StatusApproved, Role: role, ClassificationMode: mode, Name: name, DecidedBy: by})
+}
+
+// SetMode changes an approved Exporter's Classification Mode.
+func (r *Registry) SetMode(ctx context.Context, addr netip.Addr, mode ClassificationMode, by string) (Config, error) {
+	if mode != ByAddress && mode != ByInterface {
+		return Config{}, ErrUnsupportedMode
+	}
+	c, ok := r.Config(addr)
+	if !ok || c.Status != StatusApproved {
+		return Config{}, ErrNotApproved
+	}
+	c.ClassificationMode, c.DecidedBy = mode, by
+	return r.decide(ctx, c)
+}
+
+// ByInterface reports whether an Exporter classifies by interface.
+func (r *Registry) ByInterface(addr netip.Addr) bool {
+	c, ok := r.Config(addr)
+	return ok && c.Status == StatusApproved && c.ClassificationMode == ByInterface
 }
 
 // Ignore stops accepting anything from an Exporter.

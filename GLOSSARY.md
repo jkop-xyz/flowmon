@@ -42,7 +42,7 @@ An address inside a Local Network.
 _Avoid_: Client, device, internal IP
 
 **Exporter Host**:
-A Local Host that stands for an Exporter's own addresses, such as whatever address its WAN Interface has right now. Traffic the router sends itself counts as local through it.
+A Local Host that stands for an Exporter's own addresses, such as whatever address its WAN Interface has right now. Traffic the router sends or receives itself counts as local through it, and is attributed to the Exporter's own address, so its history doesn't split when a DHCP WAN address changes.
 _Avoid_: Router IP, WAN host
 
 **Remote IP**:

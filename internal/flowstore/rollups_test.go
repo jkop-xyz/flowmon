@@ -201,3 +201,53 @@ func TestRetentionKeepsTheDayUntilTheWatermarkPassed(t *testing.T) {
 		t.Errorf("dropped %v after the Watermark passed", dropped)
 	}
 }
+
+func TestReprocessReclassifiesOneExporter(t *testing.T) {
+	s := open(t)
+	other := mkFlow(flow.DirectionOutbound, t0, t0, 700)
+	other.Exporter = netip.MustParseAddr("10.9.9.9")
+	mine := mkFlow(flow.DirectionTransit, t0.Add(-25*time.Hour), t0.Add(-25*time.Hour), 1000) // the day before
+	mine2 := mkFlow(flow.DirectionTransit, t0, t0, 2000)
+	if err := s.Write(ctx, []flow.Flow{other, mine, mine2}); err != nil {
+		t.Fatal(err)
+	}
+	hostTotal := func(from time.Time) float64 {
+		res, err := s.Top(ctx, TopQuery{Dimension: TopLocalHosts, From: from, To: t0.Add(time.Hour)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.TotalBytes
+	}
+	if got := hostTotal(t0.Add(-time.Hour)); got != 700 {
+		t.Fatalf("before: %v (transit Flows aren't in Rollups)", got)
+	}
+
+	// Reprocess from today: the classifier now says these Flows are outbound.
+	n, window, err := s.Reprocess(ctx, exporter, t0, func(f *flow.Flow) { f.Direction = flow.DirectionOutbound }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || !window.Equal(t0.Truncate(24*time.Hour)) {
+		t.Errorf("rewrote %d flows, window %v; only today's Flow of this Exporter", n, window)
+	}
+	if got := hostTotal(t0.Add(-time.Hour)); got != 2700 {
+		t.Errorf("after: %v, want 700 (other Exporter, untouched) + 2000", got)
+	}
+	if got := hostTotal(t0.Add(-26 * time.Hour)); got != 2700 {
+		t.Errorf("yesterday is outside the window and stays as it was: %v", got)
+	}
+
+	// Reprocessing again gives the same totals: Rollups were rebuilt, not added to.
+	if _, _, err := s.Reprocess(ctx, exporter, t0, func(f *flow.Flow) { f.Direction = flow.DirectionOutbound }, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Compact(ctx)
+	if got := hostTotal(t0.Add(-time.Hour)); got != 2700 {
+		t.Errorf("reprocessing twice: %v", got)
+	}
+	// And the raw rows themselves were rewritten.
+	var dir uint8
+	if err := s.db.QueryRowContext(ctx, `SELECT direction FROM flows_20261118 WHERE exporter = ?`, exporter.String()).Scan(&dir); err != nil || flow.Direction(dir) != flow.DirectionOutbound {
+		t.Errorf("raw direction %v %v", dir, err)
+	}
+}
