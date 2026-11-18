@@ -15,6 +15,7 @@ import (
 
 	"github.com/jkop-xyz/flowmon/internal/auth"
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/setup"
 )
@@ -44,6 +45,8 @@ type Options struct {
 	// (tests only).
 	Auth  *auth.Manager
 	Setup *setup.Controller
+	// Exporters holds approvals; nil treats every Exporter as approved (tests).
+	Exporters *exporters.Registry
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -72,6 +75,7 @@ func New(opts Options) http.Handler {
 			return
 		}
 		st := opts.Collector.Status()
+		mergeExporterStatus(&st, opts.Exporters)
 		if opts.Timing != nil {
 			for i := range st.Exporters {
 				if addr, err := netip.ParseAddr(st.Exporters[i].Address); err == nil {
@@ -81,6 +85,7 @@ func New(opts Options) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, st)
 	})
+	registerExporters(mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})

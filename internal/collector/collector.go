@@ -38,6 +38,40 @@ type DiscardSink struct{}
 // Records implements RecordSink.
 func (DiscardSink) Records(netip.Addr, []ipfix.Record) {}
 
+// Admission is what the collector does with an Exporter's datagrams.
+type Admission uint8
+
+// Admissions.
+const (
+	// AdmitPending decodes (so Templates are kept) but drops and counts the data.
+	AdmitPending Admission = iota
+	AdmitAccept
+	// AdmitIgnore drops datagrams without decoding.
+	AdmitIgnore
+)
+
+func (a Admission) String() string {
+	switch a {
+	case AdmitAccept:
+		return "approved"
+	case AdmitIgnore:
+		return "ignored"
+	}
+	return "pending"
+}
+
+// Gate decides admission per Exporter. It is asked for every datagram, so decisions
+// apply at once; it must be fast and must not depend on the App Store.
+type Gate interface {
+	Admission(exporter netip.Addr) Admission
+}
+
+// GateFunc adapts a function to Gate.
+type GateFunc func(netip.Addr) Admission
+
+// Admission implements Gate.
+func (f GateFunc) Admission(a netip.Addr) Admission { return f(a) }
+
 // Options configure a Collector.
 type Options struct {
 	Limits ipfix.Limits
@@ -45,9 +79,15 @@ type Options struct {
 	MaxExporters int
 	// MaxSessionsPerExporter caps transport sessions (source ports) kept per Exporter.
 	MaxSessionsPerExporter int
-	Sink                   RecordSink
-	Capture                *capture.Writer
-	Logger                 *slog.Logger
+	// MaxPending caps Pending Exporters, so spoofed sources can't fill the list.
+	MaxPending int
+	// NewExportersPerMinute rate-limits how fast unknown sources become Exporters.
+	NewExportersPerMinute int
+	// Gate decides admission; nil accepts every Exporter.
+	Gate    Gate
+	Sink    RecordSink
+	Capture *capture.Writer
+	Logger  *slog.Logger
 	// Now returns the current time; tests replace it.
 	Now func() time.Time
 }
@@ -59,7 +99,13 @@ type Collector struct {
 	exporters map[netip.Addr]*exporter
 	listeners []string
 	overLimit uint64 // datagrams dropped because MaxExporters was reached
-	started   time.Time
+	// overPending counts datagrams dropped because MaxPending was reached.
+	overPending uint64
+	// rateLimited counts datagrams from new sources dropped by NewExportersPerMinute.
+	rateLimited uint64
+	newTokens   float64
+	newRefill   time.Time
+	started     time.Time
 }
 
 // New returns a Collector. Zero option values get defaults.
@@ -73,6 +119,15 @@ func New(opts Options) *Collector {
 	if opts.MaxSessionsPerExporter <= 0 {
 		opts.MaxSessionsPerExporter = 8
 	}
+	if opts.MaxPending <= 0 {
+		opts.MaxPending = 16
+	}
+	if opts.NewExportersPerMinute <= 0 {
+		opts.NewExportersPerMinute = 10
+	}
+	if opts.Gate == nil {
+		opts.Gate = GateFunc(func(netip.Addr) Admission { return AdmitAccept })
+	}
 	if opts.Sink == nil {
 		opts.Sink = DiscardSink{}
 	}
@@ -82,7 +137,9 @@ func New(opts Options) *Collector {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Collector{opts: opts, exporters: map[netip.Addr]*exporter{}, started: opts.Now()}
+	now := opts.Now()
+	return &Collector{opts: opts, exporters: map[netip.Addr]*exporter{}, started: now,
+		newTokens: float64(opts.NewExportersPerMinute), newRefill: now}
 }
 
 // ListenUDP receives datagrams on addr until ctx is done. It returns once the socket is
@@ -134,22 +191,34 @@ func (c *Collector) HandleDatagram(src, local netip.AddrPort, data []byte) {
 		}
 	}
 
+	admission := c.opts.Gate.Admission(src.Addr())
+
 	c.mu.Lock()
-	exp, ok := c.exporterLocked(src.Addr(), now)
+	exp, ok := c.exporterLocked(src.Addr(), admission, now)
 	if !ok {
-		c.overLimit++
 		c.mu.Unlock()
 		return
 	}
+	exp.admission = admission
 	exp.lastSeen = now
 	exp.datagrams++
 	exp.bytes += uint64(len(data))
 	exp.lastSource = src
+	if admission == AdmitIgnore {
+		exp.ignoredDatagrams++
+		c.mu.Unlock()
+		return
+	}
 
 	var records []ipfix.Record
 	switch ipfix.PeekVersion(data) {
 	case ipfix.Version:
 		records = c.decodeLocked(exp, src, local, data, now)
+		if admission == AdmitPending {
+			// Templates are kept so approval decodes at once; the data isn't held.
+			exp.pendingDropped += uint64(len(records))
+			records = nil
+		}
 	case 9:
 		exp.deviation(DevNetFlowV9Unsupported, "NetFlow v9 support comes in v1.1; send IPFIX instead", now)
 	case 5:
@@ -164,13 +233,35 @@ func (c *Collector) HandleDatagram(src, local netip.AddrPort, data []byte) {
 	}
 }
 
-func (c *Collector) exporterLocked(addr netip.Addr, now time.Time) (*exporter, bool) {
+func (c *Collector) exporterLocked(addr netip.Addr, admission Admission, now time.Time) (*exporter, bool) {
 	if exp, ok := c.exporters[addr]; ok {
 		return exp, true
 	}
 	if len(c.exporters) >= c.opts.MaxExporters {
+		c.overLimit++
 		return nil, false
 	}
+	if admission == AdmitPending {
+		pending := 0
+		for _, e := range c.exporters {
+			if e.admission == AdmitPending {
+				pending++
+			}
+		}
+		if pending >= c.opts.MaxPending {
+			c.overPending++
+			return nil, false
+		}
+	}
+	// Token bucket for new sources: a flood of spoofed addresses can't create Exporters fast.
+	rate := float64(c.opts.NewExportersPerMinute)
+	c.newTokens = min(rate, c.newTokens+now.Sub(c.newRefill).Minutes()*rate)
+	c.newRefill = now
+	if c.newTokens < 1 {
+		c.rateLimited++
+		return nil, false
+	}
+	c.newTokens--
 	exp := newExporter(addr, now)
 	c.exporters[addr] = exp
 	c.opts.Logger.Info("new exporter", "addr", addr.String())
@@ -229,9 +320,15 @@ type Status struct {
 	Listeners []string `json:"listeners"`
 	// DroppedOverExporterLimit counts datagrams from new sources ignored because the
 	// Exporter limit was reached.
-	DroppedOverExporterLimit uint64           `json:"droppedOverExporterLimit"`
-	MaxExporters             int              `json:"maxExporters"`
-	Exporters                []ExporterStatus `json:"exporters"`
+	DroppedOverExporterLimit uint64 `json:"droppedOverExporterLimit"`
+	MaxExporters             int    `json:"maxExporters"`
+	// DroppedOverPendingLimit counts datagrams from new sources ignored because the
+	// Pending Exporter limit was reached.
+	DroppedOverPendingLimit uint64 `json:"droppedOverPendingLimit"`
+	MaxPending              int    `json:"maxPending"`
+	// DroppedNewExporterRate counts datagrams from new sources ignored by the rate limit.
+	DroppedNewExporterRate uint64           `json:"droppedNewExporterRate"`
+	Exporters              []ExporterStatus `json:"exporters"`
 }
 
 // Status returns the current state of every Exporter, ordered by address.
@@ -243,6 +340,9 @@ func (c *Collector) Status() Status {
 		Listeners:                append([]string{}, c.listeners...),
 		DroppedOverExporterLimit: c.overLimit,
 		MaxExporters:             c.opts.MaxExporters,
+		DroppedOverPendingLimit:  c.overPending,
+		MaxPending:               c.opts.MaxPending,
+		DroppedNewExporterRate:   c.rateLimited,
 		Exporters:                make([]ExporterStatus, 0, len(c.exporters)),
 	}
 	for _, exp := range c.exporters {

@@ -12,6 +12,7 @@ Three independent design reviews recommended dropping Postgres for the App Store
 ## Consequences
 
 - Flows are not stored in Postgres. Only app state is.
+- **Exporter decisions (approved/ignored, role, Classification Mode) live in the Flow Store, not the App Store.** Collection needs them for every datagram, and collection must keep working when the App Store is unreachable. If they lived in Postgres, a Postgres outage at startup would turn every approved Exporter back into a Pending one and its Flows would be dropped. The same applies to later collection-time settings such as Interface Roles and interface mappings.
 - App Store migrations must work on both SQLite and Postgres and are tested in CI against both.
 - The Flow Store sits behind an interface of named query methods, one per screen or widget. A general query-description layer waits until a second flow backend (ClickHouse or Postgres) actually exists.
 - Raw Flows are stored in one table per day, so retention and the disk cap free space by dropping whole days, because DuckDB `DELETE` does not shrink the file. The disk cap never deletes raw Flows that haven't been rolled up yet.

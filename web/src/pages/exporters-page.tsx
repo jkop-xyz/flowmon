@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle, Cable, ChevronRight, Info, Radio } from "lucide-react"
 
+import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +16,7 @@ import {
   type TemplateStatus,
   type TimingStatus,
 } from "@/lib/api"
+import { useExporterFilter } from "@/lib/exporter-filter"
 import { formatAgo, formatBytes, formatDateTime, formatNumber, formatSeconds } from "@/lib/format"
 
 /** An Exporter counts as receiving if it sent something in the last two minutes. */
@@ -52,6 +54,7 @@ function deviationLabel(kind: string) {
 }
 
 export function ExportersPage() {
+  const { exporter: selected } = useExporterFilter()
   const query = useQuery({
     queryKey: ["exporters"],
     queryFn: ({ signal }) => fetchExporters(signal),
@@ -76,7 +79,11 @@ export function ExportersPage() {
     )
   }
 
-  const { listeners, exporters, droppedOverExporterLimit, maxExporters } = query.data
+  const { listeners, droppedOverExporterLimit, maxExporters, droppedOverPendingLimit, maxPending } = query.data
+  // Pending Exporters first: they need a decision.
+  const exporters = query.data.exporters
+    .filter((e) => !selected || e.address === selected)
+    .sort((a, b) => Number(b.approval === "pending") - Number(a.approval === "pending"))
   // "Now" is when the data was fetched, so relative times and the receiving badge are
   // consistent with the snapshot and rendering stays pure.
   const now = query.dataUpdatedAt
@@ -104,6 +111,17 @@ export function ExportersPage() {
           <AlertDescription>
             {formatNumber(droppedOverExporterLimit)} datagrams from new sources were ignored because Flowmon already
             tracks {maxExporters} Exporters (FLOWMON_MAX_EXPORTERS).
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {droppedOverPendingLimit > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertTitle>Too many Exporters waiting for approval</AlertTitle>
+          <AlertDescription>
+            {formatNumber(droppedOverPendingLimit)} datagrams from further new sources were ignored: at most{" "}
+            {maxPending} Exporters can wait for approval at once. Approve or ignore the ones below.
           </AlertDescription>
         </Alert>
       )}
@@ -142,16 +160,36 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle className="font-mono text-base">{exporter.address}</CardTitle>
-          <Badge variant={receiving ? "default" : "secondary"}>{receiving ? "Receiving" : "Silent"}</Badge>
+          <CardTitle className="text-base">
+            {exporter.name && <span className="mr-2">{exporter.name}</span>}
+            <span className={exporter.name ? "font-mono text-muted-foreground" : "font-mono"}>{exporter.address}</span>
+          </CardTitle>
+          {exporter.approval === "approved" ? (
+            exporter.seen && (
+              <Badge variant={receiving ? "default" : "secondary"}>{receiving ? "Receiving" : "Silent"}</Badge>
+            )
+          ) : (
+            <Badge variant={exporter.approval === "pending" ? "destructive" : "secondary"}>
+              {exporter.approval === "pending" ? "Waiting for approval" : "Ignored"}
+            </Badge>
+          )}
+          {exporter.approval === "approved" && <Badge variant="outline">Edge · by address</Badge>}
+          <ExporterActions exporter={exporter} />
         </div>
         <CardDescription>
-          <span title={formatDateTime(exporter.lastSeen)}>Last seen {formatAgo(exporter.lastSeen, now)}</span>
-          {" · "}from <span className="font-mono">{exporter.lastSource}</span>
-          {domains.length > 0 && <> · Observation Domain {domains.join(", ")}</>}
+          {exporter.seen ? (
+            <>
+              <span title={formatDateTime(exporter.lastSeen)}>Last seen {formatAgo(exporter.lastSeen, now)}</span>
+              {" · "}from <span className="font-mono">{exporter.lastSource}</span>
+              {domains.length > 0 && <> · Observation Domain {domains.join(", ")}</>}
+            </>
+          ) : (
+            "Not heard from since Flowmon started."
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
+        {exporter.approval !== "approved" && <ApprovalPanel exporter={exporter} />}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="Datagrams" value={formatNumber(exporter.datagrams)} />
           <Stat label="IPFIX messages" value={formatNumber(exporter.messages)} />
@@ -170,9 +208,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
           {exporter.templates.length === 0 ? (
             <p className="text-sm text-muted-foreground">No Templates received yet.</p>
           ) : (
-            exporter.templates.map((t) => (
-              <TemplateRow key={`${t.observationDomain}/${t.id}`} template={t} now={now} />
-            ))
+            exporter.templates.map((t) => <TemplateRow key={`${t.observationDomain}/${t.id}`} template={t} now={now} />)
           )}
         </section>
       </CardContent>
@@ -205,7 +241,11 @@ function Findings({ findings }: { findings: Finding[] }) {
 function Timing({ timing }: { timing: TimingStatus }) {
   const offset = timing.clockOffsetSeconds
   const clock =
-    Math.abs(offset) < 2 ? "in sync" : offset > 0 ? `${formatSeconds(offset)} behind` : `${formatSeconds(-offset)} ahead`
+    Math.abs(offset) < 2
+      ? "in sync"
+      : offset > 0
+        ? `${formatSeconds(offset)} behind`
+        : `${formatSeconds(-offset)} ahead`
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">Timing</h3>

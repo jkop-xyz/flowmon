@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Outlet, useLocation } from "react-router"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { ExporterPicker } from "@/components/exporter-picker"
 import { ModeToggle } from "@/components/mode-toggle"
 import { TimeRangePicker } from "@/components/time-range-picker"
 import { UserMenu } from "@/components/user-menu"
@@ -37,6 +38,7 @@ export function AppLayout() {
           <Separator orientation="vertical" className="mr-2 data-vertical:h-4 data-vertical:self-center" />
           <h1 className="text-sm font-medium">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
+            <ExporterPicker />
             <TimeRangePicker />
             <ServerStatus />
             <ModeToggle />

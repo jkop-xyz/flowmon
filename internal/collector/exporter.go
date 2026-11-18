@@ -36,6 +36,9 @@ type exporter struct {
 	messages              uint64
 	records               uint64
 	templateRedefinitions uint64
+	admission             Admission
+	pendingDropped        uint64 // records decoded while pending, then dropped
+	ignoredDatagrams      uint64
 	observationDomains    map[uint32]struct{}
 	deviations            map[ipfix.Deviation]*deviationCount
 	sessions              map[sessionKey]*session
@@ -93,18 +96,28 @@ func (e *exporter) session(key sessionKey, now time.Time, limits ipfix.Limits, m
 
 // ExporterStatus is one Exporter on the Exporters page.
 type ExporterStatus struct {
-	Address            string            `json:"address"`
-	LastSource         string            `json:"lastSource"`
-	FirstSeen          time.Time         `json:"firstSeen"`
-	LastSeen           time.Time         `json:"lastSeen"`
-	Datagrams          uint64            `json:"datagrams"`
-	Bytes              uint64            `json:"bytes"`
-	Messages           uint64            `json:"messages"`
-	Records            uint64            `json:"records"`
-	ObservationDomains []uint32          `json:"observationDomains"`
-	Deviations         []DeviationStatus `json:"deviations"`
-	Templates          []TemplateStatus  `json:"templates"`
-	Findings           []Finding         `json:"findings"`
+	Address string `json:"address"`
+	// Approval is "pending", "approved" or "ignored".
+	Approval string `json:"approval"`
+	// Seen is false for an approved Exporter that hasn't sent anything since Flowmon started.
+	Seen bool `json:"seen"`
+	// Name, Role and ClassificationMode come from the approval.
+	Name                  string            `json:"name"`
+	Role                  string            `json:"role"`
+	ClassificationMode    string            `json:"classificationMode"`
+	PendingDroppedRecords uint64            `json:"pendingDroppedRecords"`
+	IgnoredDatagrams      uint64            `json:"ignoredDatagrams"`
+	LastSource            string            `json:"lastSource"`
+	FirstSeen             time.Time         `json:"firstSeen"`
+	LastSeen              time.Time         `json:"lastSeen"`
+	Datagrams             uint64            `json:"datagrams"`
+	Bytes                 uint64            `json:"bytes"`
+	Messages              uint64            `json:"messages"`
+	Records               uint64            `json:"records"`
+	ObservationDomains    []uint32          `json:"observationDomains"`
+	Deviations            []DeviationStatus `json:"deviations"`
+	Templates             []TemplateStatus  `json:"templates"`
+	Findings              []Finding         `json:"findings"`
 	// Timing is filled in by the ingest pipeline once Flows have been normalised.
 	Timing *TimingStatus `json:"timing"`
 }
@@ -165,17 +178,21 @@ const noneDecodedGrace = 60 * time.Second
 
 func (e *exporter) status(now time.Time) ExporterStatus {
 	st := ExporterStatus{
-		Address:    e.addr.String(),
-		LastSource: e.lastSource.String(),
-		FirstSeen:  e.firstSeen,
-		LastSeen:   e.lastSeen,
-		Datagrams:  e.datagrams,
-		Bytes:      e.bytes,
-		Messages:   e.messages,
-		Records:    e.records,
-		Deviations: []DeviationStatus{},
-		Templates:  []TemplateStatus{},
-		Findings:   []Finding{},
+		Address:               e.addr.String(),
+		Approval:              e.admission.String(),
+		Seen:                  true,
+		PendingDroppedRecords: e.pendingDropped,
+		IgnoredDatagrams:      e.ignoredDatagrams,
+		LastSource:            e.lastSource.String(),
+		FirstSeen:             e.firstSeen,
+		LastSeen:              e.lastSeen,
+		Datagrams:             e.datagrams,
+		Bytes:                 e.bytes,
+		Messages:              e.messages,
+		Records:               e.records,
+		Deviations:            []DeviationStatus{},
+		Templates:             []TemplateStatus{},
+		Findings:              []Finding{},
 	}
 	for od := range e.observationDomains {
 		st.ObservationDomains = append(st.ObservationDomains, od)
@@ -210,6 +227,8 @@ func (e *exporter) status(now time.Time) ExporterStatus {
 	})
 
 	switch {
+	case e.admission != AdmitAccept:
+		// Pending and ignored Exporters get their own banner in the UI.
 	case e.records == 0 && e.datagrams > 0 && now.Sub(e.firstSeen) >= noneDecodedGrace:
 		st.Findings = append(st.Findings, Finding{SeverityWarning, "none_decoded",
 			"0% decoded: this Exporter is sending data, but no Flows could be decoded. Check the deviations and Templates below, or turn on FLOWMON_DEBUG_CAPTURE to record what it sends."})

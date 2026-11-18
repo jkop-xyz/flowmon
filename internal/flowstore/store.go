@@ -94,6 +94,17 @@ var migrations = []string{
 	`CREATE TABLE flow_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`,
 	// 2: catalogue of Rollup tables (minute: one per day, hour: one per month).
 	`CREATE TABLE rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`,
+	// 3: approved and ignored Exporters. Kept here, not in the App Store, because
+	// collection needs them even when the App Store is unreachable (ADR 0001).
+	`CREATE TABLE exporters (
+		address VARCHAR PRIMARY KEY,
+		status VARCHAR NOT NULL,
+		role VARCHAR NOT NULL,
+		classification_mode VARCHAR NOT NULL,
+		name VARCHAR NOT NULL,
+		decided_at TIMESTAMP NOT NULL,
+		decided_by VARCHAR NOT NULL
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
