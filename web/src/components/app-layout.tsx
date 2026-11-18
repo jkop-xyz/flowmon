@@ -27,7 +27,9 @@ function ServerStatus() {
 
 export function AppLayout() {
   const { pathname } = useLocation()
-  const title = navItems.find((item) => item.path === pathname)?.title ?? "Flowmon"
+  const title =
+    navItems.find((item) => item.path === pathname)?.title ??
+    (pathname === "/guide/mikrotik" ? "MikroTik setup guide" : "Flowmon")
 
   return (
     <SidebarProvider>

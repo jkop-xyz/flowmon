@@ -49,7 +49,7 @@ func registerSNMP(mux *http.ServeMux, opts Options) {
 	current := func(a netip.Addr) snmp.Config {
 		c, ok := so.Poller.Config(a)
 		if !ok {
-			c = snmp.Config{Version: "v3", AuthProtocol: "SHA256", PrivProtocol: "AES", Overhead: "ethernet"}
+			c = snmp.Config{Version: "v3", AuthProtocol: "SHA", PrivProtocol: "AES", Overhead: "ethernet"} // what RouterOS supports (SHA1, AES)
 		}
 		return c
 	}
