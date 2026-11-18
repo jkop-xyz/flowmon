@@ -1,0 +1,41 @@
+# Flowmon as a Podman Quadlet. Copy this file and flowmon-data.volume to
+#   rootful:  /etc/containers/systemd/
+#   rootless: ~/.config/containers/systemd/   (and run: loginctl enable-linger $USER)
+# then: systemctl [--user] daemon-reload && systemctl [--user] start flowmon
+# See docs/deploy.md.
+
+[Unit]
+Description=Flowmon network traffic dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/jkop-xyz/flowmon:latest
+ContainerName=flowmon
+# Host networking keeps each Exporter's real source address and avoids the stale
+# conntrack problem of published UDP ports (netavark issue #1045).
+Network=host
+# :U makes the volume owned by the image's user (10001) in rootless setups too.
+Volume=flowmon-data.volume:/data:U
+Environment=TZ=UTC
+# Optional settings (see the README):
+# Environment=FLOWMON_EXPORTER_ALLOWLIST=192.168.10.1/32
+# Environment=FLOWMON_DATABASE_URL=postgres://flowmon@postgres.lan:5432/lab?sslmode=require&search_path=flowmon
+# Podman ignores HEALTHCHECK in OCI images, so the check is declared here.
+HealthCmd=flowmon healthcheck
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=20s
+HealthRetries=3
+HealthOnFailure=kill
+# The unit is "started" once the container reports healthy.
+Notify=healthy
+# podman auto-update pulls new images from the registry.
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
