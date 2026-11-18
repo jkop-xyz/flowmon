@@ -184,10 +184,13 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 	snmpSettings := snmp.NewSettings(store, box)
-	snmpConfigs, err := snmpSettings.All(ctx)
+	snmpConfigs, unreadable, err := snmpSettings.All(ctx)
 	if err != nil {
-		logger.Error("snmp settings", "err", err)
-		return 1
+		// SNMP is optional; collection starts regardless.
+		logger.Error("snmp settings unavailable; SNMP polling is off", "err", err)
+	}
+	for _, a := range unreadable {
+		logger.Error("stored SNMP credentials can't be decrypted; SNMP is off for this Exporter until they are re-entered", "exporter", a.String())
 	}
 	wanInterfaces := func(a netip.Addr) map[string]uint32 {
 		out := map[string]uint32{}
@@ -199,6 +202,9 @@ func serve(stderr io.Writer) int {
 		return out
 	}
 	poller := snmp.NewPoller(nil, snmpSink{ifaces: ifaceRegistry, store: store, wan: wanInterfaces, logger: logger}, snmpConfigs, logger, nil)
+	for _, a := range unreadable {
+		poller.MarkUnreadable(a)
+	}
 	go poller.Run(pipelineCtx)
 
 	gate := collector.GateFunc(func(a netip.Addr) collector.Admission {

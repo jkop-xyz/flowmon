@@ -199,9 +199,16 @@ func TestConfigValidationAndSecrets(t *testing.T) {
 	if contains(raw, "authpass1") || contains(raw, "privpass1") {
 		t.Errorf("secrets stored in the clear: %s", raw)
 	}
-	all, err := s.All(ctx)
-	if err != nil || all[exp].PrivPassword != "privpass1" {
-		t.Errorf("%+v %v", all, err)
+	all, unreadable, err := s.All(ctx)
+	if err != nil || all[exp].PrivPassword != "privpass1" || len(unreadable) != 0 {
+		t.Errorf("%+v %v %v", all, unreadable, err)
+	}
+
+	// With a different key (secret.key lost), the config comes back disabled, not as an error.
+	lost, _ := secret.LoadOrCreate(filepath.Join(t.TempDir(), "new"))
+	all, unreadable, err = NewSettings(store, lost).All(ctx)
+	if err != nil || len(unreadable) != 1 || all[exp].Enabled || all[exp].AuthPassword != "" || all[exp].User != "flowmon" {
+		t.Errorf("lost key: %+v %v %v", all, unreadable, err)
 	}
 }
 

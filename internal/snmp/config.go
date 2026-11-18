@@ -173,26 +173,35 @@ func NewSettings(store Persister, box *secret.Box) *Settings {
 	return &Settings{store: store, box: box}
 }
 
-// All returns every Exporter's config, decrypted.
-func (s *Settings) All(ctx context.Context) (map[netip.Addr]Config, error) {
+// All returns every Exporter's config, decrypted. A config whose secrets can't be
+// decrypted (for example after secret.key was lost) comes back disabled and without
+// secrets, listed in unreadable, so SNMP problems never stop Flowmon from starting.
+func (s *Settings) All(ctx context.Context) (configs map[netip.Addr]Config, unreadable []netip.Addr, err error) {
 	raw, err := s.store.SNMPConfigs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := map[netip.Addr]Config{}
+	configs = map[netip.Addr]Config{}
 	for exp, js := range raw {
 		var c Config
 		if err := json.Unmarshal([]byte(js), &c); err != nil {
+			unreadable = append(unreadable, exp)
 			continue
 		}
+		ok := true
 		for _, f := range []*string{&c.Community, &c.AuthPassword, &c.PrivPassword} {
-			if *f, err = s.box.Open(*f); err != nil {
-				return nil, err
+			var oerr error
+			if *f, oerr = s.box.Open(*f); oerr != nil {
+				ok = false
 			}
 		}
-		out[exp] = c
+		if !ok {
+			c.Enabled, c.Community, c.AuthPassword, c.PrivPassword = false, "", "", ""
+			unreadable = append(unreadable, exp)
+		}
+		configs[exp] = c
 	}
-	return out, nil
+	return configs, unreadable, nil
 }
 
 // Save stores a config with its secrets sealed.

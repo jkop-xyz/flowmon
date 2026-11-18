@@ -68,6 +68,15 @@ func NewPoller(dial Dialer, sink Sink, configs map[netip.Addr]Config, logger *sl
 		status: map[netip.Addr]Status{}, last: map[netip.Addr]map[string]sample{}}
 }
 
+// MarkUnreadable records that an Exporter's stored credentials couldn't be decrypted.
+func (p *Poller) MarkUnreadable(exporter netip.Addr) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.status[exporter]
+	st.LastError = "stored SNMP credentials can't be decrypted (was /data/secret.key replaced?); enter them again and save"
+	p.status[exporter] = st
+}
+
 // Set replaces an Exporter's config; polling picks it up on the next round.
 func (p *Poller) Set(exporter netip.Addr, c Config) {
 	p.mu.Lock()
