@@ -52,6 +52,10 @@ type Config struct {
 	TrustedProxies string
 	// SecureCookies is "auto", "always" or "never".
 	SecureCookies string
+	// ExporterAutoAccept approves every new Exporter without asking.
+	ExporterAutoAccept bool
+	// ExporterAllowlist approves new Exporters in these CIDRs without asking.
+	ExporterAllowlist string
 }
 
 // Defaults for the environment variables read by FromEnv.
@@ -143,6 +147,10 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		cfg.AdminPassword = strings.TrimRight(string(b), "\r\n")
 	}
 	cfg.TrustedProxies = get("FLOWMON_TRUSTED_PROXIES", "")
+	if cfg.ExporterAutoAccept, err = strconv.ParseBool(get("FLOWMON_EXPORTER_AUTO_ACCEPT", "false")); err != nil {
+		return Config{}, fmt.Errorf("FLOWMON_EXPORTER_AUTO_ACCEPT: must be true or false")
+	}
+	cfg.ExporterAllowlist = get("FLOWMON_EXPORTER_ALLOWLIST", "")
 	cfg.SecureCookies = strings.ToLower(get("FLOWMON_SECURE_COOKIES", "auto"))
 	if cfg.SecureCookies != "auto" && cfg.SecureCookies != "always" && cfg.SecureCookies != "never" {
 		return Config{}, fmt.Errorf("FLOWMON_SECURE_COOKIES: must be auto, always or never")

@@ -34,6 +34,8 @@ Then open <http://localhost:8080>. The first visit runs setup: enter the one-tim
 | `FLOWMON_ADMIN_USERNAME`, `FLOWMON_ADMIN_PASSWORD` (or `_FILE`) | none | Create the admin account on first start instead of in the setup screen |
 | `FLOWMON_TRUSTED_PROXIES` | none | CIDRs of reverse proxies whose `X-Forwarded-For`/`-Proto` headers are trusted |
 | `FLOWMON_SECURE_COOKIES` | `auto` | `auto` marks the session cookie Secure when the browser used HTTPS (directly or via a trusted proxy); `always` or `never` force it |
+| `FLOWMON_EXPORTER_AUTO_ACCEPT` | `false` | Approve every new Exporter without asking. Otherwise a new Exporter waits on the Exporters page, its Templates kept and its Flows dropped |
+| `FLOWMON_EXPORTER_ALLOWLIST` | none | CIDRs whose Exporters are approved without asking, e.g. `192.168.10.1/32` |
 | `FLOWMON_MAX_EXPORTERS` | `64` | Most Exporters tracked; datagrams from further sources are ignored and counted |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |

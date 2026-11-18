@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchBandwidth, fetchTop, type BandwidthPoint, type TopDimension, type TopItem } from "@/lib/api"
 import { formatBitsPerSecond, formatBytes, formatTick, protocolName } from "@/lib/format"
+import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 const chartConfig = {
@@ -25,9 +26,10 @@ const chartConfig = {
 
 export function OverviewPage() {
   const { preset } = useTimeRange()
+  const { exporter } = useExporterFilter()
   const query = useQuery({
-    queryKey: ["bandwidth", preset.value],
-    queryFn: ({ signal }) => fetchBandwidth(resolveRange(preset), signal),
+    queryKey: ["bandwidth", preset.value, exporter],
+    queryFn: ({ signal }) => fetchBandwidth({ ...resolveRange(preset), exporter }, signal),
     refetchInterval: 30_000,
     placeholderData: (previous) => previous,
   })
@@ -202,9 +204,10 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
 
 function TopCard({ dimension, title, description }: { dimension: TopDimension; title: string; description: string }) {
   const { preset } = useTimeRange()
+  const { exporter } = useExporterFilter()
   const query = useQuery({
-    queryKey: ["top", dimension, preset.value],
-    queryFn: ({ signal }) => fetchTop(dimension, resolveRange(preset), signal),
+    queryKey: ["top", dimension, preset.value, exporter],
+    queryFn: ({ signal }) => fetchTop(dimension, { ...resolveRange(preset), exporter }, signal),
     refetchInterval: 30_000,
     placeholderData: (previous) => previous,
   })

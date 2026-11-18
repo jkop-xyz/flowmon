@@ -173,3 +173,25 @@ func TestStepFor(t *testing.T) {
 		}
 	}
 }
+
+func TestExporterRecords(t *testing.T) {
+	s := open(t)
+	r := ExporterRecord{Address: exporter, Status: "approved", Role: "edge", ClassificationMode: "address", Name: "MikroTik", DecidedAt: t0, DecidedBy: "admin"}
+	if err := s.SaveExporterRecord(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	r.Name = "hEX"
+	if err := s.SaveExporterRecord(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ExporterRecords(ctx)
+	if err != nil || len(got) != 1 || got[0] != r {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if err := s.DeleteExporterRecord(ctx, exporter); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ExporterRecords(ctx); len(got) != 0 {
+		t.Errorf("after delete: %+v", got)
+	}
+}

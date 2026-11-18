@@ -92,8 +92,18 @@ export type TimingStatus = {
   findings: Finding[]
 }
 
+export type Approval = "pending" | "approved" | "ignored"
+
 export type ExporterStatus = {
   address: string
+  approval: Approval
+  /** False for an approved Exporter that hasn't sent anything since Flowmon started. */
+  seen: boolean
+  name: string
+  role: string
+  classificationMode: string
+  pendingDroppedRecords: number
+  ignoredDatagrams: number
   lastSource: string
   firstSeen: string
   lastSeen: string
@@ -112,6 +122,9 @@ export type CollectorStatus = {
   listeners: string[]
   droppedOverExporterLimit: number
   maxExporters: number
+  droppedOverPendingLimit: number
+  maxPending: number
+  droppedNewExporterRate: number
   exporters: ExporterStatus[]
 }
 
@@ -179,4 +192,23 @@ export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: A
   const params = rangeParams(range)
   params.set("dimension", dimension)
   return getJSON<WithIncomplete<TopResult>>(`/api/overview/top?${params}`, signal)
+}
+
+export type ExporterOption = { address: string; name: string }
+
+export function fetchExporterOptions(signal?: AbortSignal) {
+  return getJSON<ExporterOption[]>("/api/exporters/options", signal)
+}
+
+export type ApprovalRequest = { name: string; role: "edge"; classificationMode: "address" }
+
+export const approveExporter = (address: string, req: ApprovalRequest) =>
+  postJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/approve`, req)
+
+export const ignoreExporter = (address: string) =>
+  postJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/ignore`, {})
+
+export async function forgetExporter(address: string) {
+  const response = await fetch(`/api/exporters/${encodeURIComponent(address)}`, { method: "DELETE" })
+  if (!response.ok) throw new ApiError(response.status, "couldn't forget the Exporter")
 }

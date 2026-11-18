@@ -197,3 +197,60 @@ func TestListenUDPEndToEnd(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+type gateMap map[netip.Addr]Admission
+
+func (g gateMap) Admission(a netip.Addr) Admission {
+	if ad, ok := g[a]; ok {
+		return ad
+	}
+	return AdmitPending
+}
+
+func TestPendingExportersKeepTemplatesButDropData(t *testing.T) {
+	sink := &sinkRecorder{}
+	gate := gateMap{}
+	c := New(Options{Sink: sink, Gate: gate, Now: (&clock{now: t0}).Now})
+	c.HandleDatagram(router, local, mikrotikMessage(0, true))
+	exp := c.Status().Exporters[0]
+	if sink.count(router.Addr()) != 0 || exp.Approval != "pending" || exp.PendingDroppedRecords != 1 || len(exp.Templates) != 1 {
+		t.Fatalf("pending: sink %d, %+v", sink.count(router.Addr()), exp)
+	}
+	// Approval applies to the next datagram, and the Template is already known.
+	gate[router.Addr()] = AdmitAccept
+	c.HandleDatagram(router, local, mikrotikMessage(1, false))
+	if sink.count(router.Addr()) != 1 || c.Status().Exporters[0].Approval != "approved" {
+		t.Errorf("after approval: sink %d", sink.count(router.Addr()))
+	}
+	gate[router.Addr()] = AdmitIgnore
+	c.HandleDatagram(router, local, mikrotikMessage(2, false))
+	exp = c.Status().Exporters[0]
+	if sink.count(router.Addr()) != 1 || exp.IgnoredDatagrams != 1 || exp.Approval != "ignored" {
+		t.Errorf("ignored: sink %d %+v", sink.count(router.Addr()), exp)
+	}
+}
+
+func TestPendingLimitAndNewExporterRate(t *testing.T) {
+	c := New(Options{Gate: gateMap{}, MaxPending: 2, NewExportersPerMinute: 100, Now: (&clock{now: t0}).Now})
+	for i := 1; i <= 5; i++ {
+		c.HandleDatagram(netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 0, byte(i)}), 4000), local, mikrotikMessage(0, true))
+	}
+	st := c.Status()
+	if len(st.Exporters) != 2 || st.DroppedOverPendingLimit != 3 {
+		t.Errorf("pending limit: %d exporters, %d dropped", len(st.Exporters), st.DroppedOverPendingLimit)
+	}
+
+	clk := &clock{now: t0}
+	r := New(Options{NewExportersPerMinute: 3, Now: clk.Now})
+	for i := 1; i <= 5; i++ {
+		r.HandleDatagram(netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 1, byte(i)}), 4000), local, mikrotikMessage(0, true))
+	}
+	if st := r.Status(); len(st.Exporters) != 3 || st.DroppedNewExporterRate != 2 {
+		t.Errorf("rate limit: %d exporters, %d dropped", len(st.Exporters), st.DroppedNewExporterRate)
+	}
+	clk.now = t0.Add(time.Minute)
+	r.HandleDatagram(netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 1, 9}), 4000), local, mikrotikMessage(0, true))
+	if n := len(r.Status().Exporters); n != 4 {
+		t.Errorf("the bucket refills: %d exporters", n)
+	}
+}

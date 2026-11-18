@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
+	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/healthcheck"
 	"github.com/jkop-xyz/flowmon/internal/httpserver"
@@ -148,11 +150,32 @@ func serve(stderr io.Writer) int {
 	retention := flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour}
 	go maintain(pipelineCtx, logger, store, pipeline, retention)
 
+	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error: FLOWMON_EXPORTER_ALLOWLIST:", err)
+		return 2
+	}
+	registry, err := exporters.Load(ctx, exporters.Options{Persister: store, AutoAccept: cfg.ExporterAutoAccept, Allowlist: allowlist})
+	if err != nil {
+		logger.Error("exporters", "err", err)
+		return 1
+	}
+	gate := collector.GateFunc(func(a netip.Addr) collector.Admission {
+		switch registry.Status(a) {
+		case exporters.StatusApproved:
+			return collector.AdmitAccept
+		case exporters.StatusIgnored:
+			return collector.AdmitIgnore
+		}
+		return collector.AdmitPending
+	})
+
 	coll := collector.New(collector.Options{
 		MaxExporters: cfg.MaxExporters,
 		Capture:      debugCapture,
 		Logger:       logger,
 		Sink:         pipeline,
+		Gate:         gate,
 	})
 	for _, addr := range cfg.FlowUDPAddrs {
 		if err := coll.ListenUDP(ctx, addr); err != nil {
@@ -218,6 +241,7 @@ func serve(stderr io.Writer) int {
 		Watermark: pipeline,
 		Auth:      authManager,
 		Setup:     setupCtl,
+		Exporters: registry,
 	}))
 
 	errCh := make(chan error, 1)

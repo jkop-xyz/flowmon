@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -178,10 +179,11 @@ func requireSession(next http.Handler, opts Options) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := opts.Auth.Authenticate(r.Context(), r); err != nil {
+		user, err := opts.Auth.Authenticate(r.Context(), r)
+		if err != nil {
 			unauthenticated(w, opts, err)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, user)))
 	})
 }
