@@ -82,6 +82,13 @@ func TestCaptures(t *testing.T) {
 						continue
 					}
 					flows++
+					if r, ok := flow.Reverse(fl, rec); ok {
+						// A biflow record's reverse direction is a Flow of its own.
+						flows++
+						if r.Bytes == 0 && r.Packets == 0 || r.Src != fl.Dst && r.Src != fl.PostNATDst {
+							t.Errorf("reverse of %v → %v: %+v", fl.Src, fl.Dst, r)
+						}
+					}
 					if fl.TimeEstimated || fl.End.After(rec.ExportTime.Add(time.Second)) || rec.ExportTime.Sub(fl.End) > 30*time.Minute {
 						t.Errorf("Flow end %v for export time %v (estimated=%v)", fl.End, rec.ExportTime, fl.TimeEstimated)
 					}

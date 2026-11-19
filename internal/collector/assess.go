@@ -110,6 +110,12 @@ func AssessTemplate(t *ipfix.Template) []Finding {
 	if (upStart || upEnd) && !initTime && t.Version == ipfix.Version {
 		add(SeverityInfo, "uptime_relative_times", "Flow times are relative to the exporter's uptime. They are converted using systemInitTimeMilliseconds, which this Template doesn't carry; it may come in an Options Template.")
 	}
+	for _, f := range t.Fields {
+		if f.Enterprise == ipfix.EnterpriseReverse && (f.ID == 1 || f.ID == 2 || f.ID == 85 || f.ID == 86) {
+			add(SeverityInfo, "biflow", "Biflow records (RFC 5103): each describes both directions of a connection, and Flowmon stores it as two Flows, one per direction.")
+			break
+		}
+	}
 	if _, ok := first(interfaceIDs); !ok {
 		add(SeverityInfo, "no_interfaces", "No interface numbers: classification by interface isn't possible for this Exporter, so Flowmon classifies by address.")
 	}

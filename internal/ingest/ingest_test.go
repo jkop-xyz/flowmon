@@ -243,3 +243,23 @@ func TestSampledFlowsAreScaledUp(t *testing.T) {
 		t.Errorf("unsampled Exporter %+v", st)
 	}
 }
+
+func TestBiflowRecordsBecomeTwoFlows(t *testing.T) {
+	w := &memWriter{}
+	p := New(Options{Writer: w, Now: func() time.Time { return now }})
+	rec := outboundRecord(now)
+	rec.Fields = append(rec.Fields,
+		ipfix.Field{Spec: ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 1, Length: 4}, Raw: ipfixtest.U32(90_000)})
+	p.Records(exporter, []ipfix.Record{rec})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.Run(ctx)
+	if w.count() != 2 {
+		t.Fatalf("%d Flows, want the forward and the reverse direction", w.count())
+	}
+	fw, rv := w.flows[0], w.flows[1]
+	if fw.Direction != flow.DirectionOutbound || fw.Bytes != 1500 || rv.Direction != flow.DirectionInbound || rv.Bytes != 90_000 ||
+		rv.Local != fw.Local || rv.Peer != fw.Peer {
+		t.Errorf("forward %v %d %v, reverse %v %d %v", fw.Direction, fw.Bytes, fw.Local, rv.Direction, rv.Bytes, rv.Local)
+	}
+}

@@ -27,11 +27,15 @@ func main() {
 	perMessage := flag.Int("flows", 10, "Flows per message")
 	noTemplate := flag.Bool("no-template", false, "never send the Template")
 	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9, 5 for NetFlow v5")
+	biflow := flag.Bool("biflow", false, "IPFIX only: send biflow records (RFC 5103) with reverse counters")
 	sampling := flag.Int("sampling", 0, "announce sampling 1 in N packets (an Options record, or the v5 header)")
 	source := flag.String("source", "", "local address to send from, e.g. 127.0.0.3:0, to simulate another Exporter")
 	flag.Parse()
 	if *version != 5 && *version != 9 && *version != 10 {
 		log.Fatal("-version must be 5, 9 or 10")
+	}
+	if *biflow && *version != 10 {
+		log.Fatal("-biflow needs IPFIX")
 	}
 	if *version == 5 && *perMessage > 30 {
 		log.Fatal("a NetFlow v5 packet holds at most 30 Flows")
@@ -52,6 +56,14 @@ func main() {
 	defer conn.Close()
 
 	tmpl := ipfixtest.MikroTikLikeTemplate(256)
+	if *biflow {
+		// RFC 5103: the reverse direction's counters, as enterprise 29305 elements.
+		tmpl.ID = 258
+		tmpl.Fields = append(tmpl.Fields,
+			ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 1, Length: 4},
+			ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 2, Length: 4},
+			ipfix.FieldSpec{ID: 160, Length: 8}) // systemInitTimeMilliseconds, so times are exact
+	}
 	locals := [][]byte{{192, 168, 10, 44}, {192, 168, 10, 50}, {10, 0, 20, 14}, {10, 0, 20, 15}}
 	// Remote IPs around the world, so GeoIP enrichment has something to show. Earlier ones
 	// are picked more often, like real traffic, where a few destinations dominate.
@@ -125,6 +137,12 @@ func main() {
 					opts := ipfix.Template{ID: 257, ScopeFieldCount: 1, Fields: []ipfix.FieldSpec{{ID: 144, Length: 4}, {ID: 305, Length: 4}, {ID: 306, Length: 4}}}
 					msg.OptionsTemplateSet(opts).DataSet(opts, [][]byte{ipfixtest.U32(1), ipfixtest.U32(1), ipfixtest.U32(uint32(*sampling - 1))})
 					seq++ // IPFIX sequence numbers count every data record, Options ones too
+				}
+			}
+			if *biflow {
+				for j := range records {
+					records[j] = append(records[j], ipfixtest.U32(uint32(rand.IntN(2_000_000))), ipfixtest.U32(uint32(1+rand.IntN(1500))),
+						ipfixtest.U64(uint64(boot.UnixMilli())))
 				}
 			}
 			packet = msg.DataSet(tmpl, records...).Bytes()

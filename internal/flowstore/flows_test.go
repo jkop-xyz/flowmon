@@ -122,3 +122,36 @@ func TestFlowDetail(t *testing.T) {
 		}
 	}
 }
+
+func TestFlowDetailSaysWhichBiflowHalf(t *testing.T) {
+	s := open(t)
+	flows := explorerFlows()[:2]
+	// One biflow record, source 192.168.1.5: its forward half went out to 1.1.1.1; say the
+	// second Flow was its reverse half, from the other end back to the source.
+	fields := flow.EncodeFields([]ipfix.Field{
+		{Spec: ipfix.FieldSpec{ID: 8, Length: 4}, Raw: []byte{192, 168, 1, 5}},
+		{Spec: ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 1, Length: 4}, Raw: []byte{0, 0, 1, 44}},
+	})
+	flows[0].Fields, flows[1].Fields = fields, fields
+	if err := s.Write(ctx, flows); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Flows(ctx, FlowQuery{From: t0.Add(-time.Hour), To: t0, Asc: true, Sort: "start"})
+	if err != nil || len(p.Items) != 2 {
+		t.Fatalf("%+v %v", p, err)
+	}
+	got := map[string]string{}
+	for _, it := range p.Items {
+		d, err := s.Flow(ctx, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[d.Src] = d.Biflow
+	}
+	if got["192.168.1.5"] != "forward" || got["8.8.8.8"] != "reverse" {
+		t.Errorf("%v", got)
+	}
+	if d, _ := s.Flow(ctx, p.Items[0].ID); d.Fields[1].Name != "reverseOctetDeltaCount" || d.Fields[1].Value != "300" {
+		t.Errorf("reverse field %+v", d.Fields[1])
+	}
+}

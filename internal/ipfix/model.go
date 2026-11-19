@@ -10,6 +10,7 @@ package ipfix
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/ipfix/iana"
@@ -52,12 +53,25 @@ type FieldSpec struct {
 // Variable reports whether the field is variable-length.
 func (s FieldSpec) Variable() bool { return s.Length == VariableLength }
 
-// Element returns the IANA definition of an IANA field. Enterprise-specific fields have none.
+// EnterpriseReverse is the enterprise number RFC 5103 gives reverse Information
+// Elements: in a biflow record, enterprise 29305 element N is IANA element N for the
+// packets going the other way (reverseOctetDeltaCount is 29305/1).
+const EnterpriseReverse = 29305
+
+// Element returns the IANA definition of an IANA field, or of the element a reverse
+// field (RFC 5103) reverses, named "reverse…". Other enterprise fields have none.
 func (s FieldSpec) Element() (iana.Element, bool) {
-	if s.Enterprise != 0 {
-		return iana.Element{}, false
+	switch s.Enterprise {
+	case 0:
+		return iana.Lookup(s.ID)
+	case EnterpriseReverse:
+		e, ok := iana.Lookup(s.ID)
+		if ok && e.Name != "" {
+			e.Name = "reverse" + strings.ToUpper(e.Name[:1]) + e.Name[1:]
+		}
+		return e, ok
 	}
-	return iana.Lookup(s.ID)
+	return iana.Element{}, false
 }
 
 // Name is the IANA name, or a stable placeholder for unknown and enterprise fields.

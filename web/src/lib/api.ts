@@ -543,6 +543,8 @@ export type FlowDetail = FlowItem & {
   egressInterface: number
   fields: FieldView[]
   fieldsError?: string
+  /** One direction of an RFC 5103 biflow record, which is stored as two Flows. */
+  biflow?: "forward" | "reverse"
 }
 
 export type FlowSort = "end" | "start" | "bytes" | "packets" | "duration"

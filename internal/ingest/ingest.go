@@ -125,18 +125,27 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 		case err != nil:
 			continue
 		}
-		p.applySampling(exporter, &f)
-		p.opts.Classifier.Classify(&f, now)
-		p.countInterfaces(exporter, &f)
-		if p.observe(exporter, &f, now) {
-			p.late.Add(1)
-			continue
+		p.accept(exporter, f, now)
+		// A biflow record (RFC 5103) is both directions: the reverse becomes its own Flow.
+		if r, ok := flow.Reverse(f, rec); ok {
+			p.accept(exporter, r, now)
 		}
-		select {
-		case p.queue <- f:
-		default:
-			p.dropped.Add(1)
-		}
+	}
+}
+
+// accept scales, classifies and queues one Flow.
+func (p *Pipeline) accept(exporter netip.Addr, f flow.Flow, now time.Time) {
+	p.applySampling(exporter, &f)
+	p.opts.Classifier.Classify(&f, now)
+	p.countInterfaces(exporter, &f)
+	if p.observe(exporter, &f, now) {
+		p.late.Add(1)
+		return
+	}
+	select {
+	case p.queue <- f:
+	default:
+		p.dropped.Add(1)
 	}
 }
 
