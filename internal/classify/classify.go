@@ -174,6 +174,14 @@ func (c *Classifier) isExporterHost(exporter, a netip.Addr, now time.Time) bool 
 
 // learn records post-NAT source addresses of NATed outbound Flows: the router's own
 // (usually WAN) addresses.
+// Learn takes what an Exporter translates its Local Hosts' addresses to from f, as
+// Classify does, without classifying it: for NAT event records, which are no Flows.
+func (c *Classifier) Learn(f *flow.Flow, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.learn(f, now)
+}
+
 func (c *Classifier) learn(f *flow.Flow, now time.Time) {
 	if !c.inLocalNetwork(f.Src) || !f.PostNATSrc.IsValid() || f.PostNATSrc == f.Src || c.inLocalNetwork(f.PostNATSrc) {
 		return

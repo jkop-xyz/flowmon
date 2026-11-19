@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/ipfix"
 	"github.com/jkop-xyz/flowmon/internal/ipfix/ipfixtest"
@@ -261,5 +262,33 @@ func TestBiflowRecordsBecomeTwoFlows(t *testing.T) {
 	if fw.Direction != flow.DirectionOutbound || fw.Bytes != 1500 || rv.Direction != flow.DirectionInbound || rv.Bytes != 90_000 ||
 		rv.Local != fw.Local || rv.Peer != fw.Peer {
 		t.Errorf("forward %v %d %v, reverse %v %d %v", fw.Direction, fw.Bytes, fw.Local, rv.Direction, rv.Bytes, rv.Local)
+	}
+}
+
+func TestNATEventsAreCountedAndTeachTheWANAddress(t *testing.T) {
+	w := &memWriter{}
+	c := classify.New(classify.DefaultLocalNetworks())
+	p := New(Options{Writer: w, Classifier: c, Now: func() time.Time { return now }})
+	spec := func(id, length uint16) ipfix.FieldSpec { return ipfix.FieldSpec{ID: id, Length: length} }
+	event := ipfix.Record{ExportTime: now, Fields: []ipfix.Field{
+		{Spec: spec(4, 1), Raw: ipfixtest.U8(17)},
+		{Spec: spec(8, 4), Raw: []byte{192, 168, 10, 44}},
+		{Spec: spec(12, 4), Raw: []byte{9, 9, 9, 9}},
+		{Spec: spec(225, 4), Raw: []byte{203, 0, 113, 7}},
+		{Spec: spec(226, 4), Raw: []byte{9, 9, 9, 9}},
+		{Spec: spec(230, 1), Raw: ipfixtest.U8(4)},
+	}}
+	p.Records(exporter, []ipfix.Record{event, outboundRecord(now)})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.Run(ctx)
+	if w.count() != 1 || p.Stats().NATEvents != 1 {
+		t.Errorf("%d Flows written, %d NAT events; want the one Flow and one event", w.count(), p.Stats().NATEvents)
+	}
+	if hosts := c.ExporterHosts(exporter, now); len(hosts) != 1 || hosts[0] != netip.MustParseAddr("203.0.113.7") {
+		t.Errorf("learned %v", hosts)
+	}
+	if st := p.Timing(exporter); st != nil && st.EstimatedTimeFlows != 0 {
+		t.Errorf("NAT events counted as Flows with estimated times: %+v", st)
 	}
 }

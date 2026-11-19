@@ -159,6 +159,8 @@ export type PipelineStats = {
   writeErrors: number
   noAddresses: number
   optionsRecords: number
+  /** NAT session events (RouterOS sends them): not traffic, not Flows. */
+  natEvents: number
   queued: number
   queueCapacity: number
   lastWrite?: string

@@ -189,6 +189,7 @@ func writeMetrics(ctx context.Context, m *metrics.Writer, opts Options) {
 			m.Counter("flowmon_ingest_flows_dropped_total", "Flows not stored, by reason.", float64(d.n), "reason", d.reason)
 		}
 		m.Counter("flowmon_ingest_options_records_total", "Options Template records (metadata, not Flows).", float64(ps.Options))
+		m.Counter("flowmon_ingest_nat_events_total", "NAT session event records (not traffic, not Flows).", float64(ps.NATEvents))
 		m.Counter("flowmon_ingest_write_errors_total", "Failed batch writes to the Flow Store.", float64(ps.WriteErrors))
 		m.Gauge("flowmon_ingest_queue_length", "Flows waiting to be written.", float64(ps.Queued))
 		m.Gauge("flowmon_ingest_queue_capacity", "Flows the write queue holds before dropping.", float64(ps.QueueCapacity))

@@ -253,3 +253,37 @@ func TestUnspecifiedPostNATAddressMeansNoNAT(t *testing.T) {
 		t.Errorf("post-NAT %v %v, want none", got.PostNATSrc, got.PostNATDst)
 	}
 }
+
+// RouterOS's NAT event Template: a session was created, with its ends before and after
+// NAT, and no counters.
+func natEventRecord() ipfix.Record {
+	return ipfix.Record{ExportTime: exportT, Fields: []ipfix.Field{
+		f(323, ipfixtest.U64(uint64(exportT.Add(-time.Second).UnixMilli()))), // observationTimeMilliseconds
+		f(ieProtocolIdentifier, ipfixtest.U8(17)),
+		f(ieSourceIPv4Address, []byte{192, 168, 10, 44}),
+		f(ieDestinationIPv4Address, []byte{9, 9, 9, 9}),
+		f(ieSourceTransportPort, ipfixtest.U16(55796)),
+		f(ieDestinationTransportPort, ipfixtest.U16(53)),
+		f(iePostNATSourceIPv4Address, []byte{203, 0, 113, 7}),
+		f(iePostNATDestinationIPv4Address, []byte{9, 9, 9, 9}),
+		f(iePostNAPTSourceTransportPort, ipfixtest.U16(61000)),
+		f(iePostNAPTDestTransportPort, ipfixtest.U16(53)),
+		f(ieNATEvent, ipfixtest.U8(4)), // NAT44 session create
+	}}
+}
+
+func TestNATEventsAreNotFlows(t *testing.T) {
+	rec := natEventRecord()
+	got, err := NewNormalizer().Normalize(exp, rec, recvT)
+	if !errors.Is(err, ErrNATEvent) || !IsNATEvent(rec) {
+		t.Fatalf("err %v", err)
+	}
+	if got.Src != netip.MustParseAddr("192.168.10.44") || got.PostNATSrc != netip.MustParseAddr("203.0.113.7") || got.PostNATSrcPort != 61000 {
+		t.Errorf("its ends: %+v", got)
+	}
+	// A flow record that happens to carry natEvent too counts traffic: a Flow.
+	rec.Fields = append(rec.Fields, f(ieOctetDeltaCount, ipfixtest.U32(1500)))
+	if _, err := NewNormalizer().Normalize(exp, rec, recvT); err != nil || IsNATEvent(rec) {
+		t.Errorf("with counters: %v", err)
+	}
+}

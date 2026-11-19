@@ -60,6 +60,9 @@ func AssessTemplate(t *ipfix.Template) []Finding {
 	if t.Options() {
 		return nil
 	}
+	if natEventTemplate(t) {
+		return []Finding{{SeverityInfo, "nat_events", "NAT events: NAT sessions being created and deleted, not traffic. Flowmon counts them apart from Flows and learns the router's WAN address from them."}}
+	}
 	has := map[uint16]ipfix.FieldSpec{}
 	for _, f := range t.Fields {
 		if f.Enterprise == 0 {
@@ -140,4 +143,22 @@ func wrapSize(length uint16) string {
 		return "64 PiB"
 	}
 	return "16 EiB"
+}
+
+// natEventTemplate reports whether a Template describes NAT event records: natEvent
+// (IE 230) and no byte or packet counter.
+func natEventTemplate(t *ipfix.Template) bool {
+	nat := false
+	for _, f := range t.Fields {
+		if f.Enterprise != 0 {
+			continue
+		}
+		switch f.ID {
+		case 230:
+			nat = true
+		case 1, 2, 85, 86:
+			return false
+		}
+	}
+	return nat
 }
