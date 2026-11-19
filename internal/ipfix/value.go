@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -130,7 +131,9 @@ func decodeTyped(t iana.DataType, b []byte) (Value, error) {
 		if !utf8.Valid(b) {
 			return Value{}, errors.New("string is not valid UTF-8")
 		}
-		return Value{Kind: KindString, String: string(b)}, nil
+		// A fixed-length string field is padded with zero bytes, as NetFlow v9 exporters
+		// send interface names; the padding isn't part of the string.
+		return Value{Kind: KindString, String: strings.TrimRight(string(b), "\x00")}, nil
 	case iana.DateTimeSeconds:
 		return Value{Kind: KindTime, Time: time.Unix(int64(binary.BigEndian.Uint32(b)), 0).UTC()}, nil
 	case iana.DateTimeMilliseconds:

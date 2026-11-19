@@ -67,6 +67,9 @@ type domainKey struct {
 	od       uint32
 }
 
+// uptimeWrap is when a 32-bit millisecond uptime starts again from zero: 49.7 days.
+const uptimeWrap = (1 << 32) * time.Millisecond
+
 // Normalizer turns decoded records into Flows. It remembers systemInitTimeMilliseconds
 // per Exporter and Observation Domain, because exporters may send it in Options records
 // rather than in every data record. It is safe for concurrent use.
@@ -88,11 +91,15 @@ func (n *Normalizer) Normalize(exporter netip.Addr, rec ipfix.Record, received t
 	initTime, hasInit := timeField(rec, ieSystemInitTimeMilliseconds)
 
 	n.mu.Lock()
-	if hasInit {
+	switch {
+	case !rec.SystemInitTime.IsZero():
+		// NetFlow v9: the packet header gives the boot time.
+		initTime, hasInit = rec.SystemInitTime, true
+	case hasInit:
 		if _, known := n.sysInit[key]; known || len(n.sysInit) < maxDomains {
 			n.sysInit[key] = initTime
 		}
-	} else {
+	default:
 		initTime, hasInit = n.sysInit[key]
 	}
 	n.mu.Unlock()
@@ -113,8 +120,8 @@ func (n *Normalizer) Normalize(exporter netip.Addr, rec ipfix.Record, received t
 	if !f.Src.IsValid() || !f.Dst.IsValid() {
 		return Flow{}, ErrNoAddresses
 	}
-	f.PostNATSrc = firstAddr(rec, iePostNATSourceIPv4Address, iePostNATSourceIPv6Address)
-	f.PostNATDst = firstAddr(rec, iePostNATDestinationIPv4Address, iePostNATDestinationIPv6Address)
+	f.PostNATSrc = translated(firstAddr(rec, iePostNATSourceIPv4Address, iePostNATSourceIPv6Address))
+	f.PostNATDst = translated(firstAddr(rec, iePostNATDestinationIPv4Address, iePostNATDestinationIPv6Address))
 	f.SrcPort = uint16(uintField(rec, ieSourceTransportPort))
 	f.DstPort = uint16(uintField(rec, ieDestinationTransportPort))
 	f.PostNATSrcPort = uint16(uintField(rec, iePostNAPTSourceTransportPort))
@@ -156,6 +163,11 @@ func flowTimes(rec ipfix.Record, initTime time.Time, hasInit bool) (start, end t
 			if hasInit {
 				start = initTime.Add(time.Duration(upStart) * time.Millisecond)
 				end = initTime.Add(time.Duration(upEnd) * time.Millisecond)
+				if end.Sub(rec.ExportTime) > uptimeWrap/2 {
+					// Recorded before the 32-bit uptime wrapped, exported after it: the
+					// boot time already counts the wrap, these times don't yet.
+					start, end = start.Add(-uptimeWrap), end.Add(-uptimeWrap)
+				}
 			} else {
 				end = rec.ExportTime
 				start = end.Add(-time.Duration(upEnd-upStart) * time.Millisecond)
@@ -197,6 +209,15 @@ func flowTimes(rec ipfix.Record, initTime time.Time, hasInit bool) (start, end t
 		start = end
 	}
 	return start.UTC(), end.UTC(), estimated
+}
+
+// translated treats an unspecified post-NAT address (0.0.0.0 or ::) as none: exporters
+// whose Template carries the NAT fields send it for Flows that weren't translated.
+func translated(a netip.Addr) netip.Addr {
+	if a.IsUnspecified() {
+		return netip.Addr{}
+	}
+	return a
 }
 
 func firstAddr(rec ipfix.Record, ids ...uint16) netip.Addr {

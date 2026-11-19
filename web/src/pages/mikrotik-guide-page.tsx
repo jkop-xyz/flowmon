@@ -139,7 +139,7 @@ export function MikroTikGuidePage() {
           rows={[
             ["Dst. Address", "the address of this Flowmon host", ""],
             ["Port", <span key="p">4739 (IPFIX) or 2055</span>, "Flowmon listens on both by default."],
-            ["Version", "IPFIX", "NetFlow v9 comes in Flowmon v1.1."],
+            ["Version", "IPFIX", "NetFlow v9 works too, but the field choices in step 3 are IPFIX settings."],
             [
               "Src. Address",
               "the router's LAN address",

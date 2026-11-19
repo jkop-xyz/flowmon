@@ -57,8 +57,9 @@ func learned() *Classifier {
 	return c
 }
 
-func TestCountingTableByAddress(t *testing.T) {
-	rows := []row{
+// addressRows are the counting table for classification by address.
+func addressRows() []row {
+	return []row{
 		{
 			name: "outbound through NAT (MikroTik: pre-NAT source is the LAN host)",
 			src:  lanHost, dst: remote, postSrc: wan, postDst: remote, srcPort: 50000, dstPort: 443,
@@ -120,20 +121,25 @@ func TestCountingTableByAddress(t *testing.T) {
 			direction: flow.DirectionTransit,
 		},
 	}
+}
 
-	for _, r := range rows {
-		t.Run(r.name, func(t *testing.T) {
-			c := learned()
-			f := r.flow()
-			c.Classify(&f, now)
-			if f.Direction != r.direction || f.Local != r.local || f.Peer != r.peer || f.LocalIsExporterHost != r.localIsEH {
-				t.Errorf("got %v local=%v peer=%v eh=%v; want %v local=%v peer=%v eh=%v",
-					f.Direction, f.Local, f.Peer, f.LocalIsExporterHost, r.direction, r.local, r.peer, r.localIsEH)
-			}
-			if f.LocalPort != r.localPort || f.PeerPort != r.peerPort {
-				t.Errorf("ports local=%d peer=%d; want local=%d peer=%d", f.LocalPort, f.PeerPort, r.localPort, r.peerPort)
-			}
-		})
+func TestCountingTableByAddress(t *testing.T) {
+	for _, r := range addressRows() {
+		t.Run(r.name, func(t *testing.T) { r.check(t, r.flow()) })
+	}
+}
+
+// check classifies f, the row's Flow however it was made, and compares.
+func (r row) check(t *testing.T, f flow.Flow) {
+	t.Helper()
+	c := learned()
+	c.Classify(&f, now)
+	if f.Direction != r.direction || f.Local != r.local || f.Peer != r.peer || f.LocalIsExporterHost != r.localIsEH {
+		t.Errorf("got %v local=%v peer=%v eh=%v; want %v local=%v peer=%v eh=%v",
+			f.Direction, f.Local, f.Peer, f.LocalIsExporterHost, r.direction, r.local, r.peer, r.localIsEH)
+	}
+	if f.LocalPort != r.localPort || f.PeerPort != r.peerPort {
+		t.Errorf("ports local=%d peer=%d; want local=%d peer=%d", f.LocalPort, f.PeerPort, r.localPort, r.peerPort)
 	}
 }
 

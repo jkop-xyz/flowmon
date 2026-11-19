@@ -36,6 +36,7 @@ const (
 	DevTruncatedRecord    Deviation = "truncated_record"
 	DevNonZeroPadding     Deviation = "nonzero_padding"
 	DevSequenceGap        Deviation = "sequence_gap"
+	DevExporterRestarted  Deviation = "exporter_restarted"
 )
 
 // Transport is the transport a Session receives messages over. It decides the
@@ -111,10 +112,16 @@ type templateEntry struct {
 }
 
 type pendingSet struct {
-	key        templateKey
-	data       []byte
+	key     templateKey
+	data    []byte
+	base    recordBase
+	arrived time.Time
+}
+
+// recordBase is what records take from the message they arrived in.
+type recordBase struct {
 	exportTime time.Time
-	arrived    time.Time
+	sysInit    time.Time
 }
 
 type sequenceState struct {
@@ -132,6 +139,8 @@ type Session struct {
 	pending      []pendingSet
 	pendingBytes int
 	sequences    map[uint32]*sequenceState
+	// netflow9 tracks each NetFlow v9 Source ID's uptime, boot time and sequence.
+	netflow9 map[uint32]*netflow9Domain
 }
 
 // NewSession returns a Session with no Templates.
@@ -141,16 +150,18 @@ func NewSession(transport Transport, limits Limits) *Session {
 		limits:    limits,
 		templates: map[templateKey]*templateEntry{},
 		sequences: map[uint32]*sequenceState{},
+		netflow9:  map[uint32]*netflow9Domain{},
 	}
 }
 
-// ErrNotIPFIX is returned when a message can't be decoded as IPFIX at all.
-var ErrNotIPFIX = errors.New("ipfix: not an IPFIX message")
+// ErrNotIPFIX is returned when a message can't be decoded as IPFIX or NetFlow v9 at all.
+var ErrNotIPFIX = errors.New("ipfix: not an IPFIX or NetFlow v9 message")
 
 // decodeState collects the results of one Decode call.
 type decodeState struct {
 	h            Handler
 	hdr          Header
+	base         recordBase
 	now          time.Time
 	records      []Record
 	recordCount  uint32
@@ -161,12 +172,15 @@ func (d *decodeState) deviate(dev Deviation, format string, args ...any) {
 	d.h.Deviation(dev, fmt.Sprintf(format, args...))
 }
 
-// Decode decodes one IPFIX message received at now. It returns the header, or
-// ErrNotIPFIX (wrapped) when the message can't be decoded at all. Everything else is
-// lenient: problems are reported to h as deviations and decoding continues wherever
-// that is safe.
+// Decode decodes one IPFIX message or NetFlow v9 packet received at now. It returns
+// the header, or ErrNotIPFIX (wrapped) when the message can't be decoded at all.
+// Everything else is lenient: problems are reported to h as deviations and decoding
+// continues wherever that is safe.
 func (s *Session) Decode(msg []byte, now time.Time, h Handler) (Header, error) {
 	d := &decodeState{h: h, now: now}
+	if PeekVersion(msg) == VersionNetFlowV9 {
+		return s.decodeNetFlowV9(d, msg)
+	}
 	if len(msg) < HeaderLength {
 		d.deviate(DevShortMessage, "%d bytes", len(msg))
 		return Header{}, fmt.Errorf("%w: %d bytes is shorter than the header", ErrNotIPFIX, len(msg))
@@ -178,6 +192,7 @@ func (s *Session) Decode(msg []byte, now time.Time, h Handler) (Header, error) {
 	d.hdr.Sequence, _ = c.u32()
 	d.hdr.ObservationDomain, _ = c.u32()
 	d.hdr.ExportTime = time.Unix(int64(exportSecs), 0).UTC()
+	d.base = recordBase{exportTime: d.hdr.ExportTime}
 
 	if d.hdr.Version != Version {
 		d.deviate(DevWrongVersion, "version %d", d.hdr.Version)
@@ -343,21 +358,26 @@ func (s *Session) decodeTemplateSet(d *decodeState, content []byte, options bool
 			continue
 		}
 
-		t := &Template{ID: id, ScopeFieldCount: scope, Fields: fields}
-		if t.MinRecordLength() == 0 {
-			d.deviate(DevEmptyTemplate, "Template %d describes zero-length records", id)
+		s.keepTemplate(d, &Template{Version: Version, ID: id, ScopeFieldCount: scope, Fields: fields})
+	}
+}
+
+// keepTemplate stores a decoded Template unless it describes zero-length records, and
+// reports fields whose length their type doesn't allow.
+func (s *Session) keepTemplate(d *decodeState, t *Template) {
+	if t.MinRecordLength() == 0 {
+		d.deviate(DevEmptyTemplate, "Template %d describes zero-length records", t.ID)
+		return
+	}
+	for _, f := range t.Fields {
+		if f.Variable() {
 			continue
 		}
-		for _, f := range fields {
-			if f.Variable() {
-				continue
-			}
-			if e, ok := f.Element(); ok && !validFixedLength(e.Type, int(f.Length)) {
-				d.deviate(DevFieldLengthInvalid, "Template %d: %s is %d bytes, which %s doesn't allow", id, e.Name, f.Length, e.Type)
-			}
+		if e, ok := f.Element(); ok && !validFixedLength(e.Type, int(f.Length)) {
+			d.deviate(DevFieldLengthInvalid, "Template %d: %s is %d bytes, which %s doesn't allow", t.ID, e.Name, f.Length, e.Type)
 		}
-		s.storeTemplate(d, t)
 	}
+	s.storeTemplate(d, t)
 }
 
 func readFieldSpec(c *cursor) (FieldSpec, error) {
@@ -419,7 +439,7 @@ func (s *Session) storeTemplate(d *decodeState, t *Template) {
 
 func (s *Session) decodeOrBufferDataSet(d *decodeState, key templateKey, content []byte) {
 	if e, ok := s.templates[key]; ok {
-		s.decodeDataSet(d, e.t, key.od, d.hdr.ExportTime, content)
+		s.decodeDataSet(d, e.t, key.od, d.base, content)
 		return
 	}
 	d.countUnknown = true
@@ -429,7 +449,7 @@ func (s *Session) decodeOrBufferDataSet(d *decodeState, key templateKey, content
 	}
 	data := make([]byte, len(content))
 	copy(data, content)
-	s.pending = append(s.pending, pendingSet{key: key, data: data, exportTime: d.hdr.ExportTime, arrived: d.now})
+	s.pending = append(s.pending, pendingSet{key: key, data: data, base: d.base, arrived: d.now})
 	s.pendingBytes += len(data)
 }
 
@@ -451,12 +471,12 @@ func (s *Session) replayPending(d *decodeState, key templateKey) {
 		// Replayed records belong to earlier messages, so they don't count toward this
 		// message's sequence number.
 		before := d.recordCount
-		s.decodeDataSet(d, t, key.od, p.exportTime, p.data)
+		s.decodeDataSet(d, t, key.od, p.base, p.data)
 		d.recordCount = before
 	}
 }
 
-func (s *Session) decodeDataSet(d *decodeState, t *Template, od uint32, exportTime time.Time, content []byte) {
+func (s *Session) decodeDataSet(d *decodeState, t *Template, od uint32, base recordBase, content []byte) {
 	// One copy per set; every record's fields point into it, so records own their bytes.
 	data := make([]byte, len(content))
 	copy(data, content)
@@ -474,7 +494,8 @@ func (s *Session) decodeDataSet(d *decodeState, t *Template, od uint32, exportTi
 			ObservationDomain: od,
 			TemplateID:        t.ID,
 			ScopeFieldCount:   t.ScopeFieldCount,
-			ExportTime:        exportTime,
+			ExportTime:        base.exportTime,
+			SystemInitTime:    base.sysInit,
 			Fields:            make([]Field, len(t.Fields)),
 		}
 		for i, spec := range t.Fields {

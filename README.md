@@ -2,7 +2,7 @@
 
 A self-hosted dashboard for network traffic. Flowmon collects IPFIX and NetFlow from your router (MikroTik first, but any exporter that follows the standard), and shows where traffic goes and who is on the other end: country, ASN owner, reverse DNS and registration details.
 
-> **Status: early development.** Flowmon receives IPFIX over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Remote IPs show their reverse DNS names, and each has a page with its registration details (RDAP), the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. Local Hosts show Host Names, from Host Labels you set or from reverse DNS against your own resolver, and each has a page with its traffic over time, Peers and Service Ports. Service Ports carry Service Names from the IANA registry, or your own from Settings. The Exporters page shows each Exporter with its Templates. The Flow Explorer filters, sorts and pages raw Flows and shows every field each Flow arrived with. The Exporters page shows what each socket received and dropped, and `/metrics` serves Prometheus metrics. Flow Store operations are next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
+> **Status: early development.** Flowmon receives IPFIX and NetFlow v9 over UDP, stores Flows and minute/hour Rollups in an embedded DuckDB under `/data` with each Remote IP's country and ASN Owner, and shows bandwidth, a world map and the top countries, ASN Owners, Local Hosts, Remote IPs, protocols and Service Ports on the Overview. Remote IPs show their reverse DNS names, and each has a page with its registration details (RDAP), the Local Hosts that talked to it and its Flows, also for ranges older than raw retention through hourly and daily Top Remote IPs. Local Hosts show Host Names, from Host Labels you set or from reverse DNS against your own resolver, and each has a page with its traffic over time, Peers and Service Ports. Service Ports carry Service Names from the IANA registry, or your own from Settings. The Exporters page shows each Exporter with its Templates. The Flow Explorer filters, sorts and pages raw Flows and shows every field each Flow arrived with. The Exporters page shows what each socket received and dropped, and `/metrics` serves Prometheus metrics. Settings shows the Flow Store's size and takes online backups. NetFlow v5 is next; progress is tracked in [issue #1](https://github.com/jkop-xyz/flowmon/issues/1).
 
 ## Run it
 
@@ -60,7 +60,7 @@ On the Exporters page, each approved Exporter can be polled over SNMP (v3 recomm
 
 ### Debug capture
 
-`FLOWMON_DEBUG_CAPTURE=/data/debug/capture.pcap` records every datagram Flowmon receives, wrapped in IP and UDP headers so Wireshark and tshark decode it as IPFIX. Use it when an Exporter shows up as "0% decoded" or its numbers look wrong. Captures contain who talked to whom on your network: the files are created readable only by Flowmon's user, the capture stops on its own, and you should anonymise a capture before sharing it.
+`FLOWMON_DEBUG_CAPTURE=/data/debug/capture.pcap` records every datagram Flowmon receives, wrapped in IP and UDP headers so Wireshark and tshark decode it as IPFIX or NetFlow. Use it when an Exporter shows up as "0% decoded" or its numbers look wrong. Captures contain who talked to whom on your network: the files are created readable only by Flowmon's user, the capture stops on its own, and you should anonymise a capture before sharing it.
 
 `flowmon healthcheck` exits 0 when the local server is healthy. Use it in run configs: Podman ignores the image's `HEALTHCHECK` for OCI images.
 
@@ -74,7 +74,10 @@ make test         # Go vet and tests, frontend lint
 make dev          # run the server on :8080
 cd web && npm run dev   # UI with hot reload on :5173, proxying /api to :8080
 go run ./internal/devtools/sendipfix -addr 127.0.0.1:4739   # synthetic MikroTik-like IPFIX
+go run ./internal/devtools/sendipfix -addr 127.0.0.1:2055 -version 9   # the same as NetFlow v9
 ```
+
+Captures of real exporters (`.pcap`, from tcpdump or `FLOWMON_DEBUG_CAPTURE`) go in [`internal/collector/testdata/captures/`](internal/collector/testdata/captures). `go test ./internal/collector` decodes each one and checks that every record becomes a Flow with the times the exporter gave.
 
 The design lives in [`GLOSSARY.md`](GLOSSARY.md) (the domain language) and [`docs/adr/`](docs/adr) (the decisions and why they were made).
 

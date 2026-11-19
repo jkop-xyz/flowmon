@@ -29,19 +29,44 @@ func (fakeInterfaces) Role(_ netip.Addr, idx uint32, _ time.Time) InterfaceRole 
 // The counting table for Classification Mode "by interface" (ADR 0003), written before
 // the code. Addresses are deliberately unhelpful (a public LAN, a CGNAT tunnel) to show
 // the interfaces decide.
+type interfaceRow struct {
+	name         string
+	in, out      uint32
+	src, dst     netip.Addr
+	postSrc      netip.Addr
+	postDst      netip.Addr
+	dir          flow.Direction
+	local, peer  netip.Addr
+	exporterHost bool
+}
+
+func (r interfaceRow) flow() flow.Flow {
+	return flow.Flow{Exporter: exporter, IngressInterface: r.in, EgressInterface: r.out,
+		Src: r.src, Dst: r.dst, PostNATSrc: r.postSrc, PostNATDst: r.postDst}
+}
+
+func (r interfaceRow) check(t *testing.T, f flow.Flow) {
+	t.Helper()
+	c := New(DefaultLocalNetworks())
+	c.SetInterfaces(fakeInterfaces{byInterface: true})
+	c.Classify(&f, now)
+	if f.Direction != r.dir || f.Local != r.local || f.Peer != r.peer || f.LocalIsExporterHost != r.exporterHost {
+		t.Errorf("got %v local=%v peer=%v eh=%v; want %v local=%v peer=%v eh=%v",
+			f.Direction, f.Local, f.Peer, f.LocalIsExporterHost, r.dir, r.local, r.peer, r.exporterHost)
+	}
+}
+
 func TestCountingTableByInterface(t *testing.T) {
+	for _, r := range interfaceRows() {
+		t.Run(r.name, func(t *testing.T) { r.check(t, r.flow()) })
+	}
+}
+
+// interfaceRows are the counting table for classification by interface.
+func interfaceRows() []interfaceRow {
 	publicLAN := netip.MustParseAddr("198.51.100.20") // a LAN that isn't in any Local Network
 	tunnelPeer := netip.MustParseAddr("100.64.0.7")   // a WireGuard road-warrior
-	rows := []struct {
-		name         string
-		in, out      uint32
-		src, dst     netip.Addr
-		postSrc      netip.Addr
-		postDst      netip.Addr
-		dir          flow.Direction
-		local, peer  netip.Addr
-		exporterHost bool
-	}{
+	return []interfaceRow{
 		{name: "LAN → WAN is outbound, even for a public LAN", in: 2, out: 1, src: publicLAN, dst: remote, postSrc: wan,
 			dir: flow.DirectionOutbound, local: publicLAN, peer: remote},
 		{name: "WAN → LAN download reply: the host is the post-NAT destination", in: 1, out: 2, src: remote, dst: wan, postDst: lanHost,
@@ -58,19 +83,6 @@ func TestCountingTableByInterface(t *testing.T) {
 			dir: flow.DirectionInbound, local: exporter, peer: remote2, exporterHost: true},
 		{name: "WAN → WAN is transit", in: 1, out: 1, src: remote, dst: remote2,
 			dir: flow.DirectionTransit},
-	}
-	for _, r := range rows {
-		t.Run(r.name, func(t *testing.T) {
-			c := New(DefaultLocalNetworks())
-			c.SetInterfaces(fakeInterfaces{byInterface: true})
-			f := flow.Flow{Exporter: exporter, IngressInterface: r.in, EgressInterface: r.out,
-				Src: r.src, Dst: r.dst, PostNATSrc: r.postSrc, PostNATDst: r.postDst}
-			c.Classify(&f, now)
-			if f.Direction != r.dir || f.Local != r.local || f.Peer != r.peer || f.LocalIsExporterHost != r.exporterHost {
-				t.Errorf("got %v local=%v peer=%v eh=%v; want %v local=%v peer=%v eh=%v",
-					f.Direction, f.Local, f.Peer, f.LocalIsExporterHost, r.dir, r.local, r.peer, r.exporterHost)
-			}
-		})
 	}
 }
 
