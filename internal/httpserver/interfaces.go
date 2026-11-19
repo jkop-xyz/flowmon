@@ -159,6 +159,12 @@ func registerInterfaces(mux *http.ServeMux, opts Options) {
 		if !readJSON(w, r, &req) {
 			return
 		}
+		oldMode, oldRoles := exporters.ByAddress, io.Registry.Roles(a)
+		if opts.Exporters != nil {
+			if c, ok := opts.Exporters.Config(a); ok {
+				oldMode = c.ClassificationMode
+			}
+		}
 		if err := io.Registry.SetRoles(r.Context(), a, req.Roles); err != nil {
 			if errors.Is(err, interfaces.ErrBadRole) {
 				errorJSON(w, http.StatusBadRequest, "role must be wan, lan or tunnel")
@@ -177,7 +183,9 @@ func registerInterfaces(mux *http.ServeMux, opts Options) {
 			errorJSON(w, http.StatusInternalServerError, "couldn't save the classification mode")
 			return
 		}
-		record(r, a, fmt.Sprintf("classification set to %s, %d interface roles", req.Mode, len(req.Roles)))
+		if desc, changed := describeClassificationChange(oldMode, req.Mode, oldRoles, req.Roles); changed {
+			record(r, a, desc)
+		}
 		opts.Logger.Info("classification changed", "exporter", a.String(), "mode", req.Mode, "roles", req.Roles)
 		writeJSON(w, http.StatusOK, view(a))
 	})
