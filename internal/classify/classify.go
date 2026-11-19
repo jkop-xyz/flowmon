@@ -73,10 +73,16 @@ type Interfaces interface {
 	Role(exporter netip.Addr, ifIndex uint32, at time.Time) InterfaceRole
 }
 
+// Roles says which Exporters are Internal Exporters, and the subnets on their LAN side.
+type Roles interface {
+	InternalSubnets(exporter netip.Addr) ([]netip.Prefix, bool)
+}
+
 // Classifier is safe for concurrent use.
 type Classifier struct {
 	local  atomic.Pointer[[]netip.Prefix]
 	ifaces atomic.Pointer[Interfaces]
+	roles  atomic.Pointer[Roles]
 
 	mu      sync.Mutex
 	learned map[netip.Addr]map[netip.Addr]time.Time // Exporter → address → last seen
@@ -97,6 +103,34 @@ func (c *Classifier) SetLocalNetworks(local []netip.Prefix) {
 
 // SetInterfaces enables classification by interface for the Exporters that ask for it.
 func (c *Classifier) SetInterfaces(i Interfaces) { c.ifaces.Store(&i) }
+
+// SetRoles sets which Exporters are Internal Exporters.
+func (c *Classifier) SetRoles(r Roles) { c.roles.Store(&r) }
+
+// classifyInternal applies the Internal Exporter rule (ADR 0003): only Flows between two
+// hosts in one of its subnets are counted from it; an Edge Exporter counts the rest. It
+// reports false for an Edge Exporter.
+func (c *Classifier) classifyInternal(f *flow.Flow) bool {
+	p := c.roles.Load()
+	if p == nil {
+		return false
+	}
+	subnets, ok := (*p).InternalSubnets(f.Exporter)
+	if !ok {
+		return false
+	}
+	f.Local, f.Peer, f.LocalPort, f.PeerPort, f.LocalIsExporterHost = netip.Addr{}, netip.Addr{}, 0, 0, false
+	f.Direction = flow.DirectionUncounted
+	src, dst := f.Src.Unmap(), f.Dst.Unmap()
+	for _, s := range subnets {
+		if s.Contains(src) && s.Contains(dst) {
+			f.Direction = flow.DirectionInternal
+			f.Local, f.LocalPort, f.Peer, f.PeerPort = src, f.SrcPort, dst, f.DstPort
+			break
+		}
+	}
+	return true
+}
 
 // LocalNetworks returns the configured Local Networks.
 func (c *Classifier) LocalNetworks() []netip.Prefix {
@@ -191,8 +225,12 @@ func (c *Classifier) pick(exporter netip.Addr, now time.Time, candidates ...end)
 }
 
 // Classify sets f's Direction, Local, Peer and ports. now is used to learn and expire
-// Exporter Host addresses.
+// Exporter Host addresses. An Internal Exporter's Flows are Internal between two hosts
+// in one of its subnets and Uncounted otherwise.
 func (c *Classifier) Classify(f *flow.Flow, now time.Time) {
+	if c.classifyInternal(f) {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.learn(f, now)

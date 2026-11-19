@@ -44,7 +44,10 @@ type Options struct {
 	// SamplingRate is the rate set by hand for an Exporter that samples without
 	// announcing it (0: none). A rate the Exporter announces wins.
 	SamplingRate func(exporter netip.Addr) uint32
-	Now          func() time.Time
+	// MultiplePoints reports whether an Exporter sees the same traffic at several
+	// points, so its duplicate Flows are removed.
+	MultiplePoints func(exporter netip.Addr) bool
+	Now            func() time.Time
 }
 
 // Watermark parameters (ADR 0004): the 99th percentile of Flow durations over the last
@@ -67,6 +70,8 @@ type Pipeline struct {
 	timing   map[netip.Addr]*timing
 	ifs      map[netip.Addr]map[uint32]*InterfaceStats
 	sampling map[netip.Addr]*collector.SamplingStatus
+	counting map[netip.Addr]*collector.CountingStatus
+	dedups   map[netip.Addr]*dedup
 
 	written      atomic.Uint64
 	dropped      atomic.Uint64
@@ -105,6 +110,8 @@ func New(opts Options) *Pipeline {
 		timing:   map[netip.Addr]*timing{},
 		ifs:      map[netip.Addr]map[uint32]*InterfaceStats{},
 		sampling: map[netip.Addr]*collector.SamplingStatus{},
+		counting: map[netip.Addr]*collector.CountingStatus{},
+		dedups:   map[netip.Addr]*dedup{},
 	}
 }
 
@@ -133,10 +140,14 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 	}
 }
 
-// accept scales, classifies and queues one Flow.
+// accept removes duplicates, then scales, classifies and queues one Flow.
 func (p *Pipeline) accept(exporter netip.Addr, f flow.Flow, now time.Time) {
+	if p.duplicate(exporter, &f) {
+		return
+	}
 	p.applySampling(exporter, &f)
 	p.opts.Classifier.Classify(&f, now)
+	p.countDirection(exporter, &f)
 	p.countInterfaces(exporter, &f)
 	if p.observe(exporter, &f, now) {
 		p.late.Add(1)
@@ -373,6 +384,58 @@ func (p *Pipeline) applySampling(exporter netip.Addr, f *flow.Flow) {
 	if applied > 0 {
 		st.SampledFlows++
 	}
+}
+
+// duplicate reports whether f repeats a Flow its Exporter already reported from
+// another observation point, for Exporters marked as observing multiple points.
+func (p *Pipeline) duplicate(exporter netip.Addr, f *flow.Flow) bool {
+	if p.opts.MultiplePoints == nil || !p.opts.MultiplePoints(exporter) {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	d := p.dedups[exporter]
+	if d == nil {
+		d = &dedup{}
+		p.dedups[exporter] = d
+	}
+	if !d.duplicate(f) {
+		return false
+	}
+	p.countingLocked(exporter).DuplicatesRemoved++
+	return true
+}
+
+func (p *Pipeline) countingLocked(exporter netip.Addr) *collector.CountingStatus {
+	st := p.counting[exporter]
+	if st == nil {
+		st = &collector.CountingStatus{}
+		p.counting[exporter] = st
+	}
+	return st
+}
+
+// countDirection counts an Exporter's classified Flows, and those left uncounted.
+func (p *Pipeline) countDirection(exporter netip.Addr, f *flow.Flow) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.countingLocked(exporter)
+	st.Flows++
+	if f.Direction == flow.DirectionUncounted {
+		st.Uncounted++
+	}
+}
+
+// Counting says how many of an Exporter's Flows were counted; nil before any arrived.
+func (p *Pipeline) Counting(exporter netip.Addr) *collector.CountingStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.counting[exporter]
+	if st == nil {
+		return nil
+	}
+	c := *st
+	return &c
 }
 
 // Sampling says whether an Exporter's Flows are sampled; nil before any arrived.

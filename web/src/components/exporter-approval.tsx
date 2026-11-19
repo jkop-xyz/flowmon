@@ -3,19 +3,21 @@ import { MoreHorizontal, ShieldQuestion } from "lucide-react"
 import { useState } from "react"
 
 import { ClassificationModeField } from "@/components/classification-mode-field"
+import { CountingFields } from "@/components/counting-fields"
 import { Field, FormActions, FormError, Section, SectionHeading } from "@/components/page"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   approveExporter,
   forgetExporter,
   ignoreExporter,
   type ClassificationMode,
+  type Counting,
   type ExporterStatus,
 } from "@/lib/api"
 import { formatNumber } from "@/lib/format"
+import { parseSubnets } from "@/lib/subnets"
 
 function useInvalidate() {
   const queryClient = useQueryClient()
@@ -34,8 +36,16 @@ export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
     exporter.templates.some((t) => !t.options) &&
     exporter.templates.every((t) => t.options || !t.findings.some((f) => f.code === "no_interfaces"))
   const [mode, setMode] = useState<ClassificationMode>(sendsInterfaces ? "interface" : "address")
+  const [counting, setCountingState] = useState<Counting>({ role: "edge", subnets: [], multiplePoints: false })
+  const [subnetsText, setSubnetsText] = useState("")
   const approve = useMutation({
-    mutationFn: () => approveExporter(exporter.address, { name, role: "edge", classificationMode: mode }),
+    mutationFn: () =>
+      approveExporter(exporter.address, {
+        name,
+        classificationMode: mode,
+        ...counting,
+        subnets: counting.role === "internal" ? parseSubnets(subnetsText) : [],
+      }),
     onSuccess: invalidate,
   })
   const ignore = useMutation({ mutationFn: () => ignoreExporter(exporter.address), onSuccess: invalidate })
@@ -67,28 +77,24 @@ export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Field id={`role-${exporter.address}`} label="Exporter role">
-          <Select value="edge">
-            <SelectTrigger id={`role-${exporter.address}`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="edge">Edge</SelectItem>
-              <SelectItem value="internal" disabled>
-                Internal (v1.1)
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
       </div>
-      <Field label="Classification">
-        <ClassificationModeField
-          idPrefix={`approve-${exporter.address}`}
-          value={mode}
-          onChange={setMode}
-          interfaceAvailable={sendsInterfaces}
-        />
-      </Field>
+      <CountingFields
+        idPrefix={`approve-${exporter.address}`}
+        value={counting}
+        subnetsText={subnetsText}
+        onChange={setCountingState}
+        onSubnetsText={setSubnetsText}
+      />
+      {counting.role === "edge" && (
+        <Field label="Classification">
+          <ClassificationModeField
+            idPrefix={`approve-${exporter.address}`}
+            value={mode}
+            onChange={setMode}
+            interfaceAvailable={sendsInterfaces}
+          />
+        </Field>
+      )}
       <FormError error={error} />
       <FormActions>
         {pending && (

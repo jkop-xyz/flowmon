@@ -34,3 +34,9 @@ Interface roles are what the router itself knows.
 - A Flow crossing an interface with no role, or carrying no interface numbers, is classified by address even when the Exporter classifies by interface.
 - Interface names come from the user or from Options Templates (interfaceName scoped by an interface number); SNMP follows in #10. A name the user set is never overwritten by a reported one; a different reported name is listed as a conflict.
 - Only classification changes are marked on charts. Renaming an interface doesn't change classification, because roles follow names.
+
+## As built (#25)
+
+- An Internal Exporter's LAN subnets are set with its role, when it is approved or later on its Exporter page, rather than read from its interfaces: hypervisors exporting with softflowd rarely have SNMP or interface names. Subnets broader than /16 (IPv4) or /64 (IPv6) are refused.
+- Its Flows that aren't between two hosts in the same listed subnet get the Direction **Uncounted**. They are stored raw, so the Flow Explorer shows them and reprocessing can count them again after the subnets change, but they are in no Rollup, Top Remote IPs list or total. Classification Mode and Interface Roles don't apply to an Internal Exporter.
+- Duplicate removal ("observes multiple points") runs in ingest, before sampling and classification. A Flow is a duplicate when one of its keys (its pre-NAT 5-tuple, or its post-NAT one) matches a Flow from the same Exporter whose time overlaps. Flows are remembered for the longest Watermark (37 minutes). The full counting table by Exporter role is in `internal/classify/internal_test.go`.

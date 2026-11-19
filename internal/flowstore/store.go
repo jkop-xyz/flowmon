@@ -239,6 +239,19 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 13: Internal Exporters: their LAN subnets, and whether an Exporter sees the same
+	// traffic at several points (so duplicates are removed).
+	func(ctx context.Context, tx *sql.Tx) error {
+		for _, q := range []string{
+			`ALTER TABLE exporters ADD COLUMN IF NOT EXISTS subnets VARCHAR DEFAULT ''`,
+			`ALTER TABLE exporters ADD COLUMN IF NOT EXISTS multiple_points BOOLEAN DEFAULT false`,
+		} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {

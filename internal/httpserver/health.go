@@ -32,6 +32,7 @@ func collectorStatus(opts Options) (collector.Status, *ingest.Stats) {
 			if addr, err := netip.ParseAddr(st.Exporters[i].Address); err == nil {
 				st.Exporters[i].Timing = opts.Timing.Timing(addr)
 				st.Exporters[i].Sampling = opts.Timing.Sampling(addr)
+				st.Exporters[i].Counting = opts.Timing.Counting(addr)
 			}
 		}
 	}
@@ -156,6 +157,16 @@ func writeMetrics(ctx context.Context, m *metrics.Writer, opts Options) {
 	for _, e := range st.Exporters {
 		if e.Timing != nil {
 			m.Gauge("flowmon_exporter_watermark_seconds", "How long after a time bucket ends an Exporter's Flows may still arrive.", e.Timing.WatermarkSeconds, "exporter", e.Address)
+		}
+	}
+	for _, e := range st.Exporters {
+		if e.Counting != nil {
+			m.Counter("flowmon_exporter_flows_uncounted_total", "An Internal Exporter's Flows left to an Edge Exporter to count.", float64(e.Counting.Uncounted), "exporter", e.Address)
+		}
+	}
+	for _, e := range st.Exporters {
+		if e.Counting != nil {
+			m.Counter("flowmon_exporter_duplicates_removed_total", "Flows an Exporter observing multiple points reported again.", float64(e.Counting.DuplicatesRemoved), "exporter", e.Address)
 		}
 	}
 	for _, e := range st.Exporters {

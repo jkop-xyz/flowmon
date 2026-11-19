@@ -23,7 +23,7 @@ type FlowStore interface {
 
 var directionNames = map[string]flow.Direction{
 	"inbound": flow.DirectionInbound, "outbound": flow.DirectionOutbound,
-	"internal": flow.DirectionInternal, "transit": flow.DirectionTransit,
+	"internal": flow.DirectionInternal, "transit": flow.DirectionTransit, "uncounted": flow.DirectionUncounted,
 }
 
 // badRequest is an error in the request itself.

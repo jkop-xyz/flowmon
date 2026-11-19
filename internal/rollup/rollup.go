@@ -76,7 +76,7 @@ const MaxSpread = 6 * time.Hour
 // Peer, so per-host views see both sides, while Network Totals count only the sent
 // side of Internal traffic. Transit Flows have no Local Host and contribute nothing.
 func Contributions(f *flow.Flow, bucket time.Duration) []Row {
-	if f.Direction == flow.DirectionTransit || !f.Local.IsValid() {
+	if f.Direction == flow.DirectionTransit || f.Direction == flow.DirectionUncounted || !f.Local.IsValid() {
 		return nil
 	}
 	base := Key{

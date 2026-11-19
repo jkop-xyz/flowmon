@@ -122,6 +122,10 @@ export type ExporterStatus = {
   sampling: SamplingStatus | null
   /** The rate set by hand, for an Exporter that samples without saying so; 0 for none. */
   samplingRate: number
+  subnets: string[] | null
+  multiplePoints: boolean
+  /** How its Flows were counted since Flowmon started; null before any arrived. */
+  counting: { flows: number; uncounted: number; duplicatesRemoved: number } | null
 }
 
 export type SamplingStatus = {
@@ -271,7 +275,21 @@ export function fetchExporterOptions(signal?: AbortSignal) {
 
 export type ClassificationMode = "address" | "interface"
 
-export type ApprovalRequest = { name: string; role: "edge"; classificationMode: ClassificationMode }
+export type ExporterRole = "edge" | "internal"
+
+/** How an Exporter's Flows are counted across Exporters. */
+export type Counting = {
+  role: ExporterRole
+  /** An Internal Exporter's LAN subnets: only Flows between two hosts in one of them count. */
+  subnets: string[]
+  /** It sees the same traffic at several points, so duplicates are removed. */
+  multiplePoints: boolean
+}
+
+export type ApprovalRequest = Counting & { name: string; classificationMode: ClassificationMode }
+
+export const setCounting = (address: string, counting: Counting) =>
+  putJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/counting`, counting)
 
 export const approveExporter = (address: string, req: ApprovalRequest) =>
   postJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/approve`, req)
@@ -485,7 +503,8 @@ export type RemoteDetail = Coverage &
     current?: GeoInfo
   }
 
-export type Direction = "inbound" | "outbound" | "internal" | "transit"
+/** "uncounted": an Internal Exporter's routed Flow, which an Edge Exporter counts instead. */
+export type Direction = "inbound" | "outbound" | "internal" | "transit" | "uncounted"
 
 export type FlowItem = {
   /** Finds the Flow again for its detail view. */
