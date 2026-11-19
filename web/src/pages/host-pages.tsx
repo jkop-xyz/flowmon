@@ -266,7 +266,7 @@ function LabelRow({ label, now }: { label: HostLabel; now: number }) {
         {label.name}
       </TableCell>
       <TableCell>
-        <Link to={{ pathname: hostPath(label.prefix), search }} className="font-mono text-xs underline-offset-4 hover:underline">
+        <Link to={{ pathname: hostPath(label.prefix), search }} className="font-mono text-ident underline-offset-4 hover:underline">
           {label.prefix}
         </Link>
       </TableCell>

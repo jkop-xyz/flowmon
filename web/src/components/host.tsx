@@ -33,14 +33,14 @@ export function HostLink({
             <span className="truncate text-sm" title={named}>
               {named}
             </span>
-            <span className="truncate font-mono text-xs text-muted-foreground" title={host}>
+            <span className="truncate font-mono text-ident text-muted-foreground" title={host}>
               {host}
               {addresses ? ` · ${addresses} ${addresses === 1 ? "address" : "addresses"}` : ""}
             </span>
           </>
         ) : (
           <>
-            <span className="truncate font-mono text-xs" title={host}>
+            <span className="truncate font-mono text-ident" title={host}>
               {host}
             </span>
             {name?.status === "pending" && (

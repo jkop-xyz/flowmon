@@ -8,7 +8,7 @@ export function ReverseDNS({ name, className }: { name?: ReverseDNSName; classNa
   }
   if (name.status !== "resolved" || !name.name) return null
   return (
-    <span className={cn("truncate text-xs text-muted-foreground", className)} title={name.name}>
+    <span className={cn("truncate text-ident text-muted-foreground", className)} title={name.name}>
       {name.name}
     </span>
   )

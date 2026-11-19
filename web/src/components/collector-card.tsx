@@ -70,7 +70,7 @@ export function CollectorCard({ status, now }: { status: CollectorStatus; now: n
               <TableBody>
                 {listeners.map((l) => (
                   <TableRow key={l.address}>
-                    <TableCell className="font-mono text-xs">{l.address}</TableCell>
+                    <TableCell className="font-mono text-ident">{l.address}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(l.datagrams)}</TableCell>
                     <TableCell className={`text-right tabular-nums ${l.kernelDrops > 0 ? "text-destructive" : ""}`}>
                       {l.dropsCounted ? formatNumber(l.kernelDrops) : "not reported"}

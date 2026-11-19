@@ -77,7 +77,7 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
                       <Badge variant="secondary">{sourceLabels[d.source]}</Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="font-mono text-xs" title={d.path}>
+                      <span className="font-mono text-ident" title={d.path}>
                         {d.type}
                       </span>
                     </TableCell>
@@ -123,13 +123,13 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
         <SectionHeading title="Where the databases come from" />
         <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
           <li>
-            MMDB files you put in <code className="font-mono text-xs text-foreground">{status.dir}</code> (country,
+            MMDB files you put in <code className="font-mono text-ident text-foreground">{status.dir}</code> (country,
             city or ASN databases from MaxMind or DB-IP). They are picked up within the hour and never replaced.
           </li>
           <li>
             MaxMind GeoLite2, downloaded weekly with your free account (
-            <code className="font-mono text-xs text-foreground">FLOWMON_MAXMIND_ACCOUNT_ID</code> and{" "}
-            <code className="font-mono text-xs text-foreground">FLOWMON_MAXMIND_LICENSE_KEY</code>).{" "}
+            <code className="font-mono text-ident text-foreground">FLOWMON_MAXMIND_ACCOUNT_ID</code> and{" "}
+            <code className="font-mono text-ident text-foreground">FLOWMON_MAXMIND_LICENSE_KEY</code>).{" "}
             {status.maxMindConfigured ? "Configured." : "Not configured."}
           </li>
           <li>DB-IP Lite, downloaded weekly without an account. Slightly less detailed than GeoLite2.</li>
@@ -137,12 +137,12 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
         <p className="text-sm text-muted-foreground">
           {status.downloadsEnabled ? (
             <>
-              Downloads are on. Set <code className="font-mono text-xs text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>{" "}
+              Downloads are on. Set <code className="font-mono text-ident text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>{" "}
               to use only your own files.
             </>
           ) : (
             <>
-              Downloads are off (<code className="font-mono text-xs text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>
+              Downloads are off (<code className="font-mono text-ident text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>
               ), so only your own files are used.
             </>
           )}{" "}

@@ -71,7 +71,7 @@ function AppStoreBanner({ store, now }: { store: AppStoreStatus; now: number }) 
           . Flows are still collected and every chart works. Host Labels, Service Names and account changes can't be saved
           until it's back, and new logins have to wait.
         </p>
-        {store.error && <p className="mt-1 font-mono text-xs break-all">{store.error}</p>}
+        {store.error && <p className="mt-1 font-mono text-ident break-all">{store.error}</p>}
       </AlertDescription>
     </Alert>
   )
