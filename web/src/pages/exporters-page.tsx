@@ -360,7 +360,7 @@ function TemplateRow({ template, now }: { template: TemplateStatus; now: number 
               {template.fields.map((f, i) => (
                 <TableRow key={i}>
                   <TableCell className="text-muted-foreground tabular-nums">{i + 1}</TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-ident">
                     {f.name}
                     {f.scope && (
                       <Badge variant="outline" className="ml-2">

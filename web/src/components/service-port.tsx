@@ -18,7 +18,7 @@ export function ServicePort({
   const title = [name?.description, name?.source === "user" ? "Your name for this port" : undefined].filter(Boolean).join(" · ")
   return (
     <span className={cn("flex min-w-0 items-baseline gap-1.5", className)} title={title || undefined}>
-      <span className="shrink-0 font-mono text-xs">
+      <span className="shrink-0 font-mono text-ident">
         {port}/{protocolName(protocol).toLowerCase()}
       </span>
       {name?.name && <span className="truncate text-sm">{name.name}</span>}

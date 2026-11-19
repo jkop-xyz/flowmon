@@ -158,22 +158,22 @@ function FlowStoreDetails({ info, now }: { info: FlowStoreInfo; now: number }) {
         <p className="text-sm text-muted-foreground">
           A consistent copy of the Flow Store, taken while collection keeps running. It needs about{" "}
           {formatBytes(info.usedBytes)} free next to the Flow Store while it's taken, and can take a while to start
-          downloading. To restore, stop Flowmon, replace <code className="font-mono text-xs break-all">{info.path}</code> with the
-          downloaded file, delete <code className="font-mono text-xs break-all">{info.path}.wal</code> if it exists, and start
+          downloading. To restore, stop Flowmon, replace <code className="font-mono text-ident break-all">{info.path}</code> with the
+          downloaded file, delete <code className="font-mono text-ident break-all">{info.path}.wal</code> if it exists, and start
           Flowmon. Accounts, Host Labels and Service Names live in the App Store and are backed up separately.
         </p>
         <p className="text-sm text-muted-foreground">
           {info.backupToken ? (
             <>
-              Scripts can download it with the token from <code className="font-mono text-xs">FLOWMON_BACKUP_TOKEN</code>:{" "}
-              <code className="font-mono text-xs break-all">
+              Scripts can download it with the token from <code className="font-mono text-ident">FLOWMON_BACKUP_TOKEN</code>:{" "}
+              <code className="font-mono text-ident break-all">
                 curl -fH "Authorization: Bearer $TOKEN" -o flows.duckdb {window.location.origin}
                 {flowStoreBackupURL}
               </code>
             </>
           ) : (
             <>
-              To back up from a script, set <code className="font-mono text-xs">FLOWMON_BACKUP_TOKEN</code> and send it as a
+              To back up from a script, set <code className="font-mono text-ident">FLOWMON_BACKUP_TOKEN</code> and send it as a
               bearer token.
             </>
           )}

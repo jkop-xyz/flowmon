@@ -85,7 +85,7 @@ function LocalNetworksForm({ settings }: { settings: Settings }) {
       <ul className="flex flex-wrap gap-2">
         {nets.map((p) => (
           <li key={p}>
-            <Badge variant="outline" className="h-7 gap-1 pr-1 font-mono text-xs">
+            <Badge variant="outline" className="h-7 gap-1 pr-1 font-mono text-ident">
               {p}
               {defaults.includes(p) && <span className="font-sans text-muted-foreground">default</span>}
               {!locked && (

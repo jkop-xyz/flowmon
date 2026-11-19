@@ -112,7 +112,7 @@ export function ClassificationGuidePage() {
             <TableBody>
               {example.map(([name, role, why]) => (
                 <TableRow key={name}>
-                  <TableCell className="align-top font-mono text-xs">{name}</TableCell>
+                  <TableCell className="align-top font-mono text-ident">{name}</TableCell>
                   <TableCell className="align-top">{roleLabel(role)}</TableCell>
                   <TableCell className="align-top whitespace-normal text-muted-foreground">{why}</TableCell>
                 </TableRow>

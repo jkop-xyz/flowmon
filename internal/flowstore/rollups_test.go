@@ -126,6 +126,13 @@ func TestTop(t *testing.T) {
 		t.Errorf("hosts %+v", hosts)
 	}
 
+	// Count covers every Local Host with traffic, not just the listed ones.
+	q.Limit = 1
+	if one, _ := s.Top(ctx, q); len(one.Items) != 1 || one.Count != 3 {
+		t.Errorf("count with limit 1: %d items, count %d", len(one.Items), one.Count)
+	}
+	q.Limit = 0
+
 	q.Dimension = TopServicePorts
 	ports, err := s.Top(ctx, q)
 	if err != nil {

@@ -237,7 +237,7 @@ function InterfaceRow({
       <TableCell>
         <div className="flex items-center gap-2">
           <Input
-            className="h-8 w-full max-w-56 min-w-32 font-mono text-xs"
+            className="h-8 w-full max-w-56 min-w-32 font-mono text-ident"
             placeholder="Name this interface"
             value={name}
             maxLength={64}

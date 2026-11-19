@@ -49,8 +49,8 @@ function Endpoint({ address, port, children }: { address?: string; port: number;
   // A width limit lets long Host Names truncate (full name on hover) instead of widening the table.
   return (
     <div className="flex max-w-44 min-w-0 flex-col">
-      {children ?? <span className="truncate font-mono text-xs">{address}</span>}
-      {port > 0 && <span className="font-mono text-xs text-muted-foreground">port {port}</span>}
+      {children ?? <span className="truncate font-mono text-ident">{address}</span>}
+      {port > 0 && <span className="font-mono text-ident text-muted-foreground">port {port}</span>}
     </div>
   )
 }
@@ -153,7 +153,7 @@ function columns({ hosts, services }: Lookups): ColumnDef<FlowItem>[] {
       id: "exporter",
       header: "Exporter",
       enableSorting: false,
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.exporter}</span>,
+      cell: ({ row }) => <span className="font-mono text-ident">{row.original.exporter}</span>,
     },
   ]
 }
@@ -304,13 +304,13 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
     ["End", formatDateTime(d.end)],
     ["Received", formatDateTime(d.received)],
     ["Exported", formatDateTime(d.exportTime)],
-    ["Source", <span key="s" className="font-mono text-xs">{`${d.src}:${d.srcPort}`}</span>],
-    ["Destination", <span key="t" className="font-mono text-xs">{`${d.dst}:${d.dstPort}`}</span>],
+    ["Source", <span key="s" className="font-mono text-ident">{`${d.src}:${d.srcPort}`}</span>],
+    ["Destination", <span key="t" className="font-mono text-ident">{`${d.dst}:${d.dstPort}`}</span>],
   ]
   if (d.postNatSrc || d.postNatDst) {
     rows.push([
       "After NAT",
-      <span key="n" className="font-mono text-xs">{`${d.postNatSrc ?? d.src}:${d.postNatSrcPort ?? d.srcPort} → ${d.postNatDst ?? d.dst}:${d.postNatDstPort ?? d.dstPort}`}</span>,
+      <span key="n" className="font-mono text-ident">{`${d.postNatSrc ?? d.src}:${d.postNatSrcPort ?? d.srcPort} → ${d.postNatDst ?? d.dst}:${d.postNatDstPort ?? d.dstPort}`}</span>,
     ])
   }
   rows.push(
@@ -334,7 +334,7 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
         ] as [string, ReactNode][])
       : []),
     ["Interfaces", `in ${d.ingressInterface || "–"}, out ${d.egressInterface || "–"}`],
-    ["Exporter", <span key="e" className="font-mono text-xs">{`${d.exporter} (domain ${d.observationDomain})`}</span>],
+    ["Exporter", <span key="e" className="font-mono text-ident">{`${d.exporter} (domain ${d.observationDomain})`}</span>],
   )
   return (
     <>
@@ -365,14 +365,14 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
                   <TableRow key={`${f.enterprise ?? 0}/${f.id}/${i}`}>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-mono text-xs">{f.name}</span>
+                        <span className="font-mono text-ident">{f.name}</span>
                         <span className="text-xs text-muted-foreground">
                           {f.enterprise ? `enterprise ${f.enterprise}, ` : ""}id {f.id}
                           {f.type ? `, ${f.type}` : ""}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-56 font-mono text-xs break-all whitespace-normal">
+                    <TableCell className="max-w-56 font-mono text-ident break-all whitespace-normal">
                       {f.value}
                       {!f.known && (
                         <Badge variant="outline" className="ml-2">
@@ -381,7 +381,7 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
                       )}
                       {f.error && <p className="font-sans text-destructive">{f.error}</p>}
                     </TableCell>
-                    <TableCell className="max-w-40 font-mono text-xs break-all whitespace-normal text-muted-foreground">{f.raw}</TableCell>
+                    <TableCell className="max-w-40 font-mono text-ident break-all whitespace-normal text-muted-foreground">{f.raw}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

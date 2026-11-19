@@ -7,7 +7,7 @@ import { formatDateTime } from "@/lib/format"
 export function RemoteIPLink({ ip, className }: { ip: string; className?: string }) {
   const { search } = useLocation()
   return (
-    <Link to={{ pathname: `/remote/${ip}`, search }} className={className ?? "font-mono text-xs underline-offset-4 hover:underline"}>
+    <Link to={{ pathname: `/remote/${ip}`, search }} className={className ?? "font-mono text-ident underline-offset-4 hover:underline"}>
       {ip}
     </Link>
   )

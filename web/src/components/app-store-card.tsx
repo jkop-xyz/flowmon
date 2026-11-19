@@ -40,7 +40,7 @@ export function AppStoreCard() {
                 </Badge>
               )}
             </div>
-            {s.location && <code className="font-mono text-xs break-all text-muted-foreground">{s.location}</code>}
+            {s.location && <code className="font-mono text-ident break-all text-muted-foreground">{s.location}</code>}
             <p className="text-xs text-muted-foreground">
               {s.driver === "sqlite"
                 ? "Kept in the data directory next to the Flow Store, and backed up with it."

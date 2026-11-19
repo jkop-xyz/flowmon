@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from "react-router"
 
+import { AreaChip } from "@/components/area-chip"
 import { Logo } from "@/components/page"
 import {
   Sidebar,
@@ -38,6 +39,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              {/* data-area: each item's hover and highlight take its own colour, not the page's. */}
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.path} data-area={item.area}>
                   <SidebarMenuButton
@@ -50,9 +52,11 @@ export function AppSidebar() {
                     )}
                   >
                     <NavLink to={{ pathname: item.path, search }} end>
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-area-tint group-data-[collapsible=icon]:size-6 text-area-ink group-data-[active=true]/menu-button:bg-area group-data-[active=true]/menu-button:text-white">
-                        <item.icon className="size-4" />
-                      </span>
+                      <AreaChip
+                        area={item.area}
+                        icon={item.icon}
+                        className="group-data-[collapsible=icon]:size-6 group-data-[active=true]/menu-button:bg-area group-data-[active=true]/menu-button:text-white"
+                      />
                       <span>{item.title}</span>
                     </NavLink>
                   </SidebarMenuButton>

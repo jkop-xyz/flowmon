@@ -82,7 +82,7 @@ export function ServiceNamesCard() {
               <TableBody>
                 {names.map((n) => (
                     <TableRow key={serviceKey(n.protocol, n.port)}>
-                      <TableCell className="font-mono text-xs">{portLabel(n)}</TableCell>
+                      <TableCell className="font-mono text-ident">{portLabel(n)}</TableCell>
                       <TableCell className="max-w-48 truncate" title={n.name}>
                         {n.name}
                       </TableCell>

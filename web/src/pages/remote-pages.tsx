@@ -435,8 +435,8 @@ function RegistrationDetails({ r, fetchedAt, now }: { r: Registration; fetchedAt
   const rows: [string, React.ReactNode][] = []
   if (r.organisation) rows.push(["Holder", r.organisation])
   if (r.name || r.handle) rows.push(["Network", [r.name, r.handle && r.handle !== r.name ? `(${r.handle})` : ""].filter(Boolean).join(" ")])
-  if (r.cidrs.length > 0) rows.push(["CIDR", <span key="cidr" className="font-mono text-xs">{r.cidrs.join(", ")}</span>])
-  if (r.start && r.end) rows.push(["Range", <span key="range" className="font-mono text-xs">{`${r.start} – ${r.end}`}</span>])
+  if (r.cidrs.length > 0) rows.push(["CIDR", <span key="cidr" className="font-mono text-ident">{r.cidrs.join(", ")}</span>])
+  if (r.start && r.end) rows.push(["Range", <span key="range" className="font-mono text-ident">{`${r.start} – ${r.end}`}</span>])
   if (r.type) rows.push(["Type", r.type])
   if (r.country) rows.push(["Country", countryLabel(r.country)])
   if (r.abuseEmail)

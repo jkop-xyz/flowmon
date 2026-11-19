@@ -63,6 +63,10 @@ func TestTopLocalHostsGroupsPrefixes(t *testing.T) {
 	if res.TotalBytes != 661 {
 		t.Errorf("total %v", res.TotalBytes)
 	}
+	// The group, .5, .6 and 2001:db8::c: a group counts once.
+	if res.Count != 4 {
+		t.Errorf("count %d, want 4", res.Count)
+	}
 }
 
 func TestHostDetailAndTraffic(t *testing.T) {
