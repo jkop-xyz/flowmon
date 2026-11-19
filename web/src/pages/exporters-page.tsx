@@ -136,7 +136,12 @@ export function ExportersPage() {
           </p>
         </EmptyState>
       ) : (
-        exporters.map((exporter) => <ExporterCard key={exporter.address} exporter={exporter} now={now} />)
+        // Side by side on wide screens: each card is a full page of its own.
+        <div className="grid items-start gap-6 4xl:grid-cols-2">
+          {exporters.map((exporter) => (
+            <ExporterCard key={exporter.address} exporter={exporter} now={now} />
+          ))}
+        </div>
       )}
     </Page>
   )

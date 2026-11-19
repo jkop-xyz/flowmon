@@ -17,7 +17,7 @@ const kindLabels: Record<GeoIPDatabase["kind"], string> = { country: "Countries"
 
 export function SettingsPage() {
   return (
-    <Page>
+    <Page narrow>
       <LocalNetworksCard />
       <RetentionCard />
       <FlowStoreCard />

@@ -102,7 +102,7 @@ const ipfixFields: [string, string][] = [
 
 export function MikroTikGuidePage() {
   return (
-    <Page>
+    <Page narrow>
       <div className="flex flex-col gap-2">
         <p className="text-sm text-muted-foreground">
           What to set on a router running RouterOS 7, and where to find it. There are no copy-paste scripts on purpose:

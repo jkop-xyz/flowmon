@@ -6,6 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    /* Wide monitors (#58): pages grow and lay cards out in more columns. */
+    --breakpoint-3xl: 112.5rem; /* 1800px */
+    --breakpoint-4xl: 162.5rem; /* 2600px */
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
