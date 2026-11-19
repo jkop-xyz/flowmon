@@ -126,6 +126,11 @@ export function CollectorCard({ status, now }: { status: CollectorStatus; now: n
             />
             <Counter label="Options records" value={formatNumber(pipeline.optionsRecords)} title="Metadata, such as interface names." />
             <Counter
+              label="NAT events"
+              value={formatNumber(pipeline.natEvents)}
+              title="NAT sessions being created and deleted. Not traffic, so not Flows; they tell Flowmon the router's WAN address."
+            />
+            <Counter
               label="Last written"
               value={pipeline.lastWrite ? <TimeAgo iso={pipeline.lastWrite} now={now} /> : "never"}
             />

@@ -81,6 +81,7 @@ type Pipeline struct {
 	writeErrors  atomic.Uint64
 	noAddresses  atomic.Uint64
 	optionsCount atomic.Uint64
+	natEvents    atomic.Uint64
 }
 
 // New returns a Pipeline. Call Run to start writing.
@@ -125,6 +126,12 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 		case errors.Is(err, flow.ErrOptionsRecord):
 			p.optionsCount.Add(1)
 			p.interfaceNames(exporter, rec, now)
+			continue
+		case errors.Is(err, flow.ErrNATEvent):
+			// A NAT session event counts no traffic, but says what the router's WAN
+			// address is, as NAT'd Flows do.
+			p.natEvents.Add(1)
+			p.opts.Classifier.Learn(&f, now)
 			continue
 		case errors.Is(err, flow.ErrNoAddresses):
 			p.noAddresses.Add(1)
@@ -226,6 +233,8 @@ type Stats struct {
 	WriteErrors uint64 `json:"writeErrors"`
 	NoAddresses uint64 `json:"noAddresses"`
 	Options     uint64 `json:"optionsRecords"`
+	// NATEvents are NAT session events (RouterOS sends them): no traffic, not Flows.
+	NATEvents uint64 `json:"natEvents"`
 	// Queued Flows wait to be written: in the queue (of QueueCapacity) or the next batch.
 	Queued        int `json:"queued"`
 	QueueCapacity int `json:"queueCapacity"`
@@ -242,6 +251,7 @@ func (p *Pipeline) Stats() Stats {
 		WriteErrors:   p.writeErrors.Load(),
 		NoAddresses:   p.noAddresses.Load(),
 		Options:       p.optionsCount.Load(),
+		NATEvents:     p.natEvents.Load(),
 		Queued:        len(p.queue) + int(p.batched.Load()),
 		QueueCapacity: cap(p.queue),
 	}

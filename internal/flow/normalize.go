@@ -60,7 +60,28 @@ var (
 	ErrOptionsRecord = errors.New("flow: options record")
 	// ErrNoAddresses means the record has no source or destination address.
 	ErrNoAddresses = errors.New("flow: record has no source or destination address")
+	// ErrNATEvent means the record reports a NAT session being created or deleted
+	// (natEvent, RFC 8158), not traffic. Normalize still returns its addresses, before
+	// and after NAT, which say what the Exporter translates to.
+	ErrNATEvent = errors.New("flow: NAT event record")
 )
+
+// ieNATEvent is natEvent: a NAT session was created or deleted, or a pool ran out.
+const ieNATEvent = 230
+
+// IsNATEvent reports whether a record is a NAT event: it carries natEvent and counts no
+// bytes or packets. RouterOS sends these alongside its flow records.
+func IsNATEvent(rec ipfix.Record) bool {
+	if _, ok := rec.Get(ieNATEvent); !ok {
+		return false
+	}
+	for _, id := range []uint16{ieOctetDeltaCount, ieOctetTotalCount, iePacketDeltaCount, iePacketTotalCount} {
+		if _, ok := rec.Get(id); ok {
+			return false
+		}
+	}
+	return true
+}
 
 type domainKey struct {
 	exporter netip.Addr
@@ -133,6 +154,9 @@ func (n *Normalizer) Normalize(exporter netip.Addr, rec ipfix.Record, received t
 	f.PostNATSrcPort = uint16(uintField(rec, iePostNAPTSourceTransportPort))
 	f.PostNATDstPort = uint16(uintField(rec, iePostNAPTDestTransportPort))
 	f.Protocol = uint8(uintField(rec, ieProtocolIdentifier))
+	if IsNATEvent(rec) {
+		return f, ErrNATEvent
+	}
 	f.Bytes = firstUint(rec, ieOctetDeltaCount, ieOctetTotalCount)
 	f.Packets = firstUint(rec, iePacketDeltaCount, iePacketTotalCount)
 	f.IngressInterface = uint32(firstUint(rec, ieIngressInterface, ieIngressPhysicalInterface))

@@ -74,7 +74,7 @@ func TestCaptures(t *testing.T) {
 				flows := 0
 				for _, rec := range sink.records[addr] {
 					fl, err := n.Normalize(addr, rec, rec.ExportTime)
-					if errors.Is(err, flow.ErrOptionsRecord) {
+					if errors.Is(err, flow.ErrOptionsRecord) || errors.Is(err, flow.ErrNATEvent) {
 						continue
 					}
 					if err != nil {
