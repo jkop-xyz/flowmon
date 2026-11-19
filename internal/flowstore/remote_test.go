@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -206,5 +207,46 @@ func TestTopRemoteRetention(t *testing.T) {
 	}
 	if got := s.sortedPeriods("hour"); len(got) != 0 {
 		t.Errorf("hourly lists left: %v", got)
+	}
+}
+
+func TestLateFlowsAreRebuiltAfterARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flows.duckdb")
+	s, err := Open(ctx, path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, []flow.Flow{remoteFlow("8.8.8.8", t0.Add(-30*time.Minute), t0.Add(-20*time.Minute), 1000)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BuildTopRemote(ctx, t0.Add(3*time.Hour), 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	// A late Flow for the built 11:00 hour arrives, and Flowmon restarts before the
+	// next build: the in-memory mark is gone.
+	late := remoteFlow("8.8.8.8", t0.Add(-40*time.Minute), t0.Add(-10*time.Minute), 500)
+	late.Received = time.Now() // after the build; Flows carry when they arrived
+	if err := s.Write(ctx, []flow.Flow{late}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s, err = Open(ctx, path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	n, err := s.BuildTopRemote(ctx, t0.Add(3*time.Hour), 5*time.Minute)
+	if err != nil || n != 1 {
+		t.Fatalf("rebuilt %d periods, %v; want the hour (its day isn't over yet)", n, err)
+	}
+	if _, _, got := s.topRemoteRows(t, "hour", t0.Add(-time.Hour)); math.Abs(got-1500) > 1e-6 {
+		t.Errorf("11:00 after the restart: %v, want 1500", got)
+	}
+	// Nothing new arrived since: a further restart builds nothing.
+	s.Close()
+	s, _ = Open(ctx, path, Options{})
+	if n, _ := s.BuildTopRemote(ctx, t0.Add(3*time.Hour), 5*time.Minute); n != 0 {
+		t.Errorf("rebuilt %d periods again", n)
 	}
 }

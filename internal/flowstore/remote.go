@@ -67,22 +67,80 @@ const topRemoteMigration = `CREATE TABLE top_remote (
 const topRemoteBuiltMigration = `CREATE TABLE top_remote_built (granularity VARCHAR NOT NULL, period TIMESTAMP NOT NULL, built_at TIMESTAMP NOT NULL, PRIMARY KEY (granularity, period))`
 
 func (s *Store) loadTopRemoteBuilt(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT granularity, period FROM top_remote_built`)
+	rows, err := s.db.QueryContext(ctx, `SELECT granularity, period, built_at FROM top_remote_built`)
 	if err != nil {
 		return fmt.Errorf("loading Top Remote IPs: %w", err)
 	}
-	defer rows.Close()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	builtAt := map[period]time.Time{}
 	for rows.Next() {
 		var g string
-		var p time.Time
-		if err := rows.Scan(&g, &p); err != nil {
+		var p, at time.Time
+		if err := rows.Scan(&g, &p, &at); err != nil {
+			rows.Close()
 			return err
 		}
-		s.topBuilt[period{g, p.UTC().Unix()}] = true
+		builtAt[period{g, p.UTC().Unix()}] = at.UTC()
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	s.mu.Lock()
+	for p := range builtAt {
+		s.topBuilt[p] = true
+	}
+	s.mu.Unlock()
+	return s.markLateTopDirty(ctx, builtAt)
+}
+
+// markLateTopDirty marks built periods that raw Flows received after the build overlap,
+// so they are built again. Writes mark them as they happen, but only in memory: a
+// restart before the next build would otherwise keep those lists short for good (#61).
+func (s *Store) markLateTopDirty(ctx context.Context, builtAt map[period]time.Time) error {
+	if len(builtAt) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	tables := make([]string, 0, len(s.days))
+	for name := range s.days {
+		tables = append(tables, name)
+	}
+	s.mu.Unlock()
+	for _, t := range tables {
+		// Flows collapse to (first hour, last hour, newest arrival): a handful of rows.
+		rows, err := s.db.QueryContext(ctx, `SELECT date_trunc('hour', start_ts), date_trunc('hour', end_ts), max(received)
+			FROM `+t+` WHERE direction IN (1, 2) GROUP BY 1, 2`)
+		if err != nil {
+			return fmt.Errorf("checking %s for late Flows: %w", t, err)
+		}
+		for rows.Next() {
+			var h0, h1, received time.Time
+			if err := rows.Scan(&h0, &h1, &received); err != nil {
+				rows.Close()
+				return err
+			}
+			h0, h1, received = h0.UTC(), h1.UTC(), received.UTC()
+			if h1.Sub(h0) > rollup.MaxSpread {
+				h0 = h1 // all its bytes go to its end, as when lists are built
+			}
+			s.mu.Lock()
+			for h := h0; !h.After(h1); h = h.Add(time.Hour) {
+				for _, p := range []period{{"hour", h.Unix()}, {"day", h.Truncate(24 * time.Hour).Unix()}} {
+					if at, ok := builtAt[p]; ok && received.After(at) {
+						s.topDirty[p] = true
+					}
+				}
+			}
+			s.mu.Unlock()
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+	return nil
 }
 
 // sqlArgs numbers positional parameters as they are added.
