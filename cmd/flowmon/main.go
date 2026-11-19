@@ -178,7 +178,8 @@ func serve(stderr io.Writer) int {
 	}
 
 	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: resolver.Enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
-		SamplingRate: registry.SamplingRate,
+		SamplingRate:   registry.SamplingRate,
+		MultiplePoints: registry.MultiplePoints,
 		OnInterfaceName: func(exp netip.Addr, idx uint32, name string, at time.Time) {
 			if _, err := ifaceRegistry.SetName(context.Background(), exp, idx, name, interfaces.SourceOptions, at); err != nil {
 				logger.Warn("saving an interface name from an Options Template", "exporter", exp.String(), "err", err)
@@ -202,6 +203,7 @@ func serve(stderr io.Writer) int {
 	go geo.Run(pipelineCtx)
 
 	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
+	classifier.SetRoles(registry)
 	collectionSettings.OnChange(func(v settings.Values) {
 		before := classifier.LocalNetworks()
 		classifier.SetLocalNetworks(v.LocalNetworks)

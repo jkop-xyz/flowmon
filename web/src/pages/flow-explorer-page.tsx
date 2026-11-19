@@ -19,7 +19,7 @@ import { resolveRange, useTimeRange } from "@/lib/time-range"
 const filterKeys = ["host", "remote", "asn", "country", "protocol", "port", "direction"] as const satisfies (keyof FlowFilters)[]
 const sorts: FlowSort[] = ["end", "start", "bytes", "packets", "duration"]
 const pageSizes = [50, 100, 200, 500]
-const directions: Direction[] = ["inbound", "outbound", "internal", "transit"]
+const directions: Direction[] = ["inbound", "outbound", "internal", "transit", "uncounted"]
 const ANY = "any"
 const protocols: [string, string][] = [
   ["6", "TCP"],

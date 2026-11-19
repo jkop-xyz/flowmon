@@ -21,6 +21,10 @@ const (
 	DirectionOutbound Direction = 2
 	// DirectionInternal is a Flow between two Local Hosts.
 	DirectionInternal Direction = 3
+	// DirectionUncounted is a Flow an Internal Exporter saw that isn't between two hosts
+	// in one of its subnets: an Edge Exporter counts that traffic, so this copy is kept
+	// raw but left out of every total.
+	DirectionUncounted Direction = 4
 )
 
 func (d Direction) String() string {
@@ -31,6 +35,8 @@ func (d Direction) String() string {
 		return "outbound"
 	case DirectionInternal:
 		return "internal"
+	case DirectionUncounted:
+		return "uncounted"
 	}
 	return "transit"
 }

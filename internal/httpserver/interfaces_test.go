@@ -31,7 +31,7 @@ func TestInterfacesEndpoints(t *testing.T) {
 	reg, _ := exporters.Load(ctx, exporters.Options{Persister: store})
 	ifs, _ := interfaces.Load(ctx, store)
 	router := netip.MustParseAddr("192.168.10.1")
-	_, _ = reg.Approve(ctx, router, "", exporters.ByAddress, "MikroTik", "admin")
+	_, _ = reg.Approve(ctx, router, exporters.Counting{}, exporters.ByAddress, "MikroTik", "admin")
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	c := &client{t: t, h: New(Options{UI: builtUI, Exporters: reg, Now: func() time.Time { return now },
 		Interfaces: &InterfaceOptions{Registry: ifs, Stats: fakeStats{}, Changes: store, RawRetention: func() time.Duration { return 7 * 24 * time.Hour }}})}

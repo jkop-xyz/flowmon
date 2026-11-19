@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/collector"
@@ -36,6 +38,7 @@ func mergeExporterStatus(st *collector.Status, reg *exporters.Registry) {
 			if c, ok := reg.Config(a); ok {
 				e.Name, e.Role, e.ClassificationMode = c.Name, string(c.Role), string(c.ClassificationMode)
 				e.SamplingRate = c.SamplingRate
+				e.Subnets, e.MultiplePoints = prefixStrings(c.Subnets), c.MultiplePoints
 			}
 		}
 	}
@@ -46,6 +49,7 @@ func mergeExporterStatus(st *collector.Status, reg *exporters.Registry) {
 		st.Exporters = append(st.Exporters, collector.ExporterStatus{
 			Address: c.Address.String(), Approval: string(c.Status), Seen: false,
 			Name: c.Name, Role: string(c.Role), ClassificationMode: string(c.ClassificationMode), SamplingRate: c.SamplingRate,
+			Subnets: prefixStrings(c.Subnets), MultiplePoints: c.MultiplePoints,
 			ObservationDomains: []uint32{}, Deviations: []collector.DeviationStatus{},
 			Templates: []collector.TemplateStatus{}, Findings: []collector.Finding{},
 		})
@@ -73,7 +77,9 @@ func registerExporters(mux *http.ServeMux, opts Options) {
 	}
 	decided := func(w http.ResponseWriter, c exporters.Config, err error) {
 		switch {
-		case errors.Is(err, exporters.ErrUnsupportedRole), errors.Is(err, exporters.ErrUnsupportedMode), errors.Is(err, exporters.ErrNameTooLong):
+		case errors.Is(err, exporters.ErrUnsupportedRole), errors.Is(err, exporters.ErrUnsupportedMode), errors.Is(err, exporters.ErrNameTooLong),
+			errors.Is(err, exporters.ErrNoSubnets), errors.Is(err, exporters.ErrBroadSubnet), errors.Is(err, exporters.ErrTooManySubnets),
+			errors.Is(err, exporters.ErrNotApproved):
 			errorJSON(w, http.StatusBadRequest, err.Error()[len("exporters: "):])
 		case err != nil:
 			opts.Logger.Error("saving exporter decision", "err", err)
@@ -99,13 +105,17 @@ func registerExporters(mux *http.ServeMux, opts Options) {
 		}
 		var req struct {
 			Name               string                       `json:"name"`
-			Role               exporters.Role               `json:"role"`
 			ClassificationMode exporters.ClassificationMode `json:"classificationMode"`
+			countingRequest
 		}
 		if !readJSON(w, r, &req) {
 			return
 		}
-		c, err := reg.Approve(r.Context(), a, req.Role, req.ClassificationMode, req.Name, currentUser(r.Context()))
+		counting, ok := req.counting(w)
+		if !ok {
+			return
+		}
+		c, err := reg.Approve(r.Context(), a, counting, req.ClassificationMode, req.Name, currentUser(r.Context()))
 		if err == nil {
 			opts.Logger.Info("exporter approved", "exporter", a.String(), "by", c.DecidedBy)
 		}
@@ -119,6 +129,37 @@ func registerExporters(mux *http.ServeMux, opts Options) {
 		c, err := reg.Ignore(r.Context(), a, currentUser(r.Context()))
 		if err == nil {
 			opts.Logger.Info("exporter ignored", "exporter", a.String(), "by", c.DecidedBy)
+		}
+		decided(w, c, err)
+	})
+	mux.HandleFunc("PUT /api/exporters/{address}/counting", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := address(w, r)
+		if !ok {
+			return
+		}
+		var req countingRequest
+		if !readJSON(w, r, &req) {
+			return
+		}
+		counting, ok := req.counting(w)
+		if !ok {
+			return
+		}
+		before, _ := reg.Config(a)
+		c, err := reg.SetCounting(r.Context(), a, counting, currentUser(r.Context()))
+		if err == nil && (before.Role != c.Role || !slices.Equal(before.Subnets, c.Subnets)) {
+			// Which Flows count changes from now on, so charts mark when.
+			what := "role set to " + string(c.Role)
+			if c.Role == exporters.RoleInternal {
+				what += ", LAN subnets " + prefixList(c.Subnets)
+			}
+			if opts.Interfaces != nil && opts.Interfaces.Changes != nil {
+				if err := opts.Interfaces.Changes.AddClassificationChange(r.Context(), a, opts.Now(), what+" (by "+c.DecidedBy+")"); err != nil {
+					opts.Logger.Warn("recording the counting change", "err", err)
+				}
+			}
+			opts.Logger.Info("exporter counting changed", "exporter", a.String(), "role", c.Role, "subnets", c.Subnets,
+				"multiple_points", c.MultiplePoints, "by", c.DecidedBy)
 		}
 		decided(w, c, err)
 	})
@@ -172,4 +213,32 @@ func registerExporters(mux *http.ServeMux, opts Options) {
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
+}
+
+// countingRequest is how an Exporter's Flows are counted, as the API takes it.
+type countingRequest struct {
+	Role           exporters.Role `json:"role"`
+	Subnets        []string       `json:"subnets"`
+	MultiplePoints bool           `json:"multiplePoints"`
+}
+
+func (q countingRequest) counting(w http.ResponseWriter) (exporters.Counting, bool) {
+	c := exporters.Counting{Role: q.Role, MultiplePoints: q.MultiplePoints}
+	for _, s := range q.Subnets {
+		p, err := netip.ParsePrefix(strings.TrimSpace(s))
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, s+" is not a subnet such as 192.168.10.0/24")
+			return c, false
+		}
+		c.Subnets = append(c.Subnets, p)
+	}
+	return c, true
+}
+
+func prefixList(ps []netip.Prefix) string {
+	s := make([]string, len(ps))
+	for i, p := range ps {
+		s[i] = p.String()
+	}
+	return strings.Join(s, ", ")
 }

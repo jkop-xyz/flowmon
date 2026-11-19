@@ -125,6 +125,22 @@ type ExporterStatus struct {
 	Sampling *SamplingStatus `json:"sampling"`
 	// SamplingRate is the rate set by hand, for an Exporter that doesn't announce one.
 	SamplingRate uint32 `json:"samplingRate"`
+	// Subnets are an Internal Exporter's LAN subnets; MultiplePoints is set when its
+	// duplicate Flows are removed. Both come from the approval.
+	Subnets        []string `json:"subnets"`
+	MultiplePoints bool     `json:"multiplePoints"`
+	// Counting is filled in by the ingest pipeline: how many Flows were counted.
+	Counting *CountingStatus `json:"counting"`
+}
+
+// CountingStatus says how an Exporter's Flows were counted since Flowmon started.
+type CountingStatus struct {
+	// Flows were classified; Uncounted of them were an Internal Exporter's Flows that an
+	// Edge Exporter counts instead.
+	Flows     uint64 `json:"flows"`
+	Uncounted uint64 `json:"uncounted"`
+	// DuplicatesRemoved were Flows seen again at another observation point.
+	DuplicatesRemoved uint64 `json:"duplicatesRemoved"`
 }
 
 // SamplingStatus says whether an Exporter's Flows are sampled, and how Flowmon knows.

@@ -40,6 +40,7 @@ type Options struct {
 	Timing interface {
 		Timing(exporter netip.Addr) *collector.TimingStatus
 		Sampling(exporter netip.Addr) *collector.SamplingStatus
+		Counting(exporter netip.Addr) *collector.CountingStatus
 	}
 	// Flows answers the Overview's queries.
 	Flows interface {

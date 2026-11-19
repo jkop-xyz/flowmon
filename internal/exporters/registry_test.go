@@ -67,7 +67,7 @@ func TestNewExportersArePendingUntilApproved(t *testing.T) {
 	if s := r.Status(router); s != StatusPending {
 		t.Fatalf("status %s", s)
 	}
-	c, err := r.Approve(ctx, router, "", "", "MikroTik", "admin")
+	c, err := r.Approve(ctx, router, Counting{}, "", "MikroTik", "admin")
 	if err != nil || c.Role != RoleEdge || c.ClassificationMode != ByAddress || !c.DecidedAt.Equal(t0) {
 		t.Fatalf("%+v %v", c, err)
 	}
@@ -97,16 +97,16 @@ func TestNewExportersArePendingUntilApproved(t *testing.T) {
 
 func TestUnsupportedChoicesAreRefused(t *testing.T) {
 	r := load(t, Options{})
-	if _, err := r.Approve(ctx, router, RoleInternal, ByAddress, "", "admin"); !errors.Is(err, ErrUnsupportedRole) {
+	if _, err := r.Approve(ctx, router, Counting{Role: "core"}, ByAddress, "", "admin"); !errors.Is(err, ErrUnsupportedRole) {
 		t.Errorf("internal role: %v", err)
 	}
-	if _, err := r.Approve(ctx, router, RoleEdge, "magic", "", "admin"); !errors.Is(err, ErrUnsupportedMode) {
+	if _, err := r.Approve(ctx, router, Counting{Role: RoleEdge}, "magic", "", "admin"); !errors.Is(err, ErrUnsupportedMode) {
 		t.Errorf("unknown mode: %v", err)
 	}
 	if _, err := r.SetMode(ctx, router, ByInterface, "admin"); !errors.Is(err, ErrNotApproved) {
 		t.Errorf("mode before approval: %v", err)
 	}
-	if _, err := r.Approve(ctx, router, RoleEdge, ByInterface, "", "admin"); err != nil || !r.ByInterface(router) {
+	if _, err := r.Approve(ctx, router, Counting{Role: RoleEdge}, ByInterface, "", "admin"); err != nil || !r.ByInterface(router) {
 		t.Errorf("by interface: %v", err)
 	}
 	if c, err := r.SetMode(ctx, router, ByAddress, "admin"); err != nil || c.ClassificationMode != ByAddress || r.ByInterface(router) {
@@ -152,7 +152,7 @@ func TestSamplingRateSetByHand(t *testing.T) {
 	if _, err := r.SetSamplingRate(ctx, a, 100, "admin"); !errors.Is(err, ErrNotApproved) {
 		t.Errorf("before approval: %v", err)
 	}
-	if _, err := r.Approve(ctx, a, RoleEdge, ByAddress, "", "admin"); err != nil {
+	if _, err := r.Approve(ctx, a, Counting{Role: RoleEdge}, ByAddress, "", "admin"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.SetSamplingRate(ctx, a, 1<<30, "admin"); !errors.Is(err, ErrSamplingRate) {
@@ -167,5 +167,43 @@ func TestSamplingRateSetByHand(t *testing.T) {
 	// 1 in 1 is every packet: the same as none.
 	if c, err := r.SetSamplingRate(ctx, a, 1, "admin"); err != nil || c.SamplingRate != 0 {
 		t.Errorf("%+v %v", c, err)
+	}
+}
+
+func TestInternalExportersNeedNarrowSubnets(t *testing.T) {
+	r := load(t, Options{Persister: newMem()})
+	a := netip.MustParseAddr("192.168.10.2")
+	pfx := func(s ...string) []netip.Prefix {
+		var out []netip.Prefix
+		for _, p := range s {
+			out = append(out, netip.MustParsePrefix(p))
+		}
+		return out
+	}
+	for _, c := range []struct {
+		subnets []netip.Prefix
+		err     error
+	}{
+		{nil, ErrNoSubnets},
+		{pfx("10.0.0.0/8"), ErrBroadSubnet},
+		{pfx("fd00::/48"), ErrBroadSubnet},
+	} {
+		if _, err := r.Approve(ctx, a, Counting{Role: RoleInternal, Subnets: c.subnets}, ByAddress, "", "admin"); !errors.Is(err, c.err) {
+			t.Errorf("%v: %v, want %v", c.subnets, err, c.err)
+		}
+	}
+	c, err := r.Approve(ctx, a, Counting{Role: RoleInternal, Subnets: pfx("10.0.20.7/24", "10.0.20.0/24", "fd00:10::/64"), MultiplePoints: true}, ByAddress, "Proxmox", "admin")
+	if err != nil || len(c.Subnets) != 2 || c.Subnets[0].String() != "10.0.20.0/24" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if s, ok := r.InternalSubnets(a); !ok || len(s) != 2 || !r.MultiplePoints(a) {
+		t.Errorf("subnets %v %v", s, ok)
+	}
+	// Back to Edge: subnets no longer apply.
+	if _, err := r.SetCounting(ctx, a, Counting{Role: RoleEdge}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.InternalSubnets(a); ok || r.MultiplePoints(a) {
+		t.Error("still Internal")
 	}
 }

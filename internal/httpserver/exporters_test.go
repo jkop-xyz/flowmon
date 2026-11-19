@@ -52,7 +52,7 @@ func TestExporterApprovalEndpoints(t *testing.T) {
 	}
 
 	// An approved Exporter that hasn't been seen still shows up.
-	_, _ = reg.Approve(context.Background(), netip.MustParseAddr("10.0.0.9"), "", "", "Proxmox", "admin")
+	_, _ = reg.Approve(context.Background(), netip.MustParseAddr("10.0.0.9"), exporters.Counting{}, "", "Proxmox", "admin")
 	var st collector.Status
 	_ = json.Unmarshal(c.do("GET", "/api/exporters", "").Body.Bytes(), &st)
 	if len(st.Exporters) != 2 || st.Exporters[1].Seen || st.Exporters[1].Name != "Proxmox" {

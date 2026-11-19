@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,7 +29,7 @@ const (
 	StatusIgnored Status = "ignored"
 )
 
-// Role is where an Exporter sits (GLOSSARY.md). Only Edge exists in v1.0.
+// Role is where an Exporter sits (GLOSSARY.md).
 type Role string
 
 // Roles.
@@ -57,6 +59,12 @@ type Config struct {
 	// SamplingRate is N for an Exporter that samples 1 in N packets without announcing
 	// it; 0 when unset. A rate the Exporter announces wins.
 	SamplingRate uint32 `json:"samplingRate"`
+	// Subnets are an Internal Exporter's LAN subnets: only Flows between two hosts in
+	// one of them are counted from it.
+	Subnets []netip.Prefix `json:"subnets"`
+	// MultiplePoints is set when the Exporter sees the same traffic at several points,
+	// so duplicates are removed.
+	MultiplePoints bool `json:"multiplePoints"`
 }
 
 // Persister stores decisions. *flowstore.Store implements it.
@@ -101,6 +109,7 @@ func Load(ctx context.Context, opts Options) (*Registry, error) {
 			Address: rec.Address, Status: Status(rec.Status), Role: Role(rec.Role),
 			ClassificationMode: ClassificationMode(rec.ClassificationMode), Name: rec.Name,
 			DecidedAt: rec.DecidedAt, DecidedBy: rec.DecidedBy, SamplingRate: rec.SamplingRate,
+			Subnets: parseSubnets(rec.Subnets), MultiplePoints: rec.MultiplePoints,
 		}
 	}
 	return r, nil
@@ -176,23 +185,108 @@ var (
 	ErrNotApproved     = errors.New("exporters: approve the Exporter first")
 )
 
-// Approve approves an Exporter with a role and Classification Mode.
-func (r *Registry) Approve(ctx context.Context, addr netip.Addr, role Role, mode ClassificationMode, name, by string) (Config, error) {
-	if role == "" {
-		role = RoleEdge
+// Approve approves an Exporter with a role (Edge when empty; an Internal Exporter needs
+// its LAN subnets) and a Classification Mode.
+func (r *Registry) Approve(ctx context.Context, addr netip.Addr, counting Counting, mode ClassificationMode, name, by string) (Config, error) {
+	if counting.Role == "" {
+		counting.Role = RoleEdge
 	}
 	if mode == "" {
 		mode = ByAddress
 	}
 	switch {
-	case role != RoleEdge:
-		return Config{}, ErrUnsupportedRole
 	case mode != ByAddress && mode != ByInterface:
 		return Config{}, ErrUnsupportedMode
 	case len([]rune(name)) > 64:
 		return Config{}, ErrNameTooLong
 	}
-	return r.decide(ctx, Config{Address: addr.Unmap(), Status: StatusApproved, Role: role, ClassificationMode: mode, Name: name, DecidedBy: by})
+	subnets, err := counting.check()
+	if err != nil {
+		return Config{}, err
+	}
+	return r.decide(ctx, Config{Address: addr.Unmap(), Status: StatusApproved, Role: counting.Role, ClassificationMode: mode,
+		Name: name, DecidedBy: by, Subnets: subnets, MultiplePoints: counting.MultiplePoints})
+}
+
+// Counting is how an approved Exporter's Flows are counted across Exporters.
+type Counting struct {
+	Role           Role
+	Subnets        []netip.Prefix
+	MultiplePoints bool
+}
+
+// Errors from SetCounting.
+var (
+	ErrNoSubnets      = errors.New("exporters: an Internal Exporter needs at least one LAN subnet")
+	ErrBroadSubnet    = errors.New("exporters: a LAN subnet must be one network segment: /16 or longer for IPv4, /64 or longer for IPv6")
+	ErrTooManySubnets = errors.New("exporters: at most 64 LAN subnets")
+)
+
+// SetCounting sets an approved Exporter's role, its LAN subnets (needed for an Internal
+// Exporter) and whether it sees the same traffic at several points.
+func (r *Registry) SetCounting(ctx context.Context, addr netip.Addr, c Counting, by string) (Config, error) {
+	subnets, err := c.check()
+	if err != nil {
+		return Config{}, err
+	}
+	cfg, ok := r.Config(addr)
+	if !ok || cfg.Status != StatusApproved {
+		return Config{}, ErrNotApproved
+	}
+	cfg.Role, cfg.Subnets, cfg.MultiplePoints, cfg.DecidedBy = c.Role, subnets, c.MultiplePoints, by
+	return r.decide(ctx, cfg)
+}
+
+// check validates a Counting and returns its subnets, cleaned up.
+func (c Counting) check() ([]netip.Prefix, error) {
+	if c.Role != RoleEdge && c.Role != RoleInternal {
+		return nil, ErrUnsupportedRole
+	}
+	subnets, err := checkSubnets(c.Subnets)
+	if err != nil {
+		return nil, err
+	}
+	if c.Role == RoleInternal && len(subnets) == 0 {
+		return nil, ErrNoSubnets
+	}
+	return subnets, nil
+}
+
+// checkSubnets masks and dedupes subnets, refusing broad ones: a Local Network such as
+// 10.0.0.0/8 would make every routed Flow look like same-subnet traffic (ADR 0003).
+func checkSubnets(in []netip.Prefix) ([]netip.Prefix, error) {
+	if len(in) > 64 {
+		return nil, ErrTooManySubnets
+	}
+	var out []netip.Prefix
+	for _, p := range in {
+		if p.Addr().Is4In6() {
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+		}
+		p = p.Masked()
+		if !p.IsValid() || (p.Addr().Is4() && p.Bits() < 16) || (p.Addr().Is6() && p.Bits() < 64) {
+			return nil, ErrBroadSubnet
+		}
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// InternalSubnets returns an approved Internal Exporter's LAN subnets.
+func (r *Registry) InternalSubnets(addr netip.Addr) ([]netip.Prefix, bool) {
+	c, ok := r.Config(addr)
+	if !ok || c.Status != StatusApproved || c.Role != RoleInternal {
+		return nil, false
+	}
+	return c.Subnets, true
+}
+
+// MultiplePoints reports whether duplicates are removed from an Exporter's Flows.
+func (r *Registry) MultiplePoints(addr netip.Addr) bool {
+	c, ok := r.Config(addr)
+	return ok && c.Status == StatusApproved && c.MultiplePoints
 }
 
 // SetMode changes an approved Exporter's Classification Mode.
@@ -280,5 +374,23 @@ func (r *Registry) decide(ctx context.Context, c Config) (Config, error) {
 func record(c Config) flowstore.ExporterRecord {
 	return flowstore.ExporterRecord{Address: c.Address, Status: string(c.Status), Role: string(c.Role),
 		ClassificationMode: string(c.ClassificationMode), Name: c.Name, DecidedAt: c.DecidedAt, DecidedBy: c.DecidedBy,
-		SamplingRate: c.SamplingRate}
+		SamplingRate: c.SamplingRate, Subnets: joinSubnets(c.Subnets), MultiplePoints: c.MultiplePoints}
+}
+
+func parseSubnets(s string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, p := range strings.Split(s, ",") {
+		if pr, err := netip.ParsePrefix(strings.TrimSpace(p)); err == nil {
+			out = append(out, pr)
+		}
+	}
+	return out
+}
+
+func joinSubnets(ps []netip.Prefix) string {
+	s := make([]string, len(ps))
+	for i, p := range ps {
+		s[i] = p.String()
+	}
+	return strings.Join(s, ",")
 }

@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Shuffle, type LucideIcon } from "lucide-react"
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CopyX, Shuffle, type LucideIcon } from "lucide-react"
 
 import type { Direction } from "@/lib/api"
 
@@ -8,4 +8,5 @@ export const directionInfo: Record<Direction, { label: string; icon: LucideIcon;
   outbound: { label: "Outbound", icon: ArrowUpRight, className: "text-chart-2" },
   internal: { label: "Internal", icon: ArrowLeftRight, className: "text-muted-foreground" },
   transit: { label: "Transit", icon: Shuffle, className: "text-muted-foreground" },
+  uncounted: { label: "Not counted (an Edge Exporter counts it)", icon: CopyX, className: "text-muted-foreground" },
 }

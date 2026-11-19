@@ -15,7 +15,7 @@ An Exporter that has started sending but that the user hasn't approved yet. Its 
 An Exporter that sits on the boundary between the Local Networks and the internet, such as the main router.
 
 **Internal Exporter**:
-An Exporter inside the Local Networks, such as a hypervisor. In totals across Exporters it only contributes Flows between two hosts in the same subnet. That is traffic no Edge Exporter could have seen, so nothing is counted twice.
+An Exporter inside the Local Networks, such as a hypervisor. In totals across Exporters it only contributes Flows between two hosts in the same subnet, by the LAN subnets set when it is approved. That is traffic no Edge Exporter could have seen, so nothing is counted twice. Its other Flows are kept but not counted.
 
 **Interface Role**:
 What the user says an Interface connects to: **WAN** (the internet), **LAN** (Local Networks), or **Tunnel** (a VPN whose peers count as Local Hosts). Direction is decided by which way a Flow crosses a WAN Interface.

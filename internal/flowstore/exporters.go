@@ -17,11 +17,16 @@ type ExporterRecord struct {
 	DecidedBy          string
 	// SamplingRate is set by hand for an Exporter that samples without announcing it.
 	SamplingRate uint32
+	// Subnets are an Internal Exporter's LAN subnets, comma-separated.
+	Subnets string
+	// MultiplePoints is set when the Exporter sees the same traffic at several points.
+	MultiplePoints bool
 }
 
 // ExporterRecords returns every stored Exporter decision.
 func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT address, status, role, classification_mode, name, decided_at, decided_by, coalesce(sampling_rate, 0) FROM exporters ORDER BY address`)
+	rows, err := s.db.QueryContext(ctx, `SELECT address, status, role, classification_mode, name, decided_at, decided_by, coalesce(sampling_rate, 0),
+		coalesce(subnets, ''), coalesce(multiple_points, false) FROM exporters ORDER BY address`)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +35,7 @@ func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
 	for rows.Next() {
 		var r ExporterRecord
 		var addr string
-		if err := rows.Scan(&addr, &r.Status, &r.Role, &r.ClassificationMode, &r.Name, &r.DecidedAt, &r.DecidedBy, &r.SamplingRate); err != nil {
+		if err := rows.Scan(&addr, &r.Status, &r.Role, &r.ClassificationMode, &r.Name, &r.DecidedAt, &r.DecidedBy, &r.SamplingRate, &r.Subnets, &r.MultiplePoints); err != nil {
 			return nil, err
 		}
 		if r.Address, err = netip.ParseAddr(addr); err != nil {
@@ -44,9 +49,10 @@ func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
 
 // SaveExporterRecord inserts or replaces a decision.
 func (s *Store) SaveExporterRecord(ctx context.Context, r ExporterRecord) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO exporters (address, status, role, classification_mode, name, decided_at, decided_by, sampling_rate)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Address.String(), r.Status, r.Role, r.ClassificationMode, r.Name, r.DecidedAt.UTC(), r.DecidedBy, r.SamplingRate)
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO exporters (address, status, role, classification_mode, name, decided_at, decided_by, sampling_rate,
+		subnets, multiple_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Address.String(), r.Status, r.Role, r.ClassificationMode, r.Name, r.DecidedAt.UTC(), r.DecidedBy, r.SamplingRate,
+		r.Subnets, r.MultiplePoints)
 	return err
 }
 
