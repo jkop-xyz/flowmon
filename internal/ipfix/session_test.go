@@ -260,10 +260,47 @@ func TestPaddingAtEndOfDataSet(t *testing.T) {
 
 	junk := ipfixtest.NewMessage(1, 0, t0).TemplateSet(tmpl).RawSet(256, append(append([]byte{}, rec...), 9, 9)).Bytes()
 	r = decode(t, newSession(), junk, t0)
-	r.onlyDeviations(t, ipfix.DevTruncatedRecord)
+	r.onlyDeviations(t, ipfix.DevNonZeroPadding)
 	if len(r.records) != 1 {
 		t.Errorf("non-zero leftover: %d records", len(r.records))
 	}
+}
+
+// RouterOS's NAT event Template has 34-byte records and pads each Data Set to 4 bytes,
+// not always with zeros.
+func TestNonZeroPaddingAfterWholeRecords(t *testing.T) {
+	var fields []ipfix.FieldSpec
+	for range 17 {
+		fields = append(fields, ipfix.FieldSpec{ID: 7, Length: 2})
+	}
+	tmpl := ipfix.Template{ID: 260, Fields: fields}
+	var body []byte
+	for i := range 7 {
+		for range 17 {
+			body = append(body, 0, byte(i))
+		}
+	}
+	body = append(body, 0xAB, 0xCD)
+	rec := newRecorder()
+	var detail string
+	h := &detailRecorder{recorder: rec, last: &detail}
+	if _, err := newSession().Decode(ipfixtest.NewMessage(0, 0, t0).TemplateSet(tmpl).RawSet(260, body).Bytes(), t0, h); err != nil {
+		t.Fatal(err)
+	}
+	rec.onlyDeviations(t, ipfix.DevNonZeroPadding)
+	if len(rec.records) != 7 || rec.deviations[ipfix.DevNonZeroPadding] != 1 || detail != "Template 260: 2 bytes of padding are not zero" {
+		t.Errorf("%d records, deviations %v, detail %q", len(rec.records), rec.deviations, detail)
+	}
+}
+
+type detailRecorder struct {
+	*recorder
+	last *string
+}
+
+func (d *detailRecorder) Deviation(dev ipfix.Deviation, detail string) {
+	d.recorder.Deviation(dev, detail)
+	*d.last = detail
 }
 
 func TestSequenceGap(t *testing.T) {

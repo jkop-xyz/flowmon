@@ -489,8 +489,11 @@ func (s *Session) decodeDataSet(d *decodeState, t *Template, od uint32, base rec
 	c := newCursor(data)
 	for c.remaining() > 0 {
 		if c.remaining() < minLen {
-			if !allZero(c.rest()) {
-				d.deviate(DevTruncatedRecord, "Template %d: %d leftover bytes are not zero padding", t.ID, len(data)-c.off)
+			// Too short for a record: set padding (RFC 7011 §3.3.1), which must be zero.
+			// Some exporters (RouterOS) pad with whatever was in the buffer; the records
+			// before it decoded fine.
+			if n := c.remaining(); !allZero(c.rest()) {
+				d.deviate(DevNonZeroPadding, "Template %d: %d bytes of padding are not zero", t.ID, n)
 			}
 			return
 		}

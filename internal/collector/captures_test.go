@@ -34,6 +34,10 @@ func (s *keepingSink) Records(exp netip.Addr, recs []ipfix.Record) {
 // data before its Template, a sequence number that doesn't follow one never seen.
 var expectedAtStart = map[string]bool{string(ipfix.DevUnknownTemplate): true, string(ipfix.DevSequenceGap): true}
 
+// recovered are deviations that lose no data, which real exporters show all the time:
+// RouterOS pads Data Sets with non-zero bytes.
+var recovered = map[string]bool{string(ipfix.DevNonZeroPadding): true}
+
 func TestCaptures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/captures/*.pcap")
 	if len(files) == 0 {
@@ -60,6 +64,9 @@ func TestCaptures(t *testing.T) {
 
 			for _, exp := range c.Status().Exporters {
 				for _, d := range exp.Deviations {
+					if recovered[d.Kind] {
+						continue
+					}
 					if !expectedAtStart[d.Kind] || d.Count > 2 {
 						t.Errorf("%s: %d × %s: %s", exp.Address, d.Count, d.Kind, d.LastDetail)
 					}
