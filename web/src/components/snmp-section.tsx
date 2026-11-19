@@ -91,9 +91,31 @@ function statusLine(view: SNMPView, now: number) {
   )
 }
 
+/**
+ * The settings the form edits and sends, built field by field from the loaded view.
+ * The view also says which secrets are stored (hasCommunity …); the API refuses
+ * those as unknown fields, so a spread copy made every Test and Save fail (#71).
+ * Secrets start empty: leaving them empty keeps the stored ones.
+ */
+function formConfig(c: SNMPView["config"]): SNMPConfig {
+  return {
+    enabled: c.enabled,
+    version: c.version,
+    target: c.target,
+    user: c.user,
+    authProtocol: c.authProtocol,
+    privProtocol: c.privProtocol,
+    overhead: c.overhead,
+    overheadBytes: c.overheadBytes,
+    community: "",
+    authPassword: "",
+    privPassword: "",
+  }
+}
+
 function SNMPEditor({ address, view, now }: { address: string; view: SNMPView; now: number }) {
   const queryClient = useQueryClient()
-  const [cfg, setCfg] = useState<SNMPConfig>({ ...view.config, community: "", authPassword: "", privPassword: "" })
+  const [cfg, setCfg] = useState<SNMPConfig>(() => formConfig(view.config))
   const set = <K extends keyof SNMPConfig>(key: K, value: SNMPConfig[K]) => setCfg({ ...cfg, [key]: value })
   const test = useMutation({ mutationFn: () => testSNMP(address, cfg) })
   const save = useMutation({

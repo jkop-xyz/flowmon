@@ -68,3 +68,22 @@ func TestSNMPEndpoints(t *testing.T) {
 		t.Errorf("reconciliation: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// The view's read-only flags (hasCommunity …) aren't settings: sending them back is
+// refused, and the error says which field (#71). The SNMP form must not send them.
+func TestSNMPRefusesViewFieldsAndSaysWhich(t *testing.T) {
+	poller := snmp.NewPoller(func(snmp.Config, netip.Addr) (snmp.Agent, error) { return testAgent{}, nil }, nopSink{}, nil, nil, nil)
+	c := &client{t: t, h: New(Options{UI: builtUI, SNMP: &SNMPOptions{Settings: &savedSNMP{}, Poller: poller}})}
+	w := c.do("POST", "/api/exporters/192.168.10.1/snmp/test", `{"config":{"enabled":true,"version":"v2c","community":"flowmon","hasCommunity":false,"overhead":"ethernet"}}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `unknown field \"hasCommunity\"`) {
+		t.Errorf("%d %s", w.Code, w.Body.String())
+	}
+	if w := c.do("PUT", "/api/exporters/192.168.10.1/snmp", `{"config":{"enabled":"yes"}}`); !strings.Contains(w.Body.String(), "config.enabled should be bool, not string") {
+		t.Errorf("type error: %s", w.Body.String())
+	}
+	// What the form sends now: v2c with a community.
+	w = c.do("POST", "/api/exporters/192.168.10.1/snmp/test", `{"config":{"enabled":true,"version":"v2c","target":"","community":"flowmon","overhead":"ethernet","overheadBytes":0}}`)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"interfaces":["bridge","ether1"]`) {
+		t.Errorf("v2c test: %d %s", w.Code, w.Body.String())
+	}
+}
