@@ -20,8 +20,20 @@ import { cn } from "@/lib/utils"
  * - "When it happened" is relative, with the full time on hover (TimeAgo).
  */
 
-export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mx-auto flex w-full max-w-6xl flex-col gap-6", className)}>{children}</div>
+/**
+ * How wide pages get: 72rem, then more on wide screens (#58), where pages lay their
+ * cards out in more columns. Status banners use the same width.
+ */
+export const pageWidth = "max-w-6xl 3xl:max-w-[100rem] 4xl:max-w-[180rem]"
+
+/**
+ * A page's column. narrow keeps reading pages (guides, settings) at 72rem, a readable
+ * width, however wide the screen.
+ */
+export function Page({ children, className, narrow }: { children: ReactNode; className?: string; narrow?: boolean }) {
+  return (
+    <div className={cn("mx-auto flex w-full flex-col gap-6", narrow ? "max-w-6xl" : pageWidth, className)}>{children}</div>
+  )
 }
 
 export function SectionHeading({ title, aside }: { title: ReactNode; aside?: ReactNode }) {

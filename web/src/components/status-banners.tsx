@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { DatabaseZap, HardDrive, Unplug } from "lucide-react"
 import { Link } from "react-router"
 
-import { TimeAgo } from "@/components/page"
+import { pageWidth, TimeAgo } from "@/components/page"
+import { cn } from "@/lib/utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { fetchStatus, type AppStoreStatus, type CollectionStatus, type FlowStoreCapStatus } from "@/lib/api"
 import { formatBytes, formatSeconds } from "@/lib/format"
@@ -27,7 +28,7 @@ export function StatusBanners() {
 
 function QuietBanner({ c, now }: { c: CollectionStatus; now: number }) {
   return (
-    <Alert variant="warning" className="mx-auto mb-6 max-w-6xl">
+    <Alert variant="warning" className={cn("mx-auto mb-6", pageWidth)}>
       <Unplug />
       <AlertTitle>No Flows are arriving</AlertTitle>
       <AlertDescription>
@@ -55,7 +56,7 @@ function QuietBanner({ c, now }: { c: CollectionStatus; now: number }) {
 function AppStoreBanner({ store, now }: { store: AppStoreStatus; now: number }) {
   const name = store.driver === "postgres" ? "Postgres" : "the App Store database"
   return (
-    <Alert variant="warning" className="mx-auto mb-6 max-w-6xl">
+    <Alert variant="warning" className={cn("mx-auto mb-6", pageWidth)}>
       <DatabaseZap />
       <AlertTitle>The App Store isn't answering</AlertTitle>
       <AlertDescription>
@@ -78,7 +79,7 @@ function AppStoreBanner({ store, now }: { store: AppStoreStatus; now: number }) 
 
 function OverCapBanner({ s }: { s: FlowStoreCapStatus }) {
   return (
-    <Alert variant="warning" className="mx-auto mb-6 max-w-6xl">
+    <Alert variant="warning" className={cn("mx-auto mb-6", pageWidth)}>
       <HardDrive />
       <AlertTitle>The Flow Store is over its size cap</AlertTitle>
       <AlertDescription>

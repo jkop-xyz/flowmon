@@ -52,86 +52,90 @@ export function OverviewPage() {
 
   return (
     <Page>
-      <Card>
-        <CardHeader>
-          <CardTitle>Bandwidth</CardTitle>
-          <CardDescription>
-            Traffic crossing the boundary between your Local Networks and the internet, {preset.label.toLowerCase()}.
-            Each Flow is spread over its duration.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {query.isPending ? (
-            <Skeleton className="h-72 w-full" />
-          ) : query.isError ? (
-            <QueryError title="Couldn't load bandwidth" error={query.error} />
-          ) : (
-            <TrafficChart
-              points={query.data.result.points}
-              series={bandwidthSeries}
-              stepSeconds={query.data.result.stepSeconds}
-              rangeMs={preset.ms}
-              incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
-              changes={query.data.changes ?? []}
-            />
-          )}
-          {query.data && (
-            <div className="mt-3">
-              <EstimateNote estimated={query.data.result.estimatedBytes} total={bandwidthBytes(query.data.result)} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* On wide screens: the chart and the map side by side, then every list in one row. */}
+      <div className="grid gap-6 4xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Bandwidth</CardTitle>
+            <CardDescription>
+              Traffic crossing the boundary between your Local Networks and the internet, {preset.label.toLowerCase()}.
+              Each Flow is spread over its duration.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {query.isPending ? (
+              <Skeleton className="h-72 w-full" />
+            ) : query.isError ? (
+              <QueryError title="Couldn't load bandwidth" error={query.error} />
+            ) : (
+              <TrafficChart
+                points={query.data.result.points}
+                series={bandwidthSeries}
+                stepSeconds={query.data.result.stepSeconds}
+                rangeMs={preset.ms}
+                incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
+                changes={query.data.changes ?? []}
+              />
+            )}
+            {query.data && (
+              <div className="mt-3">
+                <EstimateNote estimated={query.data.result.estimatedBytes} total={bandwidthBytes(query.data.result)} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <CountriesCard />
+      </div>
 
       <div className="flex flex-col gap-2">
-        <div className="flex flex-col gap-6">
-          <CountriesCard />
-          <div className="grid gap-6 lg:grid-cols-2">
-            <TopCard
-              dimension="hosts"
-              title="Local Hosts"
-              what="Local Hosts"
-              description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
-              action={
-                <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
-                  All Local Hosts
-                </Link>
-              }
-            />
-            <TopCard
-              dimension="remotes"
-              title="Remote IPs"
-              what="Remote IPs"
-              description="The busiest addresses on the internet side, by bytes sent and received."
-              action={
-                <Link to={{ pathname: "/remote", search }} className="text-sm underline-offset-4 hover:underline">
-                  All Remote IPs
-                </Link>
-              }
-            />
-          </div>
-          <div className="grid gap-6 lg:grid-cols-3">
-            <TopCard
-              dimension="asns"
-              title="ASN Owners"
-              what="ASN Owners"
-              description="The organisations announcing the Remote IPs."
-              mono={false}
-              footer={<GeoIPNote />}
-            />
-            <TopCard
-              dimension="ports"
-              title="Service Ports"
-              what="Service Ports"
-              description="The busiest Service Ports, as Network Totals."
-            />
-            <TopCard
-              dimension="protocols"
-              title="Protocols"
-              what="protocols"
-              description="The busiest IP protocols, as Network Totals."
-            />
-          </div>
+        <div className="grid items-start gap-6 lg:grid-cols-6 4xl:grid-cols-5">
+          <TopCard
+            className="lg:col-span-3 4xl:col-span-1"
+            dimension="hosts"
+            title="Local Hosts"
+            what="Local Hosts"
+            description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
+            action={
+              <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
+                All Local Hosts
+              </Link>
+            }
+          />
+          <TopCard
+            className="lg:col-span-3 4xl:col-span-1"
+            dimension="remotes"
+            title="Remote IPs"
+            what="Remote IPs"
+            description="The busiest addresses on the internet side, by bytes sent and received."
+            action={
+              <Link to={{ pathname: "/remote", search }} className="text-sm underline-offset-4 hover:underline">
+                All Remote IPs
+              </Link>
+            }
+          />
+          <TopCard
+            className="lg:col-span-2 4xl:col-span-1"
+            dimension="asns"
+            title="ASN Owners"
+            what="ASN Owners"
+            description="The organisations announcing the Remote IPs."
+            mono={false}
+            footer={<GeoIPNote />}
+          />
+          <TopCard
+            className="lg:col-span-2 4xl:col-span-1"
+            dimension="ports"
+            title="Service Ports"
+            what="Service Ports"
+            description="The busiest Service Ports, as Network Totals."
+          />
+          <TopCard
+            className="lg:col-span-2 4xl:col-span-1"
+            dimension="protocols"
+            title="Protocols"
+            what="protocols"
+            description="The busiest IP protocols, as Network Totals."
+          />
         </div>
         {incomplete && (
           <p className="text-xs text-muted-foreground">
@@ -299,7 +303,9 @@ function TopCard({
   mono = true,
   footer,
   action,
+  className,
 }: {
+  className?: string
   dimension: TopDimension
   title: string
   /** How errors name the list, e.g. "Service Ports". */
@@ -322,7 +328,7 @@ function TopCard({
   })
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
