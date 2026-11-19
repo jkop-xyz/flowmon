@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react"
 
 import { LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
+import { AppStoreCard } from "@/components/app-store-card"
 import { FlowStoreCard } from "@/components/flow-store-card"
 import { DBIPAttribution } from "@/components/geoip"
 import { ServiceNamesCard } from "@/components/service-names-card"
@@ -20,6 +21,7 @@ export function SettingsPage() {
     <Page narrow>
       <LocalNetworksCard />
       <RetentionCard />
+      <AppStoreCard />
       <FlowStoreCard />
       <GeoIPCard />
       <ServiceNamesCard />

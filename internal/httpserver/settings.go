@@ -68,6 +68,7 @@ func registerSettings(mux *http.ServeMux, opts Options) {
 			}
 			if s := opts.AppStore.Get(); s != nil {
 				st["driver"] = s.Driver()
+				st["location"] = s.Location()
 			}
 			out["appStore"] = st
 		}

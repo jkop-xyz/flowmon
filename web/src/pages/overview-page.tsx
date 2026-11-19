@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { lazy, Suspense, type ReactNode } from "react"
-import { Link, useLocation } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -188,7 +188,16 @@ function GeoIPNote() {
 }
 
 /** Where Remote IPs are: a world map and the top countries. */
+/** The Flow Explorer with a filter, keeping the page's time range and Exporter. */
+function explorerFor(search: string, filters: Record<string, string>) {
+  const params = new URLSearchParams(search)
+  for (const [k, v] of Object.entries(filters)) params.set(k, v)
+  return { pathname: "/flows", search: `?${params}` }
+}
+
 function CountriesCard() {
+  const navigate = useNavigate()
+  const { search } = useLocation()
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   // One query feeds both the map (every country) and the list (the top few).
@@ -215,7 +224,11 @@ function CountriesCard() {
         ) : (
           <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
             <Suspense fallback={<Skeleton className="aspect-[2.2] w-full" />}>
-              <WorldMap items={countries.data.result.items} total={countries.data.result.totalBytes} />
+              <WorldMap
+                items={countries.data.result.items}
+                total={countries.data.result.totalBytes}
+                onSelect={(country) => navigate(explorerFor(search, { country }))}
+              />
             </Suspense>
             <TopList dimension="countries" items={countries.data.result.items.slice(0, 8)} mono={false} />
           </div>
@@ -236,6 +249,7 @@ function CardFooterNote({ children }: { children: ReactNode }) {
 }
 
 function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
+  const { search } = useLocation()
   const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
   const hostNames = useHostNames(dimension === "hosts" ? items.map((i) => i.host ?? "") : [])
   const serviceNames = useServiceNames(
@@ -260,6 +274,18 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
             <RemoteIPLink ip={item.remoteIp ?? ""} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
             <ReverseDNS name={names[item.remoteIp ?? ""]} className="min-w-0" />
           </>
+        )
+      case "countries":
+        // Unknown ("") has no filter to open.
+        if (!item.country) break
+        return (
+          <Link
+            to={explorerFor(search, { country: item.country })}
+            className="truncate underline-offset-4 hover:underline"
+            title={`Flows with ${itemLabel(dimension, item)}`}
+          >
+            {itemLabel(dimension, item)}
+          </Link>
         )
       case "ports":
         return (
