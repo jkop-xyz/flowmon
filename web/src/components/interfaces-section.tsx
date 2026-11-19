@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, History, RefreshCw } from "lucide-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -29,15 +29,10 @@ import {
   type InterfacesResponse,
   type InterfaceView,
 } from "@/lib/api"
+import { roleHelp, snmpAndRoles } from "@/lib/classification-help"
 import { formatDateTime, formatNumber } from "@/lib/format"
 
 const NO_ROLE = "__none__"
-
-const roleLabels: Record<Exclude<InterfaceRole, "">, string> = {
-  wan: "WAN",
-  lan: "LAN",
-  tunnel: "Tunnel",
-}
 
 /** Interfaces, Interface Roles and the Classification Mode of an approved Exporter. */
 export function InterfacesSection({ address }: { address: string }) {
@@ -153,6 +148,7 @@ function InterfacesEditor({ address, data, now }: { address: string; data: Inter
           </Table>
         </div>
       )}
+      {data.hasInterfaceNumbers && <RoleKey />}
 
       <Field label="Classification" hint="Applies to Flows from now on.">
         <ClassificationModeField
@@ -267,10 +263,9 @@ function InterfaceRow({
             <SelectValue placeholder={iface.name ? "No role" : "Name it first"} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_ROLE}>No role</SelectItem>
-            {Object.entries(roleLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            {roleHelp.map((r) => (
+              <SelectItem key={r.role || NO_ROLE} value={r.role || NO_ROLE}>
+                {r.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -279,5 +274,22 @@ function InterfaceRow({
       <TableCell className="text-right tabular-nums">{formatNumber(iface.flowsIn)}</TableCell>
       <TableCell className="text-right tabular-nums">{formatNumber(iface.flowsOut)}</TableCell>
     </TableRow>
+  )
+}
+
+/** What each Interface Role means, under the table where roles are picked. */
+function RoleKey() {
+  return (
+    <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+      <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
+        {roleHelp.map((r) => (
+          <Fragment key={r.label}>
+            <dt className="font-medium text-foreground">{r.label}</dt>
+            <dd>{r.meaning}</dd>
+          </Fragment>
+        ))}
+      </dl>
+      <p>{snmpAndRoles}</p>
+    </div>
   )
 }
