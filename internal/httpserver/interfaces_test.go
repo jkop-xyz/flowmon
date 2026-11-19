@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
@@ -72,5 +73,30 @@ func TestInterfacesEndpoints(t *testing.T) {
 	}
 	if want := "classification by address → by interface; WAN: ether1-WAN; LAN: bridge (by unknown)"; changes[0].Description != want {
 		t.Errorf("marker %q, want %q", changes[0].Description, want)
+	}
+
+	// The classification history lists it, and removing it removes the chart marker.
+	now = now.Add(time.Minute)
+	c.do("PUT", "/api/exporters/192.168.10.1/classification", `{"classificationMode":"address","roles":{"ether1-WAN":"wan","bridge":"lan"}}`)
+	var hist struct {
+		Changes []flowstore.ClassificationChange
+	}
+	_ = json.Unmarshal(c.do("GET", "/api/exporters/192.168.10.1/classification-changes", "").Body.Bytes(), &hist)
+	if len(hist.Changes) != 2 || !hist.Changes[0].At.After(hist.Changes[1].At) {
+		t.Fatalf("history, newest first: %+v", hist.Changes)
+	}
+	t1 := hist.Changes[1].At.Format(time.RFC3339Nano)
+	if w := c.do("DELETE", "/api/exporters/192.168.10.1/classification-changes?t="+url.QueryEscape(t1), ""); w.Code != http.StatusNoContent {
+		t.Fatalf("remove: %d %s", w.Code, w.Body.String())
+	}
+	if w := c.do("DELETE", "/api/exporters/192.168.10.1/classification-changes?t="+url.QueryEscape(t1), ""); w.Code != http.StatusNotFound {
+		t.Errorf("remove again: %d", w.Code)
+	}
+	if w := c.do("DELETE", "/api/exporters/192.168.10.1/classification-changes?t=yesterday", ""); w.Code != http.StatusBadRequest {
+		t.Errorf("bad time: %d", w.Code)
+	}
+	changes, _ = store.ClassificationChanges(ctx, now.Add(-time.Hour), now.Add(time.Hour), router)
+	if len(changes) != 1 || changes[0].Description != "classification by interface → by address (by unknown)" {
+		t.Errorf("markers left %+v", changes)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -26,6 +27,7 @@ type InterfaceOptions struct {
 	Changes interface {
 		AddClassificationChange(ctx context.Context, exporter netip.Addr, at time.Time, description string) error
 		ClassificationChanges(ctx context.Context, from, to time.Time, exporter netip.Addr) ([]flowstore.ClassificationChange, error)
+		DeleteClassificationChange(ctx context.Context, exporter netip.Addr, at time.Time) (bool, error)
 	}
 	Reprocess *reprocess.Runner
 	// RawRetention bounds how far back reprocessing can reach; it can change in Settings.
@@ -188,6 +190,49 @@ func registerInterfaces(mux *http.ServeMux, opts Options) {
 		}
 		opts.Logger.Info("classification changed", "exporter", a.String(), "mode", req.Mode, "roles", req.Roles)
 		writeJSON(w, http.StatusOK, view(a))
+	})
+	// Classification history: every recorded change, newest first. Removing one only
+	// removes its chart marker; the Flows keep the classification they got.
+	mux.HandleFunc("GET /api/exporters/{address}/classification-changes", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := address(w, r)
+		if !ok {
+			return
+		}
+		out := []flowstore.ClassificationChange{}
+		if io.Changes != nil {
+			ch, err := io.Changes.ClassificationChanges(r.Context(), time.Time{}, opts.Now().Add(time.Minute), a)
+			if err != nil {
+				opts.Logger.Error("classification changes", "err", err)
+				errorJSON(w, http.StatusInternalServerError, "couldn't load the classification history")
+				return
+			}
+			slices.Reverse(ch)
+			out = ch
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"changes": out})
+	})
+	mux.HandleFunc("DELETE /api/exporters/{address}/classification-changes", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := address(w, r)
+		if !ok || io.Changes == nil {
+			return
+		}
+		at, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("t"))
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, "t must be the change's time, as listed")
+			return
+		}
+		found, err := io.Changes.DeleteClassificationChange(r.Context(), a, at)
+		if err != nil {
+			opts.Logger.Error("removing a classification change", "err", err)
+			errorJSON(w, http.StatusInternalServerError, "couldn't remove the change")
+			return
+		}
+		if !found {
+			errorJSON(w, http.StatusNotFound, "no such change")
+			return
+		}
+		opts.Logger.Info("classification change removed", "exporter", a.String(), "at", at, "by", currentUser(r.Context()))
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /api/exporters/{address}/reprocess", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := address(w, r)

@@ -207,6 +207,16 @@ export type BandwidthResult = {
 /** Query results carry the time after which data may still change (the Watermark). */
 export type ClassificationChange = { exporter: string; t: string; description: string }
 
+export const fetchClassificationHistory = (address: string, signal?: AbortSignal) =>
+  getJSON<{ changes: ClassificationChange[] }>(`/api/exporters/${encodeURIComponent(address)}/classification-changes`, signal)
+
+/** Removes a recorded change and its chart marker; the Flows keep their classification. */
+export async function deleteClassificationChange(address: string, t: string) {
+  const path = `/api/exporters/${encodeURIComponent(address)}/classification-changes?t=${encodeURIComponent(t)}`
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
+}
+
 export type WithIncomplete<T> = {
   result: T
   incompleteFrom: string
