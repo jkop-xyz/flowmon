@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { navItems, routeMeta } from "@/lib/navigation"
+import { cn } from "@/lib/utils"
 
 export function AppSidebar() {
   // Links keep the query string so the global time range survives navigation.
@@ -26,7 +27,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <NavLink to="/">
-                <Logo />
+                <Logo className="size-8!" />
                 <span className="font-semibold">Flowmon</span>
               </NavLink>
             </SidebarMenuButton>
@@ -38,15 +39,20 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
-                <SidebarMenuItem key={item.path}>
+                <SidebarMenuItem key={item.path} data-area={item.area}>
                   <SidebarMenuButton
                     asChild
                     isActive={active === item.path}
                     tooltip={item.ready ? item.title : `${item.title} (coming soon)`}
-                    className={item.ready ? undefined : "text-muted-foreground"}
+                    className={cn(
+                      "h-10 hover:bg-area-tint hover:text-area-ink data-[active=true]:bg-area-tint data-[active=true]:text-area-ink group-data-[collapsible=icon]:p-1!",
+                      !item.ready && "text-muted-foreground",
+                    )}
                   >
                     <NavLink to={{ pathname: item.path, search }} end>
-                      <item.icon />
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-area-tint group-data-[collapsible=icon]:size-6 text-area-ink group-data-[active=true]/menu-button:bg-area group-data-[active=true]/menu-button:text-white">
+                        <item.icon className="size-4" />
+                      </span>
                       <span>{item.title}</span>
                     </NavLink>
                   </SidebarMenuButton>

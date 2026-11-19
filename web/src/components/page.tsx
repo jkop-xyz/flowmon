@@ -1,11 +1,13 @@
-import { AlertTriangle, Waves } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import type React from "react"
 import type { ReactNode } from "react"
+import { useLocation } from "react-router"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatAgo, formatDateTime } from "@/lib/format"
+import { routeMeta } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
 /*
@@ -32,7 +34,23 @@ export const pageWidth = "max-w-6xl 3xl:max-w-[100rem] 4xl:max-w-[180rem]"
  */
 export function Page({ children, className, narrow }: { children: ReactNode; className?: string; narrow?: boolean }) {
   return (
-    <div className={cn("mx-auto flex w-full flex-col gap-6", narrow ? "max-w-6xl" : pageWidth, className)}>{children}</div>
+    <div className={cn("mx-auto flex w-full flex-col gap-6", narrow ? "max-w-6xl" : pageWidth, className)}>
+      <PageTitle />
+      {children}
+    </div>
+  )
+}
+
+/** The page's name beside a tile in its area's colour. */
+function PageTitle() {
+  const { title, icon: Icon } = routeMeta(useLocation().pathname)
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-area text-white">
+        <Icon className="size-5" />
+      </span>
+      <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{title}</h1>
+    </div>
   )
 }
 
@@ -106,16 +124,19 @@ export function TimeAgo({ iso, now }: { iso: string; now: number }) {
   )
 }
 
+/** Flowmon's mark: three streams meeting and leaving as one, on its tile. */
 export function Logo({ className }: { className?: string }) {
   return (
-    <div
-      className={cn(
-        "flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground",
-        className,
-      )}
-    >
-      <Waves className="size-4" />
-    </div>
+    <svg viewBox="0 0 64 64" aria-hidden className={cn("size-8 shrink-0", className)}>
+      <rect width="64" height="64" rx="15" className="fill-logo-tile" />
+      <g fill="none" strokeLinecap="round" strokeWidth="6">
+        <path d="M10 17 C23 17 26 32 34 32" stroke="#60a5fa" />
+        <path d="M10 32 L34 32" stroke="#4ade80" />
+        <path d="M10 47 C23 47 26 32 34 32" stroke="#fb923c" />
+        <path d="M36 32 L53 32" stroke="#ffffff" strokeWidth="8" />
+      </g>
+      <circle cx="36" cy="32" r="7" fill="#ffffff" />
+    </svg>
   )
 }
 

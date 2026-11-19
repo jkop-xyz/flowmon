@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useEffect } from "react"
 import { Link, Outlet, useLocation } from "react-router"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -7,7 +8,6 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { TimeRangePicker } from "@/components/time-range-picker"
 import { UserMenu } from "@/components/user-menu"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { StatusBanners } from "@/components/status-banners"
 import { appStoreNames, fetchHealth, fetchStatus } from "@/lib/api"
@@ -57,6 +57,10 @@ export function AppLayout() {
   const { pathname } = useLocation()
   const meta = routeMeta(pathname)
   const hasFilters = meta.filters.exporter || meta.filters.timeRange
+  // On <html>, so menus and dialogs, which render outside this tree, take the page's colour too.
+  useEffect(() => {
+    document.documentElement.dataset.area = meta.area
+  }, [meta.area])
 
   return (
     <SidebarProvider>
@@ -66,15 +70,14 @@ export function AppLayout() {
         {/* On phones the filters move to a second row, so nothing is pushed off-screen. */}
         <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-2.5 sm:min-h-14">
           <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 data-vertical:h-4 data-vertical:self-center" />
-          <h1 className="min-w-0 flex-1 truncate text-sm font-medium sm:flex-none">{meta.title}</h1>
+          <div className="flex-1" />
           {hasFilters && (
-            <div className="order-last flex w-full items-center gap-2 sm:order-none sm:ml-auto sm:w-auto">
+            <div className="order-last flex w-full items-center gap-2 sm:order-none sm:w-auto">
               {meta.filters.exporter && <ExporterPicker />}
               {meta.filters.timeRange && <TimeRangePicker />}
             </div>
           )}
-          <div className={hasFilters ? "flex items-center gap-1" : "ml-auto flex items-center gap-1"}>
+          <div className="flex items-center gap-1">
             <ServerStatus />
             <ModeToggle />
             <UserMenu />
