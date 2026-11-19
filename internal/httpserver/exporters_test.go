@@ -46,8 +46,9 @@ func TestExporterApprovalEndpoints(t *testing.T) {
 	if w := c.do("GET", "/api/exporters/options", ""); !strings.Contains(w.Body.String(), `"name":"MikroTik"`) {
 		t.Errorf("options %s", w.Body.String())
 	}
-	// The registry decision is what the API shows; the collector picks it up on the next datagram.
-	if e := status(); e.Name != "MikroTik" || e.Role != "edge" {
+	// The registry decision is what the API shows at once, though the collector only
+	// picks it up on the next datagram.
+	if e := status(); e.Approval != "approved" || e.Name != "MikroTik" || e.Role != "edge" {
 		t.Errorf("%+v", e)
 	}
 
@@ -62,8 +63,14 @@ func TestExporterApprovalEndpoints(t *testing.T) {
 	if w := c.do("POST", "/api/exporters/192.168.10.1/ignore", ""); w.Code != http.StatusOK {
 		t.Errorf("ignore: %d", w.Code)
 	}
+	if e := status(); e.Approval != "ignored" {
+		t.Errorf("after ignore: %+v", e)
+	}
 	if w := c.do("DELETE", "/api/exporters/192.168.10.1", ""); w.Code != http.StatusOK {
 		t.Errorf("forget: %d", w.Code)
+	}
+	if e := status(); e.Approval != "pending" {
+		t.Errorf("after forget: %+v", e)
 	}
 	if s := reg.Status(netip.MustParseAddr("192.168.10.1")); s != exporters.StatusPending {
 		t.Errorf("after forget: %s", s)

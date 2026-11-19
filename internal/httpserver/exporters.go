@@ -35,7 +35,11 @@ func mergeExporterStatus(st *collector.Status, reg *exporters.Registry) {
 		e := &st.Exporters[i]
 		seen[e.Address] = true
 		if a, err := netip.ParseAddr(e.Address); err == nil {
+			// The approval is the saved decision: the collector only takes it up when the
+			// Exporter's next datagram arrives (#59).
+			e.Approval = string(exporters.StatusPending)
 			if c, ok := reg.Config(a); ok {
+				e.Approval = string(c.Status)
 				e.Name, e.Role, e.ClassificationMode = c.Name, string(c.Role), string(c.ClassificationMode)
 				e.SamplingRate = c.SamplingRate
 				e.Subnets, e.MultiplePoints = prefixStrings(c.Subnets), c.MultiplePoints
