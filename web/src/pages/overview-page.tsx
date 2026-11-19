@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
+import { Building2, ChartArea, Earth, Globe, Layers, Monitor, Plug, type LucideIcon } from "lucide-react"
 import { lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
+import { AreaChip } from "@/components/area-chip"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -25,12 +27,33 @@ import { useHostNames } from "@/lib/hosts"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { countryName } from "@/lib/countries"
-import { protocolName } from "@/lib/format"
+import { formatBytes, formatNumber, protocolName } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
-import { resolveRange, useTimeRange } from "@/lib/time-range"
+import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-range"
+import type { Area } from "@/lib/navigation"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
+
+type Range = { preset: TimeRangePreset; exporter?: string }
+
+/** The chart's query; the figures row reads the same one. */
+const bandwidthQuery = ({ preset, exporter }: Range) =>
+  queryOptions({
+    queryKey: ["bandwidth", preset.value, exporter],
+    queryFn: ({ signal }) => fetchBandwidth({ ...resolveRange(preset), exporter }, signal),
+    refetchInterval: 30_000,
+    placeholderData: (previous) => previous,
+  })
+
+/** A top list's query; the figures row reads the Local Hosts and Remote IPs ones for their counts. */
+const topQuery = (dimension: TopDimension, { preset, exporter }: Range) =>
+  queryOptions({
+    queryKey: ["top", dimension, preset.value, exporter],
+    queryFn: ({ signal }) => fetchTop(dimension, { ...resolveRange(preset), exporter }, signal),
+    refetchInterval: 30_000,
+    placeholderData: (previous) => previous,
+  })
 
 const bandwidthSeries: TrafficSeries<"inboundBps" | "outboundBps">[] = [
   { key: "inboundBps", label: "Inbound", color: "var(--chart-1)" },
@@ -41,22 +64,21 @@ export function OverviewPage() {
   const { search } = useLocation()
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
-  const query = useQuery({
-    queryKey: ["bandwidth", preset.value, exporter],
-    queryFn: ({ signal }) => fetchBandwidth({ ...resolveRange(preset), exporter }, signal),
-    refetchInterval: 30_000,
-    placeholderData: (previous) => previous,
-  })
+  const query = useQuery(bandwidthQuery({ preset, exporter }))
 
   const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
 
   return (
     <Page>
+      <Figures />
       {/* On wide screens: the chart and the map side by side, then every list in one row. */}
       <div className="grid gap-6 4xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Bandwidth</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <AreaChip area="overview" icon={ChartArea} />
+              Bandwidth
+            </CardTitle>
             <CardDescription>
               Traffic crossing the boundary between your Local Networks and the internet, {preset.label.toLowerCase()}.
               Each Flow is spread over its duration.
@@ -92,6 +114,8 @@ export function OverviewPage() {
           <TopCard
             className="lg:col-span-3 4xl:col-span-1"
             dimension="hosts"
+            area="hosts"
+            icon={Monitor}
             title="Local Hosts"
             what="Local Hosts"
             description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
@@ -104,6 +128,8 @@ export function OverviewPage() {
           <TopCard
             className="lg:col-span-3 4xl:col-span-1"
             dimension="remotes"
+            area="remote"
+            icon={Globe}
             title="Remote IPs"
             what="Remote IPs"
             description="The busiest addresses on the internet side, by bytes sent and received."
@@ -116,6 +142,8 @@ export function OverviewPage() {
           <TopCard
             className="lg:col-span-2 4xl:col-span-1"
             dimension="asns"
+            area="remote"
+            icon={Building2}
             title="ASN Owners"
             what="ASN Owners"
             description="The organisations announcing the Remote IPs."
@@ -125,6 +153,8 @@ export function OverviewPage() {
           <TopCard
             className="lg:col-span-2 4xl:col-span-1"
             dimension="ports"
+            area="explorer"
+            icon={Plug}
             title="Service Ports"
             what="Service Ports"
             description="The busiest Service Ports, as Network Totals."
@@ -132,6 +162,8 @@ export function OverviewPage() {
           <TopCard
             className="lg:col-span-2 4xl:col-span-1"
             dimension="protocols"
+            area="explorer"
+            icon={Layers}
             title="Protocols"
             what="protocols"
             description="The busiest IP protocols, as Network Totals."
@@ -211,7 +243,10 @@ function CountriesCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Countries</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <AreaChip area="remote" icon={Earth} />
+          Countries
+        </CardTitle>
         <CardDescription>
           Where Remote IPs are, by bytes sent and received. Shades are on a log scale; hover a country for its numbers.
         </CardDescription>
@@ -271,7 +306,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
       case "remotes":
         return (
           <>
-            <RemoteIPLink ip={item.remoteIp ?? ""} className="shrink-0 font-mono text-xs underline-offset-4 hover:underline" />
+            <RemoteIPLink ip={item.remoteIp ?? ""} className="shrink-0 font-mono text-ident underline-offset-4 hover:underline" />
             <ReverseDNS name={names[item.remoteIp ?? ""]} className="min-w-0" />
           </>
         )
@@ -298,7 +333,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
     }
     const text = itemLabel(dimension, item)
     return (
-      <span className={mono ? "truncate font-mono text-xs" : "truncate"} title={text}>
+      <span className={mono ? "truncate font-mono text-ident" : "truncate"} title={text}>
         {text}
       </span>
     )
@@ -323,6 +358,8 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
 
 function TopCard({
   dimension,
+  area,
+  icon,
   title,
   what,
   description,
@@ -333,6 +370,9 @@ function TopCard({
 }: {
   className?: string
   dimension: TopDimension
+  /** The area its rows lead to, which colours the title's chip. */
+  area: Area
+  icon: LucideIcon
   title: string
   /** How errors name the list, e.g. "Service Ports". */
   what: string
@@ -346,17 +386,15 @@ function TopCard({
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const { search } = useLocation()
-  const query = useQuery({
-    queryKey: ["top", dimension, preset.value, exporter],
-    queryFn: ({ signal }) => fetchTop(dimension, { ...resolveRange(preset), exporter }, signal),
-    refetchInterval: 30_000,
-    placeholderData: (previous) => previous,
-  })
+  const query = useQuery(topQuery(dimension, { preset, exporter }))
 
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <AreaChip area={area} icon={icon} />
+          {title}
+        </CardTitle>
         <CardDescription>{description}</CardDescription>
         {action && <CardAction>{action}</CardAction>}
       </CardHeader>
@@ -382,5 +420,68 @@ function TopCard({
         {footer && <CardFooterNote>{footer}</CardFooterNote>}
       </CardContent>
     </Card>
+  )
+}
+
+/** The range's headline numbers, from the requests the chart and lists already make. */
+function Figures() {
+  const { search } = useLocation()
+  const { preset } = useTimeRange()
+  const { exporter } = useExporterFilter()
+  const bandwidth = useQuery(bandwidthQuery({ preset, exporter }))
+  const hosts = useQuery(topQuery("hosts", { preset, exporter }))
+  const remotes = useQuery(topQuery("remotes", { preset, exporter }))
+  const bytes = (key: "inboundBps" | "outboundBps") =>
+    bandwidth.data && formatBytes(
+      bandwidth.data.result.points.reduce((n, p) => n + (p[key] * bandwidth.data.result.stepSeconds) / 8, 0),
+    )
+  const remoteCount = remotes.data && formatNumber(remotes.data.result.count)
+
+  return (
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border lg:grid-cols-4">
+      <Figure
+        label={<Swatch color="var(--chart-1)">Received</Swatch>}
+        value={bytes("inboundBps")}
+      />
+      <Figure label={<Swatch color="var(--chart-2)">Sent</Swatch>} value={bytes("outboundBps")} />
+      <Figure
+        label={<AreaLink area="hosts" to={{ pathname: "/hosts", search }}>Local Hosts</AreaLink>}
+        value={hosts.data && formatNumber(hosts.data.result.count)}
+      />
+      <Figure
+        label={<AreaLink area="remote" to={{ pathname: "/remote", search }}>Remote IPs</AreaLink>}
+        value={remotes.data?.result.approximate ? `at least ${remoteCount}` : remoteCount}
+      />
+    </div>
+  )
+}
+
+function Figure({ label, value }: { label: ReactNode; value: string | undefined }) {
+  return (
+    <div className="flex flex-col gap-1 bg-card px-5 py-4">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {value === undefined ? (
+        <Skeleton className="h-8 w-24" />
+      ) : (
+        <span className="text-2xl font-semibold tracking-tight tabular-nums">{value}</span>
+      )}
+    </div>
+  )
+}
+
+function Swatch({ color, children }: { color: string; children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="size-2 rounded-sm" style={{ background: color }} />
+      {children}
+    </span>
+  )
+}
+
+function AreaLink({ area, to, children }: { area: Area; to: { pathname: string; search: string }; children: ReactNode }) {
+  return (
+    <Link data-area={area} to={to} className="font-medium text-area-ink underline-offset-4 hover:underline">
+      {children} →
+    </Link>
   )
 }

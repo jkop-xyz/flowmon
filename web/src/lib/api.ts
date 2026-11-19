@@ -271,6 +271,8 @@ export type TopResult = {
   estimatedBytes: number
   /** Set when the list came from the Top Remote IPs lists (see Coverage). */
   approximate?: boolean
+  /** How many values had traffic, listed or not; a lower bound when approximate. */
+  count: number
 }
 
 export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: AbortSignal, limit?: number) {
