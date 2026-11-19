@@ -122,6 +122,17 @@ func (s *Store) AddClassificationChange(ctx context.Context, exporter netip.Addr
 	return err
 }
 
+// DeleteClassificationChange removes one recorded change, found by its Exporter and
+// time. It reports whether there was one.
+func (s *Store) DeleteClassificationChange(ctx context.Context, exporter netip.Addr, at time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM classification_changes WHERE exporter = ? AND changed_at = ?`, exporter.String(), at.UTC())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // ClassificationChanges returns changes in [from, to), optionally for one Exporter.
 func (s *Store) ClassificationChanges(ctx context.Context, from, to time.Time, exporter netip.Addr) ([]ClassificationChange, error) {
 	q := `SELECT exporter, changed_at, description FROM classification_changes WHERE changed_at >= ? AND changed_at < ?`

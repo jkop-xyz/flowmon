@@ -3,6 +3,7 @@ import { Link } from "react-router"
 import { AlertTriangle, Cable, ChevronRight, Info } from "lucide-react"
 
 import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
+import { ClassificationHistory } from "@/components/classification-history"
 import { InterfacesSection } from "@/components/interfaces-section"
 import { CollectorCard } from "@/components/collector-card"
 import { CountingSection } from "@/components/counting-section"
@@ -220,6 +221,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
         )}
         {approved && <SamplingSection key={exporter.samplingRate} exporter={exporter} />}
         {approved && <InterfacesSection address={exporter.address} />}
+        {approved && <ClassificationHistory address={exporter.address} />}
         {approved && <SNMPSection address={exporter.address} />}
 
         <Section>

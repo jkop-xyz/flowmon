@@ -1,3 +1,4 @@
+import { Link } from "react-router"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 
 import {
@@ -8,6 +9,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { classificationHistoryId } from "@/lib/anchors"
 import type { ClassificationChange } from "@/lib/api"
 import { formatBitsPerSecond, formatDateTime, formatSeconds, formatTick, timeTicks } from "@/lib/format"
 
@@ -116,15 +118,23 @@ export function TrafficChart<K extends string>({
       <p className="mt-2 text-xs text-muted-foreground">
         Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
       </p>
-      {changes.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
-          {changes.map((c) => (
-            <li key={`${c.exporter}/${c.t}`}>
-              Dashed line at {formatDateTime(c.t)}: {c.description} (Exporter {c.exporter}).
-            </li>
-          ))}
-        </ul>
-      )}
+      {changes.length > 0 && <ChangesNote changes={changes} />}
     </div>
+  )
+}
+
+/** One line about the dashed lines, linking to where each change is listed and can be removed. */
+function ChangesNote({ changes }: { changes: ClassificationChange[] }) {
+  const exporters = [...new Set(changes.map((c) => c.exporter))]
+  const to = exporters.length === 1 ? `/exporters#${classificationHistoryId(exporters[0])}` : "/exporters"
+  const n = changes.length
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      {n === 1 ? "The dashed line marks a classification change" : `The ${n} dashed lines mark classification changes`}
+      {exporters.length === 1 ? ` of Exporter ${exporters[0]}` : ""}.{" "}
+      <Link to={to} className="underline underline-offset-2 hover:text-foreground">
+        See the classification history
+      </Link>
+    </p>
   )
 }
