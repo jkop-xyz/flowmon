@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { fetchFlows, type Direction, type FlowFilters, type FlowSort } from "@/lib/api"
+import { fetchFlows, type Direction, type FlowFilters, type FlowPage, type FlowSort } from "@/lib/api"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { directionInfo } from "@/lib/flows"
 import { formatDateTime, formatNumber } from "@/lib/format"
@@ -111,6 +111,7 @@ export function FlowExplorerPage() {
               )
             })}
           </div>
+          {query.data?.hostMatch && <HostMatchNote match={query.data.hostMatch} />}
           {query.isPending ? (
             <SectionSkeleton rows={10} />
           ) : query.isError ? (
@@ -192,7 +193,14 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
   return (
     <form onSubmit={submit} className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(6,minmax(0,1fr))_auto]">
       <Field id="f-host" label="Local Host">
-        <Input id="f-host" value={draft.host} onChange={set("host")} placeholder="address or prefix" className="font-mono" />
+        <Input
+          id="f-host"
+          value={draft.host}
+          onChange={set("host")}
+          placeholder="name, address or prefix"
+          title="A Host Name (a Host Label, or part of a reverse DNS name), an address, or a prefix"
+          className="font-mono"
+        />
       </Field>
       <Field id="f-remote" label="Remote IP">
         <Input id="f-remote" value={draft.remote} onChange={set("remote")} placeholder="1.1.1.1" className="font-mono" />
@@ -238,5 +246,25 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
         )}
       </div>
     </form>
+  )
+}
+
+/** What a Host Name in the Local Host filter stood for. */
+function HostMatchNote({ match }: { match: NonNullable<FlowPage["hostMatch"]> }) {
+  if (match.hosts.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No Local Host in this time range has a Host Name like “{match.name}”. Names are Host Labels and reverse DNS names;
+        an address or prefix works too.
+      </p>
+    )
+  }
+  const shown = match.hosts.slice(0, 5)
+  return (
+    <p className="text-xs text-muted-foreground">
+      “{match.name}” matches {match.hosts.length === 1 ? "one Local Host" : `${match.hosts.length} Local Hosts`}:{" "}
+      {shown.map((h) => `${h.name} (${h.host})`).join(", ")}
+      {match.hosts.length > shown.length && `, and ${match.hosts.length - shown.length} more`}.
+    </p>
   )
 }

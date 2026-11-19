@@ -29,24 +29,97 @@ var directionNames = map[string]flow.Direction{
 // badRequest is an error in the request itself.
 type badRequest struct{ error }
 
-// flowQuery reads the Flow Explorer's filters, sort and page from the URL.
-func flowQuery(ctx context.Context, r *http.Request, opts Options) (flowstore.FlowQuery, error) {
-	q, err := parseFlowQuery(r, opts)
+// hostMatch says what a Host Name in the Local Host filter matched.
+type hostMatch struct {
+	Name string `json:"name"`
+	// Hosts are the Local Hosts it matched, with their Host Names.
+	Hosts []hostMatchItem `json:"hosts"`
+}
+
+type hostMatchItem struct {
+	Host string `json:"host"`
+	Name string `json:"name"`
+}
+
+// flowQuery reads the Flow Explorer's filters, sort and page from the URL. A Local Host
+// filter that isn't an address or prefix is a Host Name; match says what it matched.
+func flowQuery(ctx context.Context, r *http.Request, opts Options) (q flowstore.FlowQuery, match *hostMatch, err error) {
+	q, err = parseFlowQuery(r, opts)
 	if err != nil {
-		return q, badRequest{err}
+		return q, nil, badRequest{err}
 	}
-	if s := strings.TrimSpace(r.URL.Query().Get("host")); s != "" {
-		key, err := hosts.ParseKey(s)
-		if err != nil {
-			return q, badRequest{errors.New("host must be an IP address or prefix")}
-		}
+	s := strings.TrimSpace(r.URL.Query().Get("host"))
+	if s == "" {
+		return q, nil, nil
+	}
+	if key, err := hosts.ParseKey(s); err == nil {
 		// A Host Label's prefix stands for the addresses that count towards it.
 		q.LocalHosts, err = opts.Explorer.HostAddresses(ctx, flowstore.HostQuery{Host: key, From: q.From, To: q.To, HostGroups: hostGroups(ctx, opts)})
-		if err != nil {
-			return q, err
+		return q, nil, err
+	}
+	if opts.Hosts == nil || opts.Hosts.Directory == nil {
+		return q, nil, badRequest{errors.New("host must be an IP address or prefix")}
+	}
+	match, err = hostsNamed(ctx, opts, s, q)
+	if err != nil {
+		return q, nil, err
+	}
+	q.LocalHosts = []string{} // matching nothing finds nothing
+	for _, h := range match.Hosts {
+		q.LocalHosts = append(q.LocalHosts, h.Host)
+	}
+	return q, match, nil
+}
+
+// hostsNamed finds the Local Hosts a Host Name stands for (#60): a Host Label's exact
+// name selects the addresses that count towards it; otherwise the name matches, case
+// aside, part of the Host Name (label or reverse DNS) of the Local Hosts in the range.
+func hostsNamed(ctx context.Context, opts Options, name string, q flowstore.FlowQuery) (*hostMatch, error) {
+	dir := opts.Hosts.Directory
+	groups := hostGroups(ctx, opts)
+	m := &hostMatch{Name: name, Hosts: []hostMatchItem{}}
+	seen := map[string]bool{}
+	add := func(host, hostName string) {
+		if !seen[host] {
+			seen[host] = true
+			m.Hosts = append(m.Hosts, hostMatchItem{Host: host, Name: hostName})
 		}
 	}
-	return q, nil
+	for _, l := range dir.Labels(ctx) {
+		if !strings.EqualFold(l.Name, name) {
+			continue
+		}
+		addrs, err := opts.Explorer.HostAddresses(ctx, flowstore.HostQuery{Host: l.Prefix, From: q.From, To: q.To, HostGroups: groups})
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range addrs {
+			add(a, l.Name)
+		}
+	}
+	if len(seen) > 0 {
+		return m, nil
+	}
+	var keys []netip.Prefix
+	for _, all := range []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")} {
+		addrs, err := opts.Explorer.HostAddresses(ctx, flowstore.HostQuery{Host: all, From: q.From, To: q.To})
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range addrs {
+			if a, err := netip.ParseAddr(s); err == nil {
+				keys = append(keys, netip.PrefixFrom(a, a.BitLen()))
+			}
+		}
+	}
+	want := strings.ToLower(name)
+	names := dir.Names(ctx, keys)
+	for _, k := range keys {
+		if n := names[k].Name; n != "" && strings.Contains(strings.ToLower(n), want) {
+			add(k.Addr().String(), n)
+		}
+	}
+	return m, nil
 }
 
 func parseFlowQuery(r *http.Request, opts Options) (flowstore.FlowQuery, error) {
@@ -127,7 +200,7 @@ func registerFlows(mux *http.ServeMux, opts Options) {
 		if !available(w) {
 			return
 		}
-		q, err := flowQuery(r.Context(), r, opts)
+		q, match, err := flowQuery(r.Context(), r, opts)
 		var bad badRequest
 		if errors.As(err, &bad) {
 			errorJSON(w, http.StatusBadRequest, bad.Error())
@@ -144,7 +217,10 @@ func registerFlows(mux *http.ServeMux, opts Options) {
 		if queryError(w, opts.Logger, "flows", err) {
 			return
 		}
-		writeJSON(w, http.StatusOK, page)
+		writeJSON(w, http.StatusOK, struct {
+			flowstore.FlowPage
+			Host *hostMatch `json:"hostMatch,omitempty"`
+		}{page, match})
 	})
 	mux.HandleFunc("GET /api/flows/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !available(w) {
