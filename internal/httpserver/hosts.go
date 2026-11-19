@@ -203,8 +203,11 @@ func registerHosts(mux *http.ServeMux, opts Options) {
 		if queryError(w, opts.Logger, "local host addresses", err) {
 			return
 		}
-		res, err := ho.Store.TopRemoteIPs(r.Context(), flowstore.RemoteQuery{From: q.From, To: q.To, Exporter: q.Exporter,
-			LocalHosts: addrs, Limit: limit, Now: opts.Now(), ByFlows: r.URL.Query().Get("sort") == "flows"})
+		rq := flowstore.RemoteQuery{From: q.From, To: q.To, Exporter: q.Exporter, LocalHosts: addrs, Limit: limit, Now: opts.Now()}
+		if !remoteSort(w, r, &rq) {
+			return
+		}
+		res, err := ho.Store.TopRemoteIPs(r.Context(), rq)
 		if queryError(w, opts.Logger, "local host remote IPs", err) {
 			return
 		}

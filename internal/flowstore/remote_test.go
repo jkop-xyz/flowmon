@@ -1,10 +1,12 @@
 package flowstore
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -134,7 +136,7 @@ func TestTopRemoteIPsQueries(t *testing.T) {
 		short.Items[0].TotalBytes != 3400 || short.Items[0].LocalHosts != 2 || short.Items[1].Flows != 3 || short.TotalBytes != 5410 {
 		t.Errorf("last hour: %+v", short)
 	}
-	byFlows, _ := s.TopRemoteIPs(ctx, RemoteQuery{From: now.Add(-time.Hour), To: now, Now: now, ByFlows: true})
+	byFlows, _ := s.TopRemoteIPs(ctx, RemoteQuery{From: now.Add(-time.Hour), To: now, Now: now, Sort: RemoteSortFlows})
 	if byFlows.Items[0].RemoteIP != "1.1.1.1" {
 		t.Errorf("by Flows: %+v", byFlows.Items)
 	}
@@ -248,5 +250,53 @@ func TestLateFlowsAreRebuiltAfterARestart(t *testing.T) {
 	s, _ = Open(ctx, path, Options{})
 	if n, _ := s.BuildTopRemote(ctx, t0.Add(3*time.Hour), 5*time.Minute); n != 0 {
 		t.Errorf("rebuilt %d periods again", n)
+	}
+}
+
+func TestTopRemoteIPsSortByEachColumn(t *testing.T) {
+	s := open(t)
+	at := t0.Add(-10 * time.Minute)
+	in := func(peer string, bytes uint64) flow.Flow {
+		f := remoteFlow(peer, at, at, bytes)
+		f.Direction, f.Src, f.Dst = flow.DirectionInbound, f.Peer, f.Local
+		return f
+	}
+	other := remoteFlow("9.9.9.9", at, at, 50)
+	other.Local = netip.MustParseAddr("192.168.10.50")
+	if err := s.Write(ctx, []flow.Flow{
+		remoteFlow("1.1.1.1", at, at, 900),       // most sent
+		in("8.8.8.8", 1000), in("8.8.8.8", 1000), // most received and total, two Flows
+		remoteFlow("9.9.9.9", at, at, 100), other, // two Local Hosts
+	}); err != nil {
+		t.Fatal(err)
+	}
+	order := func(q RemoteQuery) []string {
+		q.From, q.To, q.Now = t0.Add(-time.Hour), t0, t0
+		res, err := s.TopRemoteIPs(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, it := range res.Items {
+			out = append(out, it.RemoteIP)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		q    RemoteQuery
+		want []string
+	}{
+		{RemoteQuery{}, []string{"8.8.8.8", "1.1.1.1", "9.9.9.9"}},
+		{RemoteQuery{Sort: RemoteSortSent}, []string{"1.1.1.1", "9.9.9.9", "8.8.8.8"}},
+		{RemoteQuery{Sort: RemoteSortReceived, Asc: true}, []string{"1.1.1.1", "9.9.9.9", "8.8.8.8"}},
+		{RemoteQuery{Sort: RemoteSortLocalHosts}, []string{"9.9.9.9", "8.8.8.8", "1.1.1.1"}},
+		{RemoteQuery{Sort: RemoteSortFlows, Limit: 1}, []string{"8.8.8.8"}},
+	} {
+		if got := order(c.q); !slices.Equal(got, c.want) {
+			t.Errorf("%s asc=%v: %v, want %v", c.q.Sort, c.q.Asc, got, c.want)
+		}
+	}
+	if _, err := s.TopRemoteIPs(ctx, RemoteQuery{From: t0.Add(-time.Hour), To: t0, Sort: "colour"}); !errors.Is(err, ErrUnknownRemoteSort) {
+		t.Errorf("unknown sort: %v", err)
 	}
 }

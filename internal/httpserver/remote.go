@@ -62,8 +62,10 @@ func registerRemote(mux *http.ServeMux, opts Options) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return flowstore.RemoteQuery{}, false
 		}
-		q := flowstore.RemoteQuery{From: bq.From, To: bq.To, Exporter: bq.Exporter, Now: opts.Now(), Limit: 50,
-			ByFlows: r.URL.Query().Get("sort") == "flows"}
+		q := flowstore.RemoteQuery{From: bq.From, To: bq.To, Exporter: bq.Exporter, Now: opts.Now(), Limit: 50}
+		if !remoteSort(w, r, &q) {
+			return q, false
+		}
 		if s := r.URL.Query().Get("limit"); s != "" {
 			n, err := strconv.Atoi(s)
 			if err != nil || n < 1 || n > flowstore.MaxTopLimit {
@@ -168,4 +170,19 @@ func registerRemote(mux *http.ServeMux, opts Options) {
 			writeJSON(w, http.StatusOK, res)
 		}
 	})
+}
+
+// remoteSort reads ?sort= (total, received, sent, flows or hosts) and ?order=asc.
+func remoteSort(w http.ResponseWriter, r *http.Request, q *flowstore.RemoteQuery) bool {
+	switch s := flowstore.RemoteSort(r.URL.Query().Get("sort")); s {
+	case "", flowstore.RemoteSortTotal, flowstore.RemoteSortReceived, flowstore.RemoteSortSent, flowstore.RemoteSortFlows, flowstore.RemoteSortLocalHosts:
+		q.Sort = s
+	case "bytes": // what the Remote IPs page sent before it had sortable columns
+		q.Sort = flowstore.RemoteSortTotal
+	default:
+		errorJSON(w, http.StatusBadRequest, "sort must be total, received, sent, flows or hosts")
+		return false
+	}
+	q.Asc = r.URL.Query().Get("order") == "asc"
+	return true
 }

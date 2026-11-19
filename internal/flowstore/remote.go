@@ -2,6 +2,7 @@ package flowstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"sort"
@@ -358,15 +359,38 @@ func (s *Store) applyTopRemoteRetention(ctx context.Context, now time.Time, dayR
 	return nil
 }
 
+// RemoteSort is what a list of Remote IPs is ranked by.
+type RemoteSort string
+
+// Remote IP rankings.
+const (
+	RemoteSortTotal      RemoteSort = "total"
+	RemoteSortReceived   RemoteSort = "received"
+	RemoteSortSent       RemoteSort = "sent"
+	RemoteSortFlows      RemoteSort = "flows"
+	RemoteSortLocalHosts RemoteSort = "hosts"
+)
+
+// remoteOrder is each ranking's column; ties go to the larger total.
+var remoteOrder = map[RemoteSort]string{
+	"": "rx + tx", RemoteSortTotal: "rx + tx", RemoteSortReceived: "rx", RemoteSortSent: "tx",
+	RemoteSortFlows: "flows", RemoteSortLocalHosts: "hosts",
+}
+
+// ErrUnknownRemoteSort is returned for a RemoteSort that doesn't exist.
+var ErrUnknownRemoteSort = errors.New("flowstore: unknown Remote IP sort")
+
 // RemoteQuery asks for Remote IPs over a time range.
 type RemoteQuery struct {
 	From, To time.Time
 	Exporter netip.Addr
 	// LocalHosts, when not nil, counts only traffic of these Local Hosts (addresses).
 	LocalHosts []string
-	// ByFlows ranks by Flow count instead of bytes.
-	ByFlows bool
-	Limit   int
+	// Sort is what Remote IPs are ranked by (default: total bytes), largest first unless
+	// Asc: the list holds the top Limit by it.
+	Sort  RemoteSort
+	Asc   bool
+	Limit int
 	// Now decides which lists still exist; zero means time.Now().
 	Now time.Time
 }
@@ -509,10 +533,15 @@ func (s *Store) TopRemoteIPs(ctx context.Context, q RemoteQuery) (RemoteResult, 
 	if src == "" {
 		return res, nil
 	}
-	order := `rx + tx DESC, flows DESC`
-	if q.ByFlows {
-		order = `flows DESC, rx + tx DESC`
+	col, ok := remoteOrder[q.Sort]
+	if !ok {
+		return RemoteResult{}, ErrUnknownRemoteSort
 	}
+	dir := "DESC"
+	if q.Asc {
+		dir = "ASC"
+	}
+	order := col + " " + dir + ", rx + tx DESC, flows DESC"
 	query := fmt.Sprintf(`WITH u AS (%s),
 g AS (SELECT peer, max(peer_country) AS pc, max(peer_asn) AS pa, sum(rx) AS rx, sum(tx) AS tx, sum(flows) AS flows,
 	count(DISTINCT local_host) AS hosts, sum(est) AS est FROM u GROUP BY peer)

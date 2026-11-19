@@ -43,7 +43,7 @@ func TestRemoteEndpoints(t *testing.T) {
 	h := New(Options{UI: builtUI, Remote: &RemoteOptions{Store: f, Lookup: fakeLookup{}}, Now: func() time.Time { return now }})
 
 	rec := get(t, h, "/api/remote-ips?sort=flows&limit=100")
-	if rec.Code != http.StatusOK || !f.q.ByFlows || f.q.Limit != 100 || !f.q.Now.Equal(now) || !strings.Contains(rec.Body.String(), `"remoteIp":"8.8.8.8"`) {
+	if rec.Code != http.StatusOK || f.q.Sort != flowstore.RemoteSortFlows || f.q.Limit != 100 || !f.q.Now.Equal(now) || !strings.Contains(rec.Body.String(), `"remoteIp":"8.8.8.8"`) {
 		t.Errorf("list: %d %s %+v", rec.Code, rec.Body.String(), f.q)
 	}
 	rec = get(t, h, "/api/remote-ips/::ffff:8.8.8.8")
