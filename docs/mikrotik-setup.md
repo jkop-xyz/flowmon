@@ -25,7 +25,7 @@ The same guide is in Flowmon itself, linked from the Exporters page.
 |---|---|---|
 | Dst. Address | the address of the host running Flowmon | |
 | Port | **4739** (the IPFIX port) or 2055 | Flowmon listens on both by default |
-| Version | **IPFIX** | NetFlow v9 support comes in Flowmon v1.1 |
+| Version | **IPFIX** | NetFlow v9 works too, but the field choices in step 3 are IPFIX settings |
 | Src. Address | the router's LAN address | Flowmon identifies an Exporter by its source address; pinning it keeps it the same when routes change |
 
 ## 3. IPFIX fields

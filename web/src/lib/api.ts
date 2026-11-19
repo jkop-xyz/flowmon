@@ -68,6 +68,8 @@ export type FieldStatus = {
 }
 
 export type TemplateStatus = {
+  /** Which protocol defined it. */
+  protocol: "ipfix" | "netflow9"
   observationDomain: number
   id: number
   options: boolean

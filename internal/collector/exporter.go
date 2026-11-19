@@ -149,6 +149,8 @@ type DeviationStatus struct {
 
 // TemplateStatus is one Template an Exporter has sent.
 type TemplateStatus struct {
+	// Protocol is "ipfix" or "netflow9".
+	Protocol          string        `json:"protocol"`
 	ObservationDomain uint32        `json:"observationDomain"`
 	ID                uint16        `json:"id"`
 	Options           bool          `json:"options"`
@@ -234,7 +236,7 @@ func (e *exporter) status(now time.Time) ExporterStatus {
 			"0% decoded: this Exporter is sending data, but no Flows could be decoded. Check the deviations and Templates below, or turn on FLOWMON_DEBUG_CAPTURE to record what it sends."})
 	case e.messages == 0 && e.datagrams > 0:
 		st.Findings = append(st.Findings, Finding{SeverityWarning, "not_ipfix",
-			"Nothing this Exporter sent could be read as IPFIX. Check that it exports IPFIX (version 10)."})
+			"Nothing this Exporter sent could be read as IPFIX or NetFlow v9. Check that it exports IPFIX (version 10) or NetFlow v9."})
 	}
 	return st
 }
@@ -242,6 +244,7 @@ func (e *exporter) status(now time.Time) ExporterStatus {
 func templateStatus(ti ipfix.TemplateInfo) TemplateStatus {
 	t := ti.Template
 	ts := TemplateStatus{
+		Protocol:          "ipfix",
 		ObservationDomain: ti.ObservationDomain,
 		ID:                t.ID,
 		Options:           t.Options(),
@@ -253,6 +256,9 @@ func templateStatus(ti ipfix.TemplateInfo) TemplateStatus {
 	}
 	if ts.Findings == nil {
 		ts.Findings = []Finding{}
+	}
+	if t.Version == ipfix.VersionNetFlowV9 {
+		ts.Protocol = "netflow9"
 	}
 	for i, f := range t.Fields {
 		fs := FieldStatus{Enterprise: f.Enterprise, ID: f.ID, Name: f.Name(), Length: f.Length, Variable: f.Variable(), Scope: i < int(t.ScopeFieldCount)}

@@ -207,3 +207,49 @@ func FuzzDecodeFields(f *testing.F) {
 		_, _ = DecodeFields(b)
 	})
 }
+
+func TestNetFlowV9BootTimeFromTheHeader(t *testing.T) {
+	boot := exportT.Add(-72 * time.Hour)
+	rec := record(
+		f(ieFlowStartSysUpTime, ipfixtest.UptimeMillis(exportT.Add(-20*time.Second), boot)),
+		f(ieFlowEndSysUpTime, ipfixtest.UptimeMillis(exportT.Add(-5*time.Second), boot)),
+	)
+	rec.SystemInitTime = boot
+	got, err := NewNormalizer().Normalize(exp, rec, recvT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Start.Equal(exportT.Add(-20*time.Second)) || !got.End.Equal(exportT.Add(-5*time.Second)) || got.TimeEstimated {
+		t.Errorf("times %v %v estimated=%v", got.Start, got.End, got.TimeEstimated)
+	}
+}
+
+func TestFlowRecordedBeforeTheUptimeWrapped(t *testing.T) {
+	// The uptime wrapped 2 s before the export; the boot time counts the wrap, but this
+	// Flow's times were taken just before it.
+	wrap := (1 << 32) * time.Millisecond
+	boot := exportT.Add(-2 * time.Second) // uptime 2 s into the new round
+	rec := record(
+		f(ieFlowStartSysUpTime, ipfixtest.U32(0xFFFFFFFF-9_999)),
+		f(ieFlowEndSysUpTime, ipfixtest.U32(0xFFFFFFFF-999)),
+	)
+	rec.SystemInitTime = boot
+	got, _ := NewNormalizer().Normalize(exp, rec, recvT)
+	wantEnd := boot.Add(-wrap).Add(time.Duration(0xFFFFFFFF-999) * time.Millisecond)
+	if !got.End.Equal(wantEnd) || got.End.Sub(got.Start) != 9*time.Second || got.TimeEstimated {
+		t.Errorf("end %v (want %v), duration %v, estimated=%v", got.End, wantEnd, got.End.Sub(got.Start), got.TimeEstimated)
+	}
+}
+
+func TestUnspecifiedPostNATAddressMeansNoNAT(t *testing.T) {
+	got, err := NewNormalizer().Normalize(exp, record(
+		f(iePostNATSourceIPv4Address, []byte{0, 0, 0, 0}),
+		f(iePostNATDestinationIPv4Address, []byte{0, 0, 0, 0}),
+	), recvT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PostNATSrc.IsValid() || got.PostNATDst.IsValid() {
+		t.Errorf("post-NAT %v %v, want none", got.PostNATSrc, got.PostNATDst)
+	}
+}

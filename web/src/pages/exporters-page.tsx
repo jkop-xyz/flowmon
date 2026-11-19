@@ -30,7 +30,7 @@ const RECEIVING_WINDOW_MS = 2 * 60 * 1000
 
 const deviationLabels: Record<string, string> = {
   short_message: "Message shorter than a header",
-  wrong_version: "Not IPFIX",
+  wrong_version: "Not IPFIX or NetFlow v9",
   bad_message_length: "Invalid message length",
   truncated_message: "Message cut off",
   trailing_bytes: "Bytes after the message",
@@ -49,7 +49,7 @@ const deviationLabels: Record<string, string> = {
   truncated_record: "Record cut off",
   nonzero_padding: "Padding isn't zero",
   sequence_gap: "Sequence number gap",
-  netflow_v9_not_supported_yet: "NetFlow v9 (not supported yet)",
+  exporter_restarted: "Exporter restarted (its uptime started again)",
   netflow_v5_not_supported_yet: "NetFlow v5 (not supported yet)",
   unknown_version: "Unknown export version",
   decoder_panic: "Decoder error",
@@ -129,7 +129,7 @@ export function ExportersPage() {
           }
         >
           <p>
-            Point your router's flow export (IPFIX) at this host, on one of the ports above. An Exporter appears here as
+            Point your router's flow export (IPFIX or NetFlow v9) at this host, on one of the ports above. An Exporter appears here as
             soon as its first packet arrives, with every Template it sends.
           </p>
         </EmptyState>
@@ -197,7 +197,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
           <SectionHeading title="Traffic" aside="Since Flowmon started" />
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="Datagrams" value={formatNumber(exporter.datagrams)} />
-            <Stat label="IPFIX messages" value={formatNumber(exporter.messages)} />
+            <Stat label="Messages decoded" value={formatNumber(exporter.messages)} />
             <Stat label="Flows decoded" value={formatNumber(exporter.records)} />
             <Stat label="Export data received" value={formatBytes(exporter.bytes)} />
           </div>
@@ -304,8 +304,10 @@ function TemplateRow({ template, now }: { template: TemplateStatus; now: number 
           {template.options ? "Options Template" : "Template"} {template.id}
         </span>
         <span className="text-muted-foreground">
-          · Observation Domain {template.observationDomain} · {formatNumber(template.fields.length)} fields
+          · {template.protocol === "netflow9" ? "Source ID" : "Observation Domain"} {template.observationDomain} ·{" "}
+          {formatNumber(template.fields.length)} fields
         </span>
+        {template.protocol === "netflow9" && <Badge variant="secondary">NetFlow v9</Badge>}
         <span className="ml-auto flex items-center gap-2">
           {warnings > 0 && (
             <Badge variant="warning">

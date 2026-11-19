@@ -1,5 +1,7 @@
-// Command sendipfix sends synthetic IPFIX to a collector, for developing the UI without
-// a router: go run ./internal/devtools/sendipfix -addr 127.0.0.1:4739
+// Command sendipfix sends synthetic IPFIX (or NetFlow v9 with -version 9) to a
+// collector, for developing the UI without a router:
+//
+//	go run ./internal/devtools/sendipfix -addr 127.0.0.1:4739
 //
 // It sends a MikroTik-shaped Template followed by random Flows between a few Local Hosts
 // and Remote IPs. With -no-template it only sends data, to exercise the "0% decoded" path.
@@ -21,8 +23,12 @@ func main() {
 	count := flag.Int("count", 0, "messages to send (0 = forever)")
 	perMessage := flag.Int("flows", 10, "Flows per message")
 	noTemplate := flag.Bool("no-template", false, "never send the Template")
+	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9")
 	source := flag.String("source", "", "local address to send from, e.g. 127.0.0.3:0, to simulate another Exporter")
 	flag.Parse()
+	if *version != 9 && *version != 10 {
+		log.Fatal("-version must be 9 or 10")
+	}
 
 	dialer := net.Dialer{}
 	if *source != "" {
@@ -47,14 +53,10 @@ func main() {
 		{133, 242, 0, 3}, {202, 12, 29, 205}, {200, 160, 4, 6}, {196, 216, 2, 6}, {223, 5, 5, 5}}
 	wan := []byte{203, 0, 113, 7}
 	start := time.Now()
+	boot := start.Add(-time.Minute) // the uptimes below start at a minute
 	var seq uint32
 
 	for i := 0; *count == 0 || i < *count; i++ {
-		msg := ipfixtest.NewMessage(0, seq, time.Now())
-		// RouterOS resends Templates every 20 packets by default.
-		if !*noTemplate && i%20 == 0 {
-			msg.TemplateSet(tmpl)
-		}
 		var records [][][]byte
 		for j := 0; j < *perMessage; j++ {
 			uptime := uint32(time.Since(start).Milliseconds()) + 60_000
@@ -89,9 +91,25 @@ func main() {
 				}, append(times, remote, local)...))
 			}
 		}
-		msg.DataSet(tmpl, records...)
-		seq += uint32(len(records))
-		if _, err := conn.Write(msg.Bytes()); err != nil {
+		// RouterOS resends Templates every 20 packets by default.
+		withTemplate := !*noTemplate && i%20 == 0
+		var packet []byte
+		if *version == 9 {
+			// NetFlow v9 counts packets, not records.
+			msg := ipfixtest.NewNetFlowV9(0, uint32(i), time.Now(), boot)
+			if withTemplate {
+				msg.TemplateFlowSet(tmpl)
+			}
+			packet = msg.DataFlowSet(tmpl, records...).Bytes()
+		} else {
+			msg := ipfixtest.NewMessage(0, seq, time.Now())
+			if withTemplate {
+				msg.TemplateSet(tmpl)
+			}
+			packet = msg.DataSet(tmpl, records...).Bytes()
+			seq += uint32(len(records))
+		}
+		if _, err := conn.Write(packet); err != nil {
 			log.Fatal(err)
 		}
 		time.Sleep(*interval)

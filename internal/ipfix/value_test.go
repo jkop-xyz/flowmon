@@ -142,3 +142,10 @@ func TestListsNotDecodedYet(t *testing.T) {
 		t.Errorf("%+v %v", v, err)
 	}
 }
+
+func TestFixedLengthStringPadding(t *testing.T) {
+	f := Field{Spec: FieldSpec{ID: 82, Length: 8}, Raw: []byte("ether1\x00\x00")}
+	if v, err := f.Value(); err != nil || v.String != "ether1" {
+		t.Errorf("%q %v", v.String, err)
+	}
+}

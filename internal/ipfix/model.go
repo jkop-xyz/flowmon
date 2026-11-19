@@ -1,4 +1,5 @@
-// Package ipfix decodes IPFIX messages (RFC 7011) into a lossless record model.
+// Package ipfix decodes IPFIX messages (RFC 7011) and NetFlow v9 export packets
+// (RFC 3954) into one lossless record model.
 //
 // Decoding follows ADR 0002: build to the standard, decode leniently and report
 // strictly. Anything the standard lets an exporter choose (reduced-size integers,
@@ -16,6 +17,15 @@ import (
 
 // Version is the IPFIX message version number.
 const Version = 10
+
+// VersionNetFlowV9 is the NetFlow v9 export packet version number.
+const VersionNetFlowV9 = 9
+
+// EnterpriseNetFlowV9 marks a NetFlow v9 vendor-specific field: a field type of 32768
+// or more (RFC 3954 §6.2). NetFlow v9 has no enterprise numbers, so these fields keep
+// their whole type as ID under this placeholder, which no real enterprise number is
+// (4294967295 is reserved), and can't be mistaken for IANA elements.
+const EnterpriseNetFlowV9 = 0xFFFFFFFF
 
 // VariableLength is the field length that marks a variable-length field (RFC 7011 §7).
 const VariableLength = 0xFFFF
@@ -55,6 +65,9 @@ func (s FieldSpec) Name() string {
 	if e, ok := s.Element(); ok {
 		return e.Name
 	}
+	if s.Enterprise == EnterpriseNetFlowV9 {
+		return fmt.Sprintf("netflow9.vendor%d", s.ID)
+	}
 	if s.Enterprise != 0 {
 		return fmt.Sprintf("enterprise%d.ie%d", s.Enterprise, s.ID)
 	}
@@ -63,7 +76,9 @@ func (s FieldSpec) Name() string {
 
 // Template describes the layout of the data records an exporter sends for one Template ID.
 type Template struct {
-	ID uint16
+	// Version is the protocol that defined it: Version (IPFIX) or VersionNetFlowV9.
+	Version uint16
+	ID      uint16
 	// ScopeFieldCount is non-zero for Options Templates: the first ScopeFieldCount fields are scope fields.
 	ScopeFieldCount uint16
 	Fields          []FieldSpec
@@ -87,7 +102,7 @@ func (t *Template) MinRecordLength() int {
 }
 
 func (t *Template) equal(o *Template) bool {
-	if t.ID != o.ID || t.ScopeFieldCount != o.ScopeFieldCount || len(t.Fields) != len(o.Fields) {
+	if t.Version != o.Version || t.ID != o.ID || t.ScopeFieldCount != o.ScopeFieldCount || len(t.Fields) != len(o.Fields) {
 		return false
 	}
 	for i := range t.Fields {
@@ -113,7 +128,11 @@ type Record struct {
 	ScopeFieldCount uint16
 	// ExportTime is the export time from the message header.
 	ExportTime time.Time
-	Fields     []Field
+	// SystemInitTime is when the Exporter booted, for NetFlow v9: its flow times are
+	// milliseconds of uptime, and the packet header says how long it has been up. Zero
+	// for IPFIX, which sends systemInitTimeMilliseconds as a field when it needs one.
+	SystemInitTime time.Time
+	Fields         []Field
 }
 
 // Options reports whether the record was described by an Options Template.
@@ -129,13 +148,18 @@ func (r *Record) Get(id uint16) (Field, bool) {
 	return Field{}, false
 }
 
-// Header is the IPFIX message header (RFC 7011 §3.1).
+// Header is the IPFIX message header (RFC 7011 §3.1), or the NetFlow v9 packet header
+// (RFC 3954 §5.1) in the same terms: its Source ID is the Observation Domain.
 type Header struct {
 	Version           uint16
 	Length            uint16
 	ExportTime        time.Time
 	Sequence          uint32
 	ObservationDomain uint32
+	// SysUptime is the Exporter's uptime when it sent the packet (NetFlow v9 only).
+	SysUptime time.Duration
+	// Count is the number of records the packet says it holds (NetFlow v9 only).
+	Count uint16
 }
 
 // HeaderLength is the size of the message header.
