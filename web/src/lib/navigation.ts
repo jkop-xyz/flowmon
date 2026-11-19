@@ -85,5 +85,7 @@ export function routeMeta(pathname: string): RouteMeta {
     return { title: "Remote IP", activePath: "/remote", filters: { exporter: true, timeRange: true } }
   }
   if (pathname === "/guide/mikrotik") return { title: "MikroTik setup guide", activePath: "/exporters", filters: none }
+  if (pathname === "/guide/classification")
+    return { title: "Classification guide", activePath: "/exporters", filters: none }
   return { title: "Page not found", activePath: "", filters: none }
 }
