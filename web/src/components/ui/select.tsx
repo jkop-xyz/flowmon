@@ -59,8 +59,11 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  // Anchored below the field (above when there's no room), whatever is selected.
+  // Radix's default, "item-aligned", puts the selected item over the field, so the list
+  // jumps around and can cover the fields above (#55).
+  position = "popper",
+  align = "start",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
