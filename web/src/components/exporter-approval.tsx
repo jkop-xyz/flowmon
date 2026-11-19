@@ -19,12 +19,18 @@ import {
 import { formatNumber } from "@/lib/format"
 import { parseSubnets } from "@/lib/subnets"
 
+/**
+ * Refetches the Exporters. Mutations return its promise from onSuccess, so they stay
+ * pending (buttons disabled) until the page shows the decision: otherwise the panel
+ * stays up with a live button in between, and a second click approves twice.
+ */
 function useInvalidate() {
   const queryClient = useQueryClient()
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: ["exporters"] })
-    void queryClient.invalidateQueries({ queryKey: ["exporter-options"] })
-  }
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["exporters"] }),
+      queryClient.invalidateQueries({ queryKey: ["exporter-options"] }),
+    ])
 }
 
 /** Approval form for a Pending (or ignored) Exporter. */
@@ -98,11 +104,11 @@ export function ApprovalPanel({ exporter }: { exporter: ExporterStatus }) {
       <FormError error={error} />
       <FormActions>
         {pending && (
-          <Button size="sm" variant="outline" onClick={() => ignore.mutate()} disabled={ignore.isPending}>
+          <Button size="sm" variant="outline" onClick={() => ignore.mutate()} disabled={ignore.isPending || approve.isPending}>
             {ignore.isPending ? "Ignoring…" : "Ignore"}
           </Button>
         )}
-        <Button size="sm" onClick={() => approve.mutate()} disabled={approve.isPending}>
+        <Button size="sm" onClick={() => approve.mutate()} disabled={approve.isPending || ignore.isPending}>
           {approve.isPending ? "Approving…" : "Approve"}
         </Button>
       </FormActions>
