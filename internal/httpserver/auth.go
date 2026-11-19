@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,7 +21,21 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		// Say what was wrong (an unknown field, a value of the wrong type), so a client
+		// that sends the wrong shape finds out which part (#71). Decoder errors name
+		// fields and types, never the values sent.
+		msg := "invalid JSON body"
+		var syntax *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		switch {
+		case strings.HasPrefix(err.Error(), "json: unknown field "):
+			msg += ": " + strings.TrimPrefix(err.Error(), "json: ")
+		case errors.As(err, &typeErr):
+			msg += fmt.Sprintf(": %s should be %s, not %s", typeErr.Field, typeErr.Type, typeErr.Value)
+		case errors.As(err, &syntax):
+			msg += ": not valid JSON"
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return false
 	}
 	return true
