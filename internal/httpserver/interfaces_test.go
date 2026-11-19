@@ -64,8 +64,13 @@ func TestInterfacesEndpoints(t *testing.T) {
 	if w := c.do("PUT", "/api/exporters/192.168.10.1/classification", `{"classificationMode":"interface","roles":{"x":"dmz"}}`); w.Code != http.StatusBadRequest {
 		t.Errorf("bad role: %d", w.Code)
 	}
+	// Saving again without changes adds no marker.
+	c.do("PUT", "/api/exporters/192.168.10.1/classification", `{"classificationMode":"interface","roles":{"ether1-WAN":"wan","bridge":"lan"}}`)
 	changes, _ := store.ClassificationChanges(ctx, now.Add(-time.Hour), now.Add(time.Hour), router)
 	if len(changes) != 1 { // only the classification change is a chart marker
-		t.Errorf("changes %+v", changes)
+		t.Fatalf("changes %+v", changes)
+	}
+	if want := "classification by address → by interface; WAN: ether1-WAN; LAN: bridge (by unknown)"; changes[0].Description != want {
+		t.Errorf("marker %q, want %q", changes[0].Description, want)
 	}
 }
