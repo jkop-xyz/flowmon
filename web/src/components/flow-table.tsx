@@ -312,6 +312,14 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
           ],
         ] as [string, ReactNode][])
       : []),
+    ...(d.biflow
+      ? ([
+          [
+            "Biflow",
+            `The ${d.biflow} direction of a biflow record (RFC 5103), which Flowmon stores as two Flows. The fields below are the whole record's.`,
+          ],
+        ] as [string, ReactNode][])
+      : []),
     ["Interfaces", `in ${d.ingressInterface || "–"}, out ${d.egressInterface || "–"}`],
     ["Exporter", <span key="e" className="font-mono text-xs">{`${d.exporter} (domain ${d.observationDomain})`}</span>],
   )

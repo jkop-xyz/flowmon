@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/flow"
+	"github.com/jkop-xyz/flowmon/internal/ipfix"
 	"github.com/jkop-xyz/flowmon/internal/rollup"
 )
 
@@ -295,6 +296,9 @@ type FlowDetail struct {
 	Fields            []flow.FieldView `json:"fields"`
 	// FieldsError says why the stored fields couldn't be decoded.
 	FieldsError string `json:"fieldsError,omitempty"`
+	// Biflow is "forward" or "reverse" for one direction of an RFC 5103 biflow record,
+	// which Flowmon stores as two Flows; empty otherwise.
+	Biflow string `json:"biflow,omitempty"`
 }
 
 // Flow returns one raw Flow by the ID a list gave it, or ErrNotFound when it is gone
@@ -337,7 +341,29 @@ FROM `+table+` WHERE end_ts = $1 AND start_ts = $2 AND received = $3 AND exporte
 	if d.Fields, err = flow.DescribeFields(fields); err != nil {
 		d.Fields, d.FieldsError = []flow.FieldView{}, err.Error()
 	}
+	d.Biflow = biflowHalf(d)
 	return d, nil
+}
+
+// biflowHalf says which direction of a biflow record a stored Flow is: the record's
+// source address is the forward direction's.
+func biflowHalf(d FlowDetail) string {
+	biflow, forward := false, false
+	for _, f := range d.Fields {
+		if f.Enterprise == ipfix.EnterpriseReverse {
+			biflow = true
+		}
+		if f.Enterprise == 0 && (f.ID == 8 || f.ID == 27) && f.Value == d.Src {
+			forward = true
+		}
+	}
+	switch {
+	case !biflow:
+		return ""
+	case forward:
+		return "forward"
+	}
+	return "reverse"
 }
 
 // scanFunc adapts a function to the Scan method scanFlowItem needs.
