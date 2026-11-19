@@ -136,6 +136,9 @@ func TestTopRemoteIPsQueries(t *testing.T) {
 		short.Items[0].TotalBytes != 3400 || short.Items[0].LocalHosts != 2 || short.Items[1].Flows != 3 || short.TotalBytes != 5410 {
 		t.Errorf("last hour: %+v", short)
 	}
+	if one, _ := s.TopRemoteIPs(ctx, RemoteQuery{From: now.Add(-time.Hour), To: now, Now: now, Limit: 1}); len(one.Items) != 1 || one.Count != 2 {
+		t.Errorf("count with limit 1: %d items, count %d", len(one.Items), one.Count)
+	}
 	byFlows, _ := s.TopRemoteIPs(ctx, RemoteQuery{From: now.Add(-time.Hour), To: now, Now: now, Sort: RemoteSortFlows})
 	if byFlows.Items[0].RemoteIP != "1.1.1.1" {
 		t.Errorf("by Flows: %+v", byFlows.Items)

@@ -436,6 +436,9 @@ type RemoteResult struct {
 	OtherBytes float64 `json:"otherBytes"`
 	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
 	EstimatedBytes float64 `json:"estimatedBytes"`
+	// Count is how many Remote IPs had traffic, listed or not; a lower bound when
+	// Approximate, as the lists hold only each hour's busiest.
+	Count int `json:"count"`
 }
 
 // remoteSource builds the union of list rows and raw Flows that answers a query over
@@ -546,7 +549,7 @@ func (s *Store) TopRemoteIPs(ctx context.Context, q RemoteQuery) (RemoteResult, 
 g AS (SELECT peer, max(peer_country) AS pc, max(peer_asn) AS pa, sum(rx) AS rx, sum(tx) AS tx, sum(flows) AS flows,
 	count(DISTINCT local_host) AS hosts, sum(est) AS est FROM u GROUP BY peer)
 SELECT peer, pc, pa, rx, tx, flows, hosts, sum(rx + tx) OVER () AS total, coalesce(sum(CASE WHEN peer = '' THEN rx + tx END) OVER (), 0) AS other,
-	est, sum(est) OVER () AS total_est
+	est, sum(est) OVER () AS total_est, count(CASE WHEN peer <> '' THEN 1 END) OVER () AS n
 FROM g ORDER BY peer = '', %s, peer LIMIT %d`, src, order, q.Limit+1)
 	rows, err := s.db.QueryContext(ctx, query, a.args...)
 	if err != nil {
@@ -556,7 +559,7 @@ FROM g ORDER BY peer = '', %s, peer LIMIT %d`, src, order, q.Limit+1)
 	for rows.Next() {
 		var it RemoteItem
 		if err := rows.Scan(&it.RemoteIP, &it.Country, &it.ASN, &it.ReceivedBytes, &it.SentBytes, &it.Flows, &it.LocalHosts,
-			&res.TotalBytes, &res.OtherBytes, &it.EstimatedBytes, &res.EstimatedBytes); err != nil {
+			&res.TotalBytes, &res.OtherBytes, &it.EstimatedBytes, &res.EstimatedBytes, &res.Count); err != nil {
 			return RemoteResult{}, err
 		}
 		if it.RemoteIP == "" || len(res.Items) == q.Limit {

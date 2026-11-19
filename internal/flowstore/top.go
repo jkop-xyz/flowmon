@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"strings"
 	"time"
@@ -75,6 +76,9 @@ type TopResult struct {
 	EstimatedBytes float64 `json:"estimatedBytes"`
 	// Approximate is set when the list came from Top Remote IPs lists (see Coverage).
 	Approximate bool `json:"approximate,omitempty"`
+	// Count is how many values had traffic, listed or not. Approximate lists count only the
+	// values they hold, so it is then a lower bound.
+	Count int `json:"count"`
 }
 
 // estimateColumns turns a sum over Rollup byte columns into the same sum over their
@@ -100,7 +104,7 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 			return TopResult{}, err
 		}
 		res := TopResult{From: r.From, To: r.To, Source: r.Source, Items: []TopItem{}, TotalBytes: r.TotalBytes,
-			EstimatedBytes: r.EstimatedBytes, Approximate: r.Approximate}
+			EstimatedBytes: r.EstimatedBytes, Approximate: r.Approximate, Count: r.Count}
 		for _, it := range r.Items {
 			res.Items = append(res.Items, TopItem{RemoteIP: it.RemoteIP, Country: it.Country, ASN: it.ASN, ASNOrg: it.ASNOrg,
 				ReceivedBytes: it.ReceivedBytes, SentBytes: it.SentBytes, TotalBytes: it.TotalBytes, Flows: it.Flows,
@@ -164,7 +168,8 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 	query := fmt.Sprintf(`
 WITH r AS (%[1]s),
 g AS (SELECT %[2]s, %[3]s AS rx, %[4]s AS tx, %[5]s AS internal, %[8]s AS est FROM r GROUP BY %[6]s)
-SELECT *, rx + tx + internal AS total, sum(rx + tx + internal) OVER () AS grand_total, sum(est) OVER () AS grand_est
+SELECT *, rx + tx + internal AS total, sum(rx + tx + internal) OVER () AS grand_total, sum(est) OVER () AS grand_est,
+	count(*) OVER () AS n
 FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, group, limit, estimated)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -175,7 +180,7 @@ FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, g
 	for rows.Next() {
 		var it TopItem
 		if err := rows.Scan(&it.Host, &it.LocalIsExporterHost, &it.Protocol, &it.ServicePort, &it.Country, &it.ASN,
-			&it.ReceivedBytes, &it.SentBytes, &it.InternalBytes, &it.EstimatedBytes, &it.TotalBytes, &res.TotalBytes, &res.EstimatedBytes); err != nil {
+			&it.ReceivedBytes, &it.SentBytes, &it.InternalBytes, &it.EstimatedBytes, &it.TotalBytes, &res.TotalBytes, &res.EstimatedBytes, &res.Count); err != nil {
 			return TopResult{}, err
 		}
 		if it.ASN != 0 {
@@ -187,7 +192,9 @@ FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, g
 		return TopResult{}, err
 	}
 	if grouping {
-		res.Items = groupTopHosts(res.Items, q.HostGroups, q.Limit)
+		all := groupTopHosts(res.Items, q.HostGroups, math.MaxInt)
+		res.Count = len(all)
+		res.Items = all[:min(q.Limit, len(all))]
 	}
 	return res, nil
 }
