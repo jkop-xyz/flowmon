@@ -29,6 +29,10 @@
     --color-border: var(--border);
     --color-destructive: var(--destructive);
     --color-warning: var(--warning);
+    --color-area: var(--area);
+    --color-area-tint: var(--area-tint);
+    --color-area-ink: var(--area-ink);
+    --color-logo-tile: var(--logo-tile);
     --color-warning-foreground: var(--warning-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
@@ -54,77 +58,143 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    /* Warm neutrals: direction C of the colour redesign. */
+    --background: #faf9f6;
+    --foreground: #1a1a19;
+    --card: #ffffff;
+    --card-foreground: #1a1a19;
+    --popover: #ffffff;
+    --popover-foreground: #1a1a19;
+    --primary: var(--area);
+    --primary-foreground: #ffffff;
+    --secondary: #f3f1ec;
+    --secondary-foreground: #1a1a19;
+    --muted: #f3f1ec;
+    --muted-foreground: #5c5a54;
+    --accent: #f3f1ec;
+    --accent-foreground: #1a1a19;
     --destructive: oklch(0.577 0.245 27.325);
     /* Warnings: something to look at, not a failure. */
     --warning: oklch(0.666 0.157 58.318);
     --warning-foreground: oklch(0.476 0.114 61.907);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.6 0.17 250);
-    --chart-2: oklch(0.68 0.17 45);
+    --border: #ebe8e1;
+    --input: #e2ded5;
+    --ring: var(--area);
+    /* Inbound and Outbound: checked for colour-blind separation and 3:1 contrast. */
+    --chart-1: #2b78e4;
+    --chart-2: #ea6a1e;
     --chart-3: oklch(0.62 0.15 160);
     --chart-4: oklch(0.58 0.2 300);
     --chart-5: oklch(0.7 0.15 85);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.93 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar: #ffffff;
+    --sidebar-foreground: #2b2a27;
+    --sidebar-primary: var(--area);
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: var(--area-tint);
+    --sidebar-accent-foreground: var(--area-ink);
+    --sidebar-border: #ebe8e1;
+    --sidebar-ring: var(--area);
+    --logo-tile: #1a1a19;
+
+    /* Each area of the app has a colour (see Area in lib/navigation.ts): solid for chips
+       and buttons, a tint behind its icons, and ink for text and icons on the tint. */
+    --area-overview: #2563eb;
+    --area-overview-tint: #e5edfd;
+    --area-overview-ink: #173f9e;
+    --area-hosts: #15803d;
+    --area-hosts-tint: #e1f3e6;
+    --area-hosts-ink: #146c33;
+    --area-remote: #7c3aed;
+    --area-remote-tint: #efe7fd;
+    --area-remote-ink: #6a2fd0;
+    --area-explorer: #b45309;
+    --area-explorer-tint: #fcefd9;
+    --area-explorer-ink: #92400e;
+    --area-exporters: #0f766e;
+    --area-exporters-tint: #daf2ee;
+    --area-exporters-ink: #0f5f58;
+    --area-settings: #475569;
+    --area-settings-tint: #eceff3;
+    --area-settings-ink: #334155;
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --background: #121211;
+    --foreground: #ecebe6;
+    --card: #1c1c1a;
+    --card-foreground: #ecebe6;
+    --popover: #1c1c1a;
+    --popover-foreground: #ecebe6;
+    --primary-foreground: #ffffff;
+    --secondary: #262522;
+    --secondary-foreground: #ecebe6;
+    --muted: #262522;
+    --muted-foreground: #a9a69d;
+    --accent: #262522;
+    --accent-foreground: #ecebe6;
     --destructive: oklch(0.704 0.191 22.216);
     --warning: oklch(0.795 0.184 86.047);
     --warning-foreground: oklch(0.852 0.199 91.936);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.7 0.15 250);
-    --chart-2: oklch(0.75 0.15 50);
+    --border: #2c2b28;
+    --input: #34332f;
+    --chart-1: #4a8aec;
+    --chart-2: #dc6d2c;
     --chart-3: oklch(0.72 0.14 160);
     --chart-4: oklch(0.7 0.17 300);
     --chart-5: oklch(0.8 0.14 85);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar: #191917;
+    --sidebar-foreground: #d6d4cd;
+    --sidebar-border: #2a2926;
+    --logo-tile: #2a2926;
+
+    --area-overview: #2f6fe0;
+    --area-overview-tint: #1c2a45;
+    --area-overview-ink: #8fb8ff;
+    --area-hosts-tint: #15301f;
+    --area-hosts-ink: #5fd98a;
+    --area-remote-tint: #29203f;
+    --area-remote-ink: #b99af7;
+    --area-explorer-tint: #33250e;
+    --area-explorer-ink: #f2b25c;
+    --area-exporters-tint: #0f2e2a;
+    --area-exporters-ink: #3fd2bd;
+    --area-settings-tint: #262a31;
+    --area-settings-ink: #a9b3c4;
+}
+
+/* The area in force: the page's (set on <html>), or a sidebar item's own. Overview's
+   colours are the default, for pages outside every area such as sign-in. */
+:root,
+[data-area="overview"] {
+    --area: var(--area-overview);
+    --area-tint: var(--area-overview-tint);
+    --area-ink: var(--area-overview-ink);
+}
+[data-area="hosts"] {
+    --area: var(--area-hosts);
+    --area-tint: var(--area-hosts-tint);
+    --area-ink: var(--area-hosts-ink);
+}
+[data-area="remote"] {
+    --area: var(--area-remote);
+    --area-tint: var(--area-remote-tint);
+    --area-ink: var(--area-remote-ink);
+}
+[data-area="explorer"] {
+    --area: var(--area-explorer);
+    --area-tint: var(--area-explorer-tint);
+    --area-ink: var(--area-explorer-ink);
+}
+[data-area="exporters"] {
+    --area: var(--area-exporters);
+    --area-tint: var(--area-exporters-tint);
+    --area-ink: var(--area-exporters-ink);
+}
+[data-area="settings"] {
+    --area: var(--area-settings);
+    --area-tint: var(--area-settings-tint);
+    --area-ink: var(--area-settings-ink);
 }
 
 @layer base {

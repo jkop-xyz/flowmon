@@ -51,7 +51,6 @@ export function ClassificationGuidePage() {
     <Page narrow>
       <div className="flex flex-col gap-2">
         <GuideBackButton fallback="/exporters" fallbackLabel="Exporters" />
-        <h1 className="text-lg font-semibold">Classification and Interface Roles</h1>
         <p className="text-sm text-muted-foreground">
           How Flowmon tells your traffic from the internet's, and what to set for each Exporter.
         </p>
