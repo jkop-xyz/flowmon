@@ -38,7 +38,8 @@ export function AppLayout() {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      {/* min-w-0: a wide table scrolls in its own box rather than widening the page. */}
+      <SidebarInset className="min-w-0">
         {/* On phones the filters move to a second row, so nothing is pushed off-screen. */}
         <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-2.5 sm:min-h-14">
           <SidebarTrigger className="-ml-1" />

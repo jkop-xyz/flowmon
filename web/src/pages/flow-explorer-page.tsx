@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { fetchFlows, type Direction, type FlowFilters, type FlowPage, type FlowSort } from "@/lib/api"
+import { fetchExporterOptions, fetchFlows, type Direction, type FlowFilters, type FlowPage, type FlowSort } from "@/lib/api"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { directionInfo } from "@/lib/flows"
 import { formatDateTime, formatNumber } from "@/lib/format"
@@ -61,6 +61,9 @@ function useExplorerState() {
 export function FlowExplorerPage() {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
+  const exporterOptions = useQuery({ queryKey: ["exporter-options"], queryFn: ({ signal }) => fetchExporterOptions(signal) })
+  // The Exporter column says nothing when one is picked, or when there is only one.
+  const exporterColumnHidden = exporter !== "" || (exporterOptions.data?.length ?? 0) <= 1
   const { filters, sort, asc, size, page, update } = useExplorerState()
   const [params] = useSearchParams()
   const selected = params.get("flow")
@@ -130,6 +133,7 @@ export function FlowExplorerPage() {
                 if (s) update({ sort: s.id, order: s.desc ? undefined : "asc", page: 0 })
               }}
               onSelect={(f) => update({ flow: f.id })}
+              hidden={exporterColumnHidden ? ["exporter"] : []}
             />
           )}
           {query.data && query.data.total > 0 && (

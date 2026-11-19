@@ -54,12 +54,18 @@ function useLabelInvalidation() {
   }
 }
 
+/**
+ * Byte columns keep one width, so the name column takes the spare room and the numbers
+ * stay together instead of spreading to the card's edge (#72).
+ */
+const numberColumn = "w-28"
+
 function BytesCells({ item }: { item: { receivedBytes: number; sentBytes: number; totalBytes: number } }) {
   return (
     <>
-      <TableCell className="text-right tabular-nums">{formatBytes(item.receivedBytes)}</TableCell>
-      <TableCell className="text-right tabular-nums">{formatBytes(item.sentBytes)}</TableCell>
-      <TableCell className="text-right tabular-nums">{formatBytes(item.totalBytes)}</TableCell>
+      <TableCell className={`${numberColumn} text-right tabular-nums`}>{formatBytes(item.receivedBytes)}</TableCell>
+      <TableCell className={`${numberColumn} text-right tabular-nums`}>{formatBytes(item.sentBytes)}</TableCell>
+      <TableCell className={`${numberColumn} text-right tabular-nums`}>{formatBytes(item.totalBytes)}</TableCell>
     </>
   )
 }
@@ -69,13 +75,13 @@ type BytesColumn = "received" | "sent" | "total"
 function BytesHeads<K extends string>({ sort, onSort }: { sort: Sort<K | BytesColumn>; onSort: (k: K | BytesColumn) => void }) {
   return (
     <>
-      <SortableHead column="received" sort={sort} onSort={onSort} numeric>
+      <SortableHead column="received" sort={sort} onSort={onSort} numeric className={numberColumn}>
         Received
       </SortableHead>
-      <SortableHead column="sent" sort={sort} onSort={onSort} numeric>
+      <SortableHead column="sent" sort={sort} onSort={onSort} numeric className={numberColumn}>
         Sent
       </SortableHead>
-      <SortableHead column="total" sort={sort} onSort={onSort} numeric>
+      <SortableHead column="total" sort={sort} onSort={onSort} numeric className={numberColumn}>
         Total
       </SortableHead>
     </>
@@ -166,9 +172,7 @@ export function LocalHostsPage() {
                   <TableCell className="max-w-80">
                     <HostLink host={it.host ?? ""} name={names[it.host ?? ""]} exporterHost={it.localIsExporterHost} addresses={it.addresses} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatBytes(it.receivedBytes)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatBytes(it.sentBytes)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatBytes(it.totalBytes)}</TableCell>
+                  <BytesCells item={it} />
                 </TableRow>
               ))}
             </DataTable>
