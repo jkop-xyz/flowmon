@@ -70,7 +70,9 @@ const rollupColumns = `(
 	bytes_tx DOUBLE NOT NULL,
 	packets_rx DOUBLE NOT NULL,
 	packets_tx DOUBLE NOT NULL,
-	flows UBIGINT NOT NULL
+	flows UBIGINT NOT NULL,
+	estimated_rx DOUBLE DEFAULT 0,
+	estimated_tx DOUBLE DEFAULT 0
 )`
 
 // rollupKeyColumns are the grouping columns, in table order.
@@ -140,7 +142,8 @@ func (s *Store) writeRollups(ctx context.Context, dc driver.Conn, flows []flow.F
 			for _, k := range byTable[name] {
 				m := agg[k]
 				if err := app.AppendRow(k.Bucket, k.Exporter, k.LocalHost, k.LocalIsExporterHost, uint8(k.PeerKind), k.PeerLocalHost,
-					k.PeerASN, k.PeerCountry, k.Protocol, k.ServicePort, m.BytesRx, m.BytesTx, m.PacketsRx, m.PacketsTx, m.Flows); err != nil {
+					k.PeerASN, k.PeerCountry, k.Protocol, k.ServicePort, m.BytesRx, m.BytesTx, m.PacketsRx, m.PacketsTx, m.Flows,
+					m.EstimatedRx, m.EstimatedTx); err != nil {
 					_ = app.Close()
 					return fmt.Errorf("appending to %s: %w", name, err)
 				}
@@ -192,7 +195,8 @@ func (s *Store) compactTable(ctx context.Context, name string) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS ` + tmp,
 		`CREATE TABLE ` + tmp + ` ` + rollupColumns,
-		`INSERT INTO ` + tmp + ` SELECT ` + rollupKeyColumns + `, sum(bytes_rx), sum(bytes_tx), sum(packets_rx), sum(packets_tx), sum(flows)::UBIGINT
+		`INSERT INTO ` + tmp + ` SELECT ` + rollupKeyColumns + `, sum(bytes_rx), sum(bytes_tx), sum(packets_rx), sum(packets_tx), sum(flows)::UBIGINT,
+			sum(estimated_rx), sum(estimated_tx)
 			FROM ` + name + ` GROUP BY ` + rollupKeyColumns,
 		`DROP TABLE ` + name,
 		`ALTER TABLE ` + tmp + ` RENAME TO ` + name,

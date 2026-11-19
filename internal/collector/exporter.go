@@ -120,6 +120,23 @@ type ExporterStatus struct {
 	Findings              []Finding         `json:"findings"`
 	// Timing is filled in by the ingest pipeline once Flows have been normalised.
 	Timing *TimingStatus `json:"timing"`
+	// Sampling is filled in by the ingest pipeline: whether this Exporter's Flows are
+	// sampled. Nil until Flows have arrived.
+	Sampling *SamplingStatus `json:"sampling"`
+	// SamplingRate is the rate set by hand, for an Exporter that doesn't announce one.
+	SamplingRate uint32 `json:"samplingRate"`
+}
+
+// SamplingStatus says whether an Exporter's Flows are sampled, and how Flowmon knows.
+type SamplingStatus struct {
+	// AnnouncedRate is what the newest Flow's record or the Exporter's Options records
+	// said: N for 1 in N packets, 1 for "every packet", 0 for nothing.
+	AnnouncedRate uint32 `json:"announcedRate"`
+	// SampledFlows counts Flows whose counts were scaled up since Flowmon started, and
+	// LastRate is the rate the newest one was scaled by (0 if the newest wasn't).
+	SampledFlows uint64 `json:"sampledFlows"`
+	Flows        uint64 `json:"flows"`
+	LastRate     uint32 `json:"lastRate"`
 }
 
 // TimingStatus compares an Exporter's times with Flowmon's clock.

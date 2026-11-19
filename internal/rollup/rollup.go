@@ -43,6 +43,9 @@ type Measures struct {
 	PacketsRx, PacketsTx float64
 	// Flows counts Flows on the row of the Local Host that sent them, in their end bucket.
 	Flows uint64
+	// EstimatedRx and EstimatedTx are the parts of BytesRx and BytesTx that come from
+	// sampled Flows, whose counts were scaled up to estimates.
+	EstimatedRx, EstimatedTx float64
 }
 
 // Add adds o to m.
@@ -52,6 +55,8 @@ func (m *Measures) Add(o Measures) {
 	m.PacketsRx += o.PacketsRx
 	m.PacketsTx += o.PacketsTx
 	m.Flows += o.Flows
+	m.EstimatedRx += o.EstimatedRx
+	m.EstimatedTx += o.EstimatedTx
 }
 
 // Row is one contribution of a Flow to a bucket.
@@ -91,6 +96,9 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 	default: // Outbound, Internal: the Local Host sent it
 		total.BytesTx, total.PacketsTx = float64(f.Bytes), float64(f.Packets)
 	}
+	if f.SamplingRate > 1 {
+		total.EstimatedRx, total.EstimatedTx = total.BytesRx, total.BytesTx
+	}
 
 	var keys []Key
 	var measures []Measures
@@ -102,7 +110,7 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 		receiver.LocalHost, receiver.PeerLocalHost = f.Peer.String(), f.Local.String()
 		receiver.LocalIsExporterHost = false
 		keys = []Key{sender, receiver}
-		measures = []Measures{total, {BytesRx: total.BytesTx, PacketsRx: total.PacketsTx}}
+		measures = []Measures{total, {BytesRx: total.BytesTx, PacketsRx: total.PacketsTx, EstimatedRx: total.EstimatedTx}}
 	} else {
 		keys = []Key{base}
 		measures = []Measures{total}
@@ -120,7 +128,7 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 			rows = append(rows, Row{Key: k, Measures: Measures{
 				BytesRx: m.BytesRx * sh.share, BytesTx: m.BytesTx * sh.share,
 				PacketsRx: m.PacketsRx * sh.share, PacketsTx: m.PacketsTx * sh.share,
-				Flows: flows,
+				Flows: flows, EstimatedRx: m.EstimatedRx * sh.share, EstimatedTx: m.EstimatedTx * sh.share,
 			}})
 		}
 	}

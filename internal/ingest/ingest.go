@@ -41,7 +41,10 @@ type Options struct {
 	// OnInterfaceName receives interface names an Exporter reports in Options records
 	// (interfaceName scoped by an interface number).
 	OnInterfaceName func(exporter netip.Addr, index uint32, name string, at time.Time)
-	Now             func() time.Time
+	// SamplingRate is the rate set by hand for an Exporter that samples without
+	// announcing it (0: none). A rate the Exporter announces wins.
+	SamplingRate func(exporter netip.Addr) uint32
+	Now          func() time.Time
 }
 
 // Watermark parameters (ADR 0004): the 99th percentile of Flow durations over the last
@@ -60,9 +63,10 @@ type Pipeline struct {
 	norm  *flow.Normalizer
 	queue chan flow.Flow
 
-	mu     sync.Mutex
-	timing map[netip.Addr]*timing
-	ifs    map[netip.Addr]map[uint32]*InterfaceStats
+	mu       sync.Mutex
+	timing   map[netip.Addr]*timing
+	ifs      map[netip.Addr]map[uint32]*InterfaceStats
+	sampling map[netip.Addr]*collector.SamplingStatus
 
 	written      atomic.Uint64
 	dropped      atomic.Uint64
@@ -95,11 +99,12 @@ func New(opts Options) *Pipeline {
 		opts.Classifier = classify.New(classify.DefaultLocalNetworks())
 	}
 	return &Pipeline{
-		opts:   opts,
-		norm:   flow.NewNormalizer(),
-		queue:  make(chan flow.Flow, opts.QueueSize),
-		timing: map[netip.Addr]*timing{},
-		ifs:    map[netip.Addr]map[uint32]*InterfaceStats{},
+		opts:     opts,
+		norm:     flow.NewNormalizer(),
+		queue:    make(chan flow.Flow, opts.QueueSize),
+		timing:   map[netip.Addr]*timing{},
+		ifs:      map[netip.Addr]map[uint32]*InterfaceStats{},
+		sampling: map[netip.Addr]*collector.SamplingStatus{},
 	}
 }
 
@@ -120,6 +125,7 @@ func (p *Pipeline) Records(exporter netip.Addr, records []ipfix.Record) {
 		case err != nil:
 			continue
 		}
+		p.applySampling(exporter, &f)
 		p.opts.Classifier.Classify(&f, now)
 		p.countInterfaces(exporter, &f)
 		if p.observe(exporter, &f, now) {
@@ -337,6 +343,40 @@ const (
 	clockAheadLimit  = 5 * time.Second
 	clockBehindLimit = 60 * time.Second
 )
+
+// applySampling scales a sampled Flow's counts up to estimates and notes it.
+func (p *Pipeline) applySampling(exporter netip.Addr, f *flow.Flow) {
+	var manual uint32
+	if p.opts.SamplingRate != nil {
+		manual = p.opts.SamplingRate(exporter)
+	}
+	announced := f.SamplingRate
+	applied := f.ApplySampling(manual)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.sampling[exporter]
+	if st == nil {
+		st = &collector.SamplingStatus{}
+		p.sampling[exporter] = st
+	}
+	st.AnnouncedRate, st.LastRate = announced, applied
+	st.Flows++
+	if applied > 0 {
+		st.SampledFlows++
+	}
+}
+
+// Sampling says whether an Exporter's Flows are sampled; nil before any arrived.
+func (p *Pipeline) Sampling(exporter netip.Addr) *collector.SamplingStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.sampling[exporter]
+	if st == nil {
+		return nil
+	}
+	c := *st
+	return &c
+}
 
 // Timing returns the timing panel for an Exporter, or nil before any Flow arrived.
 func (p *Pipeline) Timing(exporter netip.Addr) *collector.TimingStatus {

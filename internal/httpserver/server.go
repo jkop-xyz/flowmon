@@ -39,6 +39,7 @@ type Options struct {
 	// Timing adds per-Exporter timing to the Exporters page.
 	Timing interface {
 		Timing(exporter netip.Addr) *collector.TimingStatus
+		Sampling(exporter netip.Addr) *collector.SamplingStatus
 	}
 	// Flows answers the Overview's queries.
 	Flows interface {

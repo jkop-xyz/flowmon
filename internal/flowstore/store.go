@@ -212,6 +212,33 @@ var migrations = []migration{
 	// 11: collection settings set in the UI (Local Networks, retention). Kept here, not in
 	// the App Store, so collection never depends on the App Store (ADR 0001).
 	stmt(`CREATE TABLE settings (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)`),
+	// 12: sampling. Raw Flows keep the rate their counts were scaled by; Rollups and Top
+	// Remote IPs keep how much of their bytes are such estimates; Exporters can have a
+	// rate set by hand.
+	func(ctx context.Context, tx *sql.Tx) error {
+		alters := []string{`ALTER TABLE exporters ADD COLUMN IF NOT EXISTS sampling_rate UINTEGER DEFAULT 0`}
+		days, err := queryStrings(ctx, tx, `SELECT table_name FROM flow_days`)
+		if err != nil {
+			return err
+		}
+		for _, t := range days {
+			alters = append(alters, `ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS sampling_rate UINTEGER DEFAULT 0`)
+		}
+		rollups, err := queryStrings(ctx, tx, `SELECT table_name FROM rollup_partitions`)
+		if err != nil {
+			return err
+		}
+		for _, t := range append(rollups, "top_remote") {
+			alters = append(alters, `ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS estimated_rx DOUBLE DEFAULT 0`,
+				`ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS estimated_tx DOUBLE DEFAULT 0`)
+		}
+		for _, q := range alters {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return fmt.Errorf("%s: %w", q, err)
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -320,7 +347,8 @@ const dayColumns = `(
 	peer_port USMALLINT NOT NULL,
 	fields BLOB NOT NULL,
 	peer_country VARCHAR DEFAULT '',
-	peer_asn UINTEGER DEFAULT 0
+	peer_asn UINTEGER DEFAULT 0,
+	sampling_rate UINTEGER DEFAULT 0
 )`
 
 func (s *Store) ensureDay(ctx context.Context, day time.Time) (string, error) {
@@ -483,7 +511,7 @@ func flowRow(f *flow.Flow) []driver.Value {
 		nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
 		f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
 		uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
-		f.Fields, f.PeerCountry, f.PeerASN,
+		f.Fields, f.PeerCountry, f.PeerASN, f.SamplingRate,
 	}
 }
 

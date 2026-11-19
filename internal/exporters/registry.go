@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
 
@@ -53,6 +54,9 @@ type Config struct {
 	Name               string             `json:"name"`
 	DecidedAt          time.Time          `json:"decidedAt"`
 	DecidedBy          string             `json:"decidedBy"`
+	// SamplingRate is N for an Exporter that samples 1 in N packets without announcing
+	// it; 0 when unset. A rate the Exporter announces wins.
+	SamplingRate uint32 `json:"samplingRate"`
 }
 
 // Persister stores decisions. *flowstore.Store implements it.
@@ -96,7 +100,7 @@ func Load(ctx context.Context, opts Options) (*Registry, error) {
 		r.configs[rec.Address] = Config{
 			Address: rec.Address, Status: Status(rec.Status), Role: Role(rec.Role),
 			ClassificationMode: ClassificationMode(rec.ClassificationMode), Name: rec.Name,
-			DecidedAt: rec.DecidedAt, DecidedBy: rec.DecidedBy,
+			DecidedAt: rec.DecidedAt, DecidedBy: rec.DecidedBy, SamplingRate: rec.SamplingRate,
 		}
 	}
 	return r, nil
@@ -204,6 +208,32 @@ func (r *Registry) SetMode(ctx context.Context, addr netip.Addr, mode Classifica
 	return r.decide(ctx, c)
 }
 
+// ErrSamplingRate is returned for a sampling rate out of range.
+var ErrSamplingRate = fmt.Errorf("exporters: sampling rate must be between 1 and %d (or 0 for none)", flow.MaxSamplingRate)
+
+// SetSamplingRate sets the rate an approved Exporter samples at when it doesn't announce
+// one: N for 1 in N packets, 0 (or 1) for none.
+func (r *Registry) SetSamplingRate(ctx context.Context, addr netip.Addr, rate uint32, by string) (Config, error) {
+	if rate > flow.MaxSamplingRate {
+		return Config{}, ErrSamplingRate
+	}
+	if rate == 1 {
+		rate = 0
+	}
+	c, ok := r.Config(addr)
+	if !ok || c.Status != StatusApproved {
+		return Config{}, ErrNotApproved
+	}
+	c.SamplingRate, c.DecidedBy = rate, by
+	return r.decide(ctx, c)
+}
+
+// SamplingRate is the rate set by hand for an Exporter, 0 if none.
+func (r *Registry) SamplingRate(addr netip.Addr) uint32 {
+	c, _ := r.Config(addr)
+	return c.SamplingRate
+}
+
 // ByInterface reports whether an Exporter classifies by interface.
 func (r *Registry) ByInterface(addr netip.Addr) bool {
 	c, ok := r.Config(addr)
@@ -249,5 +279,6 @@ func (r *Registry) decide(ctx context.Context, c Config) (Config, error) {
 
 func record(c Config) flowstore.ExporterRecord {
 	return flowstore.ExporterRecord{Address: c.Address, Status: string(c.Status), Role: string(c.Role),
-		ClassificationMode: string(c.ClassificationMode), Name: c.Name, DecidedAt: c.DecidedAt, DecidedBy: c.DecidedBy}
+		ClassificationMode: string(c.ClassificationMode), Name: c.Name, DecidedAt: c.DecidedAt, DecidedBy: c.DecidedBy,
+		SamplingRate: c.SamplingRate}
 }

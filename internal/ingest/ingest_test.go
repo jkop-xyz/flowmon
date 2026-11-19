@@ -208,3 +208,38 @@ func TestInterfaceNamesFromOptionsRecords(t *testing.T) {
 		t.Errorf("names %+v", names)
 	}
 }
+
+func TestSampledFlowsAreScaledUp(t *testing.T) {
+	w := &memWriter{}
+	manual := map[netip.Addr]uint32{exporter: 50}
+	p := New(Options{Writer: w, SamplingRate: func(a netip.Addr) uint32 { return manual[a] }, Now: func() time.Time { return now }})
+
+	announced := outboundRecord(now)
+	announced.Fields = append(announced.Fields, ipfix.Field{Spec: ipfix.FieldSpec{ID: 34, Length: 4}, Raw: ipfixtest.U32(100)})
+	other := netip.MustParseAddr("192.168.20.1")
+	p.Records(exporter, []ipfix.Record{announced, outboundRecord(now)})
+	p.Records(other, []ipfix.Record{outboundRecord(now)})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.Run(ctx) // writes what is queued
+
+	if w.count() != 3 {
+		t.Fatalf("%d Flows", w.count())
+	}
+	want := []struct {
+		rate  uint32
+		bytes uint64
+	}{{100, 150_000}, {50, 75_000}, {0, 1500}} // announced, set by hand, neither
+	for i, f := range w.flows {
+		if f.SamplingRate != want[i].rate || f.Bytes != want[i].bytes {
+			t.Errorf("Flow %d: rate %d bytes %d, want %+v", i, f.SamplingRate, f.Bytes, want[i])
+		}
+	}
+	st := p.Sampling(exporter)
+	if st == nil || st.Flows != 2 || st.SampledFlows != 2 || st.AnnouncedRate != 0 || st.LastRate != 50 {
+		t.Errorf("status %+v", st)
+	}
+	if st := p.Sampling(other); st == nil || st.SampledFlows != 0 {
+		t.Errorf("unsampled Exporter %+v", st)
+	}
+}

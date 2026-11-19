@@ -3,6 +3,7 @@ import { AlertTriangle, RotateCw, Search } from "lucide-react"
 import { useState, type FormEvent } from "react"
 import { Link, useNavigate, useLocation, useParams } from "react-router"
 
+import { EstimateMark, EstimateNote } from "@/components/estimate"
 import { DBIPAttribution } from "@/components/geoip"
 import { FlowDetailSheet, FlowTable } from "@/components/flow-table"
 import { HostLink } from "@/components/host"
@@ -153,8 +154,12 @@ export function RemoteIPsPage() {
                       <TableCell className="max-w-64 truncate" title={asnLabel(it)}>
                         {asnLabel(it)}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{formatBytes(it.receivedBytes)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatBytes(it.sentBytes)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {it.estimatedBytes ? <EstimateMark /> : null} {formatBytes(it.receivedBytes)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {it.estimatedBytes ? <EstimateMark /> : null} {formatBytes(it.sentBytes)}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{formatNumber(Math.round(it.flows))}</TableCell>
                       <TableCell className="text-right tabular-nums">{it.localHosts}</TableCell>
                     </TableRow>
@@ -171,6 +176,7 @@ export function RemoteIPsPage() {
                   IPs outside the lists.
                 </p>
               )}
+              <EstimateNote estimated={query.data.result.estimatedBytes} total={query.data.result.totalBytes} />
               <CoverageNote coverage={query.data.result} rangeFrom={rangeFrom} />
             </>
           )}
@@ -247,6 +253,7 @@ function IdentityCard({ d }: { d: RemoteDetail }) {
           <Stat label="Flows" value={formatNumber(Math.round(d.flows))} />
           <Stat label="Local Hosts" value={d.localHosts.length} />
         </div>
+        <EstimateNote estimated={d.estimatedBytes} total={d.receivedBytes + d.sentBytes} />
         <DBIPNote />
       </CardContent>
     </Card>

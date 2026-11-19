@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"strconv"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/collector"
@@ -34,6 +35,7 @@ func mergeExporterStatus(st *collector.Status, reg *exporters.Registry) {
 		if a, err := netip.ParseAddr(e.Address); err == nil {
 			if c, ok := reg.Config(a); ok {
 				e.Name, e.Role, e.ClassificationMode = c.Name, string(c.Role), string(c.ClassificationMode)
+				e.SamplingRate = c.SamplingRate
 			}
 		}
 	}
@@ -43,7 +45,7 @@ func mergeExporterStatus(st *collector.Status, reg *exporters.Registry) {
 		}
 		st.Exporters = append(st.Exporters, collector.ExporterStatus{
 			Address: c.Address.String(), Approval: string(c.Status), Seen: false,
-			Name: c.Name, Role: string(c.Role), ClassificationMode: string(c.ClassificationMode),
+			Name: c.Name, Role: string(c.Role), ClassificationMode: string(c.ClassificationMode), SamplingRate: c.SamplingRate,
 			ObservationDomains: []uint32{}, Deviations: []collector.DeviationStatus{},
 			Templates: []collector.TemplateStatus{}, Findings: []collector.Finding{},
 		})
@@ -119,6 +121,44 @@ func registerExporters(mux *http.ServeMux, opts Options) {
 			opts.Logger.Info("exporter ignored", "exporter", a.String(), "by", c.DecidedBy)
 		}
 		decided(w, c, err)
+	})
+	mux.HandleFunc("PUT /api/exporters/{address}/sampling", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := address(w, r)
+		if !ok {
+			return
+		}
+		var req struct {
+			// Rate is N for 1 in N packets; 0 for none.
+			Rate uint32 `json:"samplingRate"`
+		}
+		if !readJSON(w, r, &req) {
+			return
+		}
+		before := reg.SamplingRate(a)
+		c, err := reg.SetSamplingRate(r.Context(), a, req.Rate, currentUser(r.Context()))
+		switch {
+		case errors.Is(err, exporters.ErrSamplingRate), errors.Is(err, exporters.ErrNotApproved):
+			errorJSON(w, http.StatusBadRequest, err.Error()[len("exporters: "):])
+			return
+		case err != nil:
+			opts.Logger.Error("saving sampling rate", "err", err)
+			errorJSON(w, http.StatusInternalServerError, "couldn't save the sampling rate")
+			return
+		}
+		if c.SamplingRate != before {
+			what := "sampling rate set by hand to 1 in " + strconv.FormatUint(uint64(c.SamplingRate), 10)
+			if c.SamplingRate == 0 {
+				what = "sampling rate set by hand removed"
+			}
+			// Volumes from then on are scaled differently, so charts mark when.
+			if opts.Interfaces != nil && opts.Interfaces.Changes != nil {
+				if err := opts.Interfaces.Changes.AddClassificationChange(r.Context(), a, opts.Now(), what+" (by "+c.DecidedBy+")"); err != nil {
+					opts.Logger.Warn("recording the sampling change", "err", err)
+				}
+			}
+			opts.Logger.Info("sampling rate changed", "exporter", a.String(), "rate", c.SamplingRate, "by", c.DecidedBy)
+		}
+		writeJSON(w, http.StatusOK, c)
 	})
 	mux.HandleFunc("DELETE /api/exporters/{address}", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := address(w, r)

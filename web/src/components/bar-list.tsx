@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
-import { formatBytes } from "@/lib/format"
+import { EstimateMark } from "@/components/estimate"
+import { estimateShare, formatBytes } from "@/lib/format"
 
 /** A ranked list of BarRows. */
 export function BarList({ children }: { children: ReactNode }) {
@@ -17,19 +18,28 @@ export function BarRow({
   received,
   sent,
   max,
+  estimated,
 }: {
   label: ReactNode
   total: number
   received: number
   sent: number
   max: number
+  /** The part of total scaled up from sampled Flows. */
+  estimated?: number
 }) {
   const width = max > 0 ? Math.max(2, (total / max) * 100) : 0
   return (
     <li className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">{label}</span>
-        <span className="shrink-0 tabular-nums">{formatBytes(total)}</span>
+        <span className="shrink-0 tabular-nums">
+          {estimated ? (
+            <EstimateMark title={`${estimateShare(estimated, total)} estimated from sampled packets`} />
+          ) : null}
+          {estimated ? " " : null}
+          {formatBytes(total)}
+        </span>
       </div>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" style={{ width: `${width}%` }}>
         <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${formatBytes(received)}`} />

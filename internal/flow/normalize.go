@@ -74,12 +74,15 @@ const uptimeWrap = (1 << 32) * time.Millisecond
 // per Exporter and Observation Domain, because exporters may send it in Options records
 // rather than in every data record. It is safe for concurrent use.
 type Normalizer struct {
-	mu      sync.Mutex
-	sysInit map[domainKey]time.Time
+	mu       sync.Mutex
+	sysInit  map[domainKey]time.Time
+	sampling samplingState
 }
 
 // NewNormalizer returns a Normalizer.
-func NewNormalizer() *Normalizer { return &Normalizer{sysInit: map[domainKey]time.Time{}} }
+func NewNormalizer() *Normalizer {
+	return &Normalizer{sysInit: map[domainKey]time.Time{}, sampling: newSamplingState()}
+}
 
 // maxDomains bounds remembered system init times.
 const maxDomains = 4096
@@ -102,17 +105,20 @@ func (n *Normalizer) Normalize(exporter netip.Addr, rec ipfix.Record, received t
 	default:
 		initTime, hasInit = n.sysInit[key]
 	}
-	n.mu.Unlock()
-
 	if rec.Options() {
+		n.sampling.learn(key, rec)
+		n.mu.Unlock()
 		return Flow{}, ErrOptionsRecord
 	}
+	samplingRate := n.sampling.rate(key, rec)
+	n.mu.Unlock()
 
 	f := Flow{
 		Exporter:          exporter,
 		ObservationDomain: rec.ObservationDomain,
 		Received:          received,
 		ExportTime:        rec.ExportTime,
+		SamplingRate:      samplingRate,
 		Fields:            EncodeFields(rec.Fields),
 	}
 	f.Src = firstAddr(rec, ieSourceIPv4Address, ieSourceIPv6Address)

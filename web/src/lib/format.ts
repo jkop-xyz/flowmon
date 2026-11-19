@@ -98,3 +98,14 @@ const protocolNames: Record<number, string> = {
 export function protocolName(n: number): string {
   return protocolNames[n] ?? `IP protocol ${n}`
 }
+
+const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0 })
+
+/** How much of a total is estimated: "about 40%", "under 1%" rather than "0%", "nearly all" or "all". */
+export function estimateShare(estimated: number, total: number): string {
+  const share = total > 0 ? estimated / total : 0
+  if (share >= 0.9999) return "all"
+  if (share >= 0.995) return "nearly all"
+  if (share < 0.01) return "under 1%"
+  return `about ${percent.format(share)}`
+}

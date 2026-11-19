@@ -144,3 +144,28 @@ func TestAutoAcceptAndAllowlist(t *testing.T) {
 		t.Errorf("ignored but allowlisted: %s", s)
 	}
 }
+
+func TestSamplingRateSetByHand(t *testing.T) {
+	p := newMem()
+	r := load(t, Options{Persister: p})
+	a := netip.MustParseAddr("192.168.10.1")
+	if _, err := r.SetSamplingRate(ctx, a, 100, "admin"); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("before approval: %v", err)
+	}
+	if _, err := r.Approve(ctx, a, RoleEdge, ByAddress, "", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.SetSamplingRate(ctx, a, 1<<30, "admin"); !errors.Is(err, ErrSamplingRate) {
+		t.Errorf("absurd rate: %v", err)
+	}
+	if _, err := r.SetSamplingRate(ctx, a, 100, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := load(t, Options{Persister: p}).SamplingRate(a); got != 100 {
+		t.Errorf("after a restart: %d", got)
+	}
+	// 1 in 1 is every packet: the same as none.
+	if c, err := r.SetSamplingRate(ctx, a, 1, "admin"); err != nil || c.SamplingRate != 0 {
+		t.Errorf("%+v %v", c, err)
+	}
+}

@@ -92,9 +92,12 @@ type FlowItem struct {
 	ServicePort uint16 `json:"servicePort"`
 	Bytes       uint64 `json:"bytes"`
 	Packets     uint64 `json:"packets"`
-	Country     string `json:"country,omitempty"`
-	ASN         uint32 `json:"asn,omitempty"`
-	ASNOrg      string `json:"asnOrg,omitempty"`
+	// SamplingRate is N when the Exporter sampled 1 in N packets: Bytes and Packets are
+	// then estimates, scaled up by N.
+	SamplingRate uint32 `json:"samplingRate,omitempty"`
+	Country      string `json:"country,omitempty"`
+	ASN          uint32 `json:"asn,omitempty"`
+	ASNOrg       string `json:"asnOrg,omitempty"`
 }
 
 // FlowPage is one page of raw Flows.
@@ -156,7 +159,7 @@ func parseFlowKey(id string) (flowKey, error) {
 // listColumns are the columns scanFlowItem reads.
 const listColumns = `exporter, observation_domain, received, start_ts, end_ts, direction, src, dst, src_port, dst_port,
 	local_host, local_is_exporter_host, local_port, peer, peer_port, protocol, bytes, packets,
-	coalesce(peer_country, ''), coalesce(peer_asn, 0)`
+	coalesce(peer_country, ''), coalesce(peer_asn, 0), coalesce(sampling_rate, 0)`
 
 func (s *Store) scanFlowItem(rows interface{ Scan(...any) error }) (FlowItem, error) {
 	var f FlowItem
@@ -165,7 +168,7 @@ func (s *Store) scanFlowItem(rows interface{ Scan(...any) error }) (FlowItem, er
 	var local, peer sql.NullString
 	if err := rows.Scan(&f.Exporter, &k.domain, &k.received, &f.Start, &f.End, &dir, &f.Src, &f.Dst, &f.SrcPort, &f.DstPort,
 		&local, &f.LocalIsExporterHost, &f.LocalPort, &peer, &f.PeerPort, &f.Protocol, &f.Bytes, &f.Packets,
-		&f.Country, &f.ASN); err != nil {
+		&f.Country, &f.ASN, &f.SamplingRate); err != nil {
 		return f, err
 	}
 	f.Start, f.End, f.LocalHost, f.Peer = f.Start.UTC(), f.End.UTC(), local.String, peer.String
