@@ -10,6 +10,7 @@ import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { ServicePort } from "@/components/service-port"
 import { EstimateNote } from "@/components/estimate"
+import { SortableHead } from "@/components/sortable-head"
 import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,6 +36,7 @@ import { formatBytes, formatNumber } from "@/lib/format"
 import { hostPath, useHostLabels, useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { serviceKey, useServiceNames } from "@/lib/services"
+import { sortRows, useSort, type Sort } from "@/lib/sort"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 const trafficSeries: TrafficSeries<"receivedBps" | "sentBps">[] = [
@@ -62,14 +64,27 @@ function BytesCells({ item }: { item: { receivedBytes: number; sentBytes: number
   )
 }
 
-function BytesHeads() {
+type BytesColumn = "received" | "sent" | "total"
+
+function BytesHeads<K extends string>({ sort, onSort }: { sort: Sort<K | BytesColumn>; onSort: (k: K | BytesColumn) => void }) {
   return (
     <>
-      <TableHead className="text-right">Received</TableHead>
-      <TableHead className="text-right">Sent</TableHead>
-      <TableHead className="text-right">Total</TableHead>
+      <SortableHead column="received" sort={sort} onSort={onSort} numeric>
+        Received
+      </SortableHead>
+      <SortableHead column="sent" sort={sort} onSort={onSort} numeric>
+        Sent
+      </SortableHead>
+      <SortableHead column="total" sort={sort} onSort={onSort} numeric>
+        Total
+      </SortableHead>
     </>
   )
+}
+
+/** A row's bytes for a BytesColumn. */
+function bytesOf(item: { receivedBytes: number; sentBytes: number; totalBytes: number }, column: string) {
+  return column === "received" ? item.receivedBytes : column === "sent" ? item.sentBytes : item.totalBytes
 }
 
 function DataTable({ head, children }: { head: ReactNode; children: ReactNode }) {
@@ -97,10 +112,16 @@ export function LocalHostsPage() {
   })
   const items = query.data?.result.items ?? []
   const names = useHostNames(items.map((i) => i.host ?? ""))
+  const [sort, onSort] = useSort<"host" | BytesColumn>({ key: "total", asc: false }, ["host"])
   const needle = filter.trim().toLowerCase()
-  const shown = needle
+  const filtered = needle
     ? items.filter((i) => i.host?.toLowerCase().includes(needle) || names[i.host ?? ""]?.name?.toLowerCase().includes(needle))
     : items
+  const shown = sortRows(
+    filtered,
+    (i) => (sort.key === "host" ? (names[i.host ?? ""]?.name ?? i.host) : bytesOf(i, sort.key)),
+    sort.asc,
+  )
 
   return (
     <Page>
@@ -133,8 +154,10 @@ export function LocalHostsPage() {
             <DataTable
               head={
                 <>
-                  <TableHead>Local Host</TableHead>
-                  <BytesHeads />
+                  <SortableHead column="host" sort={sort} onSort={onSort}>
+                    Local Host
+                  </SortableHead>
+                  <BytesHeads sort={sort} onSort={onSort} />
                 </>
               }
             >
@@ -161,6 +184,12 @@ export function LocalHostsPage() {
 function HostLabelsCard() {
   const labels = useHostLabels()
   const [adding, setAdding] = useState(false)
+  const [sort, onSort] = useSort<"name" | "prefix" | "changed">({ key: "name", asc: true }, ["name", "prefix"])
+  const rows = sortRows(
+    labels.data?.labels ?? [],
+    (l) => (sort.key === "name" ? l.name : sort.key === "prefix" ? l.prefix : new Date(l.updatedAt).getTime()),
+    sort.asc,
+  )
   return (
     <Card>
       <CardHeader>
@@ -190,14 +219,20 @@ function HostLabelsCard() {
           <DataTable
             head={
               <>
-                <TableHead>Name</TableHead>
-                <TableHead>Address or prefix</TableHead>
-                <TableHead>Changed</TableHead>
+                <SortableHead column="name" sort={sort} onSort={onSort}>
+                  Name
+                </SortableHead>
+                <SortableHead column="prefix" sort={sort} onSort={onSort}>
+                  Address or prefix
+                </SortableHead>
+                <SortableHead column="changed" sort={sort} onSort={onSort}>
+                  Changed
+                </SortableHead>
                 <TableHead className="w-0" />
               </>
             }
           >
-            {labels.data.labels.map((l) => (
+            {rows.map((l) => (
               <LabelRow key={l.id} label={l} now={labels.dataUpdatedAt} />
             ))}
           </DataTable>
@@ -533,6 +568,8 @@ function IdentityCard({ host, name }: { host: string; name?: HostName }) {
 
 function AddressesCard({ addresses }: { addresses: { address: string; receivedBytes: number; sentBytes: number; totalBytes: number }[] }) {
   const names = useHostNames(addresses.map((a) => a.address))
+  const [sort, onSort] = useSort<"address" | BytesColumn>({ key: "total", asc: false }, ["address"])
+  const rows = sortRows(addresses, (a) => (sort.key === "address" ? a.address : bytesOf(a, sort.key)), sort.asc)
   return (
     <Card>
       <CardHeader>
@@ -546,12 +583,14 @@ function AddressesCard({ addresses }: { addresses: { address: string; receivedBy
           <DataTable
             head={
               <>
-                <TableHead>Address</TableHead>
-                <BytesHeads />
+                <SortableHead column="address" sort={sort} onSort={onSort}>
+                  Address
+                </SortableHead>
+                <BytesHeads sort={sort} onSort={onSort} />
               </>
             }
           >
-            {addresses.map((a) => (
+            {rows.map((a) => (
               <TableRow key={a.address}>
                 <TableCell>
                   {/* The prefix's label names every address in it; reverse DNS may know more. */}
@@ -571,6 +610,8 @@ type SummaryQuery = { isPending: boolean; isError: boolean; error: Error | null 
 
 function LocalPeersCard({ query, peers = [], label }: { query: SummaryQuery; peers?: HostItem[]; label: string }) {
   const names = useHostNames(peers.map((p) => p.host ?? ""))
+  const [sort, onSort] = useSort<"host" | BytesColumn>({ key: "total", asc: false }, ["host"])
+  const rows = sortRows(peers, (p) => (sort.key === "host" ? (names[p.host ?? ""]?.name ?? p.host) : bytesOf(p, sort.key)), sort.asc)
   return (
     <Card>
       <CardHeader>
@@ -588,12 +629,14 @@ function LocalPeersCard({ query, peers = [], label }: { query: SummaryQuery; pee
           <DataTable
             head={
               <>
-                <TableHead>Local Host</TableHead>
-                <BytesHeads />
+                <SortableHead column="host" sort={sort} onSort={onSort}>
+                  Local Host
+                </SortableHead>
+                <BytesHeads sort={sort} onSort={onSort} />
               </>
             }
           >
-            {peers.map((it) => (
+            {rows.map((it) => (
               <TableRow key={it.host}>
                 <TableCell className="max-w-64">
                   <HostLink host={it.host ?? ""} name={names[it.host ?? ""]} addresses={it.addresses} />
@@ -662,13 +705,18 @@ function BarCard({
 function RemotePeersCard({ host, label }: { host: string; label: string }) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
+  // Byte columns rank on the server (the top 20 by that column); Remote IP sorts those.
+  const [sort, onSort] = useSort<"ip" | BytesColumn>({ key: "total", asc: false }, ["ip"])
+  const server = sort.key === "ip" ? { by: "total" as BytesColumn, asc: false } : { by: sort.key, asc: sort.asc }
   const query = useQuery({
-    queryKey: ["host-remote-ips", host, preset.value, exporter],
-    queryFn: ({ signal }) => fetchHostRemoteIPs(host, { ...resolveRange(preset), exporter }, signal),
+    queryKey: ["host-remote-ips", host, preset.value, exporter, server.by, server.asc],
+    queryFn: ({ signal }) => fetchHostRemoteIPs(host, { ...resolveRange(preset), exporter }, server.by, server.asc, signal),
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
   const names = useReverseDNS(query.data?.result.items.map((i) => i.remoteIp) ?? [])
+  const fetched = query.data?.result.items ?? []
+  const rows = sort.key === "ip" ? sortRows(fetched, (i) => i.remoteIp, sort.asc) : fetched
   return (
     <Card>
       <CardHeader>
@@ -686,12 +734,14 @@ function RemotePeersCard({ host, label }: { host: string; label: string }) {
           <DataTable
             head={
               <>
-                <TableHead>Remote IP</TableHead>
-                <BytesHeads />
+                <SortableHead column="ip" sort={sort} onSort={onSort}>
+                  Remote IP
+                </SortableHead>
+                <BytesHeads sort={sort} onSort={onSort} />
               </>
             }
           >
-            {query.data.result.items.map((it) => (
+            {rows.map((it) => (
               <TableRow key={it.remoteIp}>
                 <TableCell className="max-w-64">
                   <div className="flex flex-col gap-0.5">

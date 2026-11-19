@@ -109,7 +109,7 @@ func TestHostEndpoints(t *testing.T) {
 		t.Errorf("traffic: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = get(t, h, "/api/local-hosts/remote-ips?host=2001:db8::/64&limit=5&sort=flows")
-	if rec.Code != http.StatusOK || len(f.q.LocalHosts) != 2 || f.q.Limit != 5 || !f.q.ByFlows {
+	if rec.Code != http.StatusOK || len(f.q.LocalHosts) != 2 || f.q.Limit != 5 || f.q.Sort != flowstore.RemoteSortFlows {
 		t.Errorf("remote IPs: %d %s %+v", rec.Code, rec.Body.String(), f.q)
 	}
 	for _, path := range []string{"/api/local-hosts/summary", "/api/local-hosts/summary?host=x", "/api/local-hosts/remote-ips?host=10.0.0.1&limit=0"} {

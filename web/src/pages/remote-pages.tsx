@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react"
 import { Link, useNavigate, useLocation, useParams } from "react-router"
 
 import { EstimateMark, EstimateNote } from "@/components/estimate"
+import { SortableHead } from "@/components/sortable-head"
 import { DBIPAttribution } from "@/components/geoip"
 import { FlowDetailSheet, FlowTable } from "@/components/flow-table"
 import { HostLink } from "@/components/host"
@@ -14,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import {
   fetchRDAP,
   fetchFlows,
@@ -23,6 +24,7 @@ import {
   type GeoInfo,
   type Registration,
   type RemoteDetail,
+  type RemoteSort,
 } from "@/lib/api"
 import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
@@ -30,6 +32,7 @@ import { formatBytes, formatDateTime, formatNumber } from "@/lib/format"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { useHostNames } from "@/lib/hosts"
 import { useReverseDNS } from "@/lib/reverse-dns"
+import { sortRows, useSort } from "@/lib/sort"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
 function countryLabel(code?: string) {
@@ -87,18 +90,38 @@ function OpenIPForm() {
   )
 }
 
+type RemoteColumn = "ip" | "country" | "asn" | RemoteSort
+const remoteTextColumns = ["ip", "country", "asn"] as const
+
 export function RemoteIPsPage() {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
-  const [sort, setSort] = useState<"bytes" | "flows">("bytes")
+  const [sort, onSort] = useSort<RemoteColumn>({ key: "total", asc: false }, remoteTextColumns)
+  // Number columns rank on the server, so the list is the top by that column; text
+  // columns sort the listed Remote IPs.
+  const text = (remoteTextColumns as readonly string[]).includes(sort.key)
+  const server = text ? { by: "total" as RemoteSort, asc: false } : { by: sort.key as RemoteSort, asc: sort.asc }
   const query = useQuery({
-    queryKey: ["remote-ips", preset.value, exporter, sort],
-    queryFn: ({ signal }) => fetchRemoteIPs({ ...resolveRange(preset), exporter }, sort, signal),
+    queryKey: ["remote-ips", preset.value, exporter, server.by, server.asc],
+    queryFn: ({ signal }) => fetchRemoteIPs({ ...resolveRange(preset), exporter }, server.by, server.asc, signal),
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
   const rangeFrom = resolveRange(preset).from
   const names = useReverseDNS(query.data?.result.items.map((i) => i.remoteIp) ?? [])
+  const fetched = query.data?.result.items ?? []
+  const items = !text
+    ? fetched
+    : sortRows(
+        fetched,
+        (it) => (sort.key === "ip" ? it.remoteIp : sort.key === "country" ? countryLabel(it.country) : asnLabel(it)),
+        sort.asc,
+      )
+  const head = (column: RemoteColumn, label: string, numeric = false) => (
+    <SortableHead column={column} sort={sort} onSort={onSort} numeric={numeric}>
+      {label}
+    </SortableHead>
+  )
 
   return (
     <Page>
@@ -111,16 +134,6 @@ export function RemoteIPsPage() {
           <OpenIPForm />
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Rank by</span>
-            <div className="flex gap-1">
-              {(["bytes", "flows"] as const).map((s) => (
-                <Button key={s} size="sm" variant={sort === s ? "secondary" : "ghost"} onClick={() => setSort(s)}>
-                  {s === "bytes" ? "Bytes" : "Flows"}
-                </Button>
-              ))}
-            </div>
-          </div>
           {query.isPending ? (
             <SectionSkeleton rows={8} />
           ) : query.isError ? (
@@ -132,17 +145,18 @@ export function RemoteIPsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Remote IP</TableHead>
-                    <TableHead>Country</TableHead>
-                    <TableHead>ASN Owner</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Sent</TableHead>
-                    <TableHead className="text-right">Flows</TableHead>
-                    <TableHead className="text-right">Local Hosts</TableHead>
+                    {head("ip", "Remote IP")}
+                    {head("country", "Country")}
+                    {head("asn", "ASN Owner")}
+                    {head("received", "Received", true)}
+                    {head("sent", "Sent", true)}
+                    {head("total", "Total", true)}
+                    {head("flows", "Flows", true)}
+                    {head("hosts", "Local Hosts", true)}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {query.data.result.items.map((it) => (
+                  {items.map((it) => (
                     <TableRow key={it.remoteIp}>
                       <TableCell className="max-w-72">
                         <div className="flex flex-col gap-0.5">
@@ -160,6 +174,9 @@ export function RemoteIPsPage() {
                       <TableCell className="text-right tabular-nums">
                         {it.estimatedBytes ? <EstimateMark /> : null} {formatBytes(it.sentBytes)}
                       </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {it.estimatedBytes ? <EstimateMark /> : null} {formatBytes(it.totalBytes)}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{formatNumber(Math.round(it.flows))}</TableCell>
                       <TableCell className="text-right tabular-nums">{it.localHosts}</TableCell>
                     </TableRow>
@@ -176,6 +193,10 @@ export function RemoteIPsPage() {
                   IPs outside the lists.
                 </p>
               )}
+              <p className="text-xs text-muted-foreground">
+                The list is the top 100 by the number column it is sorted by. Remote IP, Country and ASN Owner sort the
+                listed ones.
+              </p>
               <EstimateNote estimated={query.data.result.estimatedBytes} total={query.data.result.totalBytes} />
               <CoverageNote coverage={query.data.result} rangeFrom={rangeFrom} />
             </>
@@ -260,8 +281,21 @@ function IdentityCard({ d }: { d: RemoteDetail }) {
   )
 }
 
+type LocalHostColumn = "host" | "received" | "sent" | "total" | "flows"
+
 function LocalHostsCard({ d, rangeFrom, label }: { d: RemoteDetail; rangeFrom: Date; label: string }) {
   const names = useHostNames(d.localHosts.map((h) => h.host))
+  const [sort, onSort] = useSort<LocalHostColumn>({ key: "total", asc: false }, ["host"])
+  const value = (h: RemoteDetail["localHosts"][number]) =>
+    ({ host: names[h.host]?.name ?? h.host, received: h.receivedBytes, sent: h.sentBytes, total: h.totalBytes, flows: h.flows })[
+      sort.key
+    ]
+  const rows = sortRows(d.localHosts, value, sort.asc)
+  const head = (column: LocalHostColumn, text: string, numeric = false) => (
+    <SortableHead column={column} sort={sort} onSort={onSort} numeric={numeric}>
+      {text}
+    </SortableHead>
+  )
   return (
     <Card>
       <CardHeader>
@@ -276,20 +310,22 @@ function LocalHostsCard({ d, rangeFrom, label }: { d: RemoteDetail; rangeFrom: D
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Local Host</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Sent</TableHead>
-                  <TableHead className="text-right">Flows</TableHead>
+                  {head("host", "Local Host")}
+                  {head("received", "Received", true)}
+                  {head("sent", "Sent", true)}
+                  {head("total", "Total", true)}
+                  {head("flows", "Flows", true)}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {d.localHosts.map((h) => (
+                {rows.map((h) => (
                   <TableRow key={h.host}>
                     <TableCell className="max-w-72">
                       <HostLink host={h.host} name={names[h.host]} exporterHost={h.localIsExporterHost} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatBytes(h.receivedBytes)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatBytes(h.sentBytes)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatBytes(h.totalBytes)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(Math.round(h.flows))}</TableCell>
                   </TableRow>
                 ))}

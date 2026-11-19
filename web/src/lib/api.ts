@@ -607,9 +607,13 @@ export function fetchFlow(id: string, signal?: AbortSignal) {
   return getJSON<FlowDetail>(`/api/flows/${encodeURIComponent(id)}`, signal)
 }
 
-export function fetchRemoteIPs(range: RangeParams, sort: "bytes" | "flows", signal?: AbortSignal) {
+/** What the server ranks Remote IPs by: the list holds the top ones by it. */
+export type RemoteSort = "total" | "received" | "sent" | "flows" | "hosts"
+
+export function fetchRemoteIPs(range: RangeParams, sort: RemoteSort, asc: boolean, signal?: AbortSignal) {
   const params = rangeParams(range)
   params.set("sort", sort)
+  if (asc) params.set("order", "asc")
   params.set("limit", "100")
   return getJSON<WithIncomplete<RemoteResult>>(`/api/remote-ips?${params}`, signal)
 }
@@ -745,8 +749,10 @@ export function fetchHostTraffic(host: string, range: RangeParams, signal?: Abor
   return getJSON<WithIncomplete<HostTraffic>>(`/api/local-hosts/traffic?${hostParams(host, range)}`, signal)
 }
 
-export function fetchHostRemoteIPs(host: string, range: RangeParams, signal?: AbortSignal) {
+export function fetchHostRemoteIPs(host: string, range: RangeParams, sort: RemoteSort, asc: boolean, signal?: AbortSignal) {
   const params = hostParams(host, range)
+  params.set("sort", sort)
+  if (asc) params.set("order", "asc")
   params.set("limit", "20")
   return getJSON<WithIncomplete<RemoteResult>>(`/api/local-hosts/remote-ips?${params}`, signal)
 }
