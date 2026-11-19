@@ -106,8 +106,8 @@ func AssessTemplate(t *ipfix.Template) []Finding {
 	_, upStart := has[ieFlowStartSysUpTime]
 	_, upEnd := has[ieFlowEndSysUpTime]
 	_, initTime := has[ieSystemInitTimeMilliseconds]
-	// NetFlow v9 packets say how long the Exporter has been up, which is all it takes.
-	if (upStart || upEnd) && !initTime && t.Version != ipfix.VersionNetFlowV9 {
+	// NetFlow v9 and v5 packets say how long the Exporter has been up, which is all it takes.
+	if (upStart || upEnd) && !initTime && t.Version == ipfix.Version {
 		add(SeverityInfo, "uptime_relative_times", "Flow times are relative to the exporter's uptime. They are converted using systemInitTimeMilliseconds, which this Template doesn't carry; it may come in an Options Template.")
 	}
 	if _, ok := first(interfaceIDs); !ok {

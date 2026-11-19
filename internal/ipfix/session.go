@@ -139,8 +139,8 @@ type Session struct {
 	pending      []pendingSet
 	pendingBytes int
 	sequences    map[uint32]*sequenceState
-	// netflow9 tracks each NetFlow v9 Source ID's uptime, boot time and sequence.
-	netflow9 map[uint32]*netflow9Domain
+	// uptimes tracks each NetFlow v9 or v5 domain's uptime, boot time and sequence.
+	uptimes map[uint32]*uptimeDomain
 }
 
 // NewSession returns a Session with no Templates.
@@ -150,12 +150,13 @@ func NewSession(transport Transport, limits Limits) *Session {
 		limits:    limits,
 		templates: map[templateKey]*templateEntry{},
 		sequences: map[uint32]*sequenceState{},
-		netflow9:  map[uint32]*netflow9Domain{},
+		uptimes:   map[uint32]*uptimeDomain{},
 	}
 }
 
-// ErrNotIPFIX is returned when a message can't be decoded as IPFIX or NetFlow v9 at all.
-var ErrNotIPFIX = errors.New("ipfix: not an IPFIX or NetFlow v9 message")
+// ErrNotIPFIX is returned when a message can't be decoded as IPFIX or NetFlow v9 or v5
+// at all.
+var ErrNotIPFIX = errors.New("ipfix: not an IPFIX or NetFlow v9 or v5 message")
 
 // decodeState collects the results of one Decode call.
 type decodeState struct {
@@ -172,14 +173,17 @@ func (d *decodeState) deviate(dev Deviation, format string, args ...any) {
 	d.h.Deviation(dev, fmt.Sprintf(format, args...))
 }
 
-// Decode decodes one IPFIX message or NetFlow v9 packet received at now. It returns
+// Decode decodes one IPFIX message or NetFlow v9 or v5 packet received at now. It returns
 // the header, or ErrNotIPFIX (wrapped) when the message can't be decoded at all.
 // Everything else is lenient: problems are reported to h as deviations and decoding
 // continues wherever that is safe.
 func (s *Session) Decode(msg []byte, now time.Time, h Handler) (Header, error) {
 	d := &decodeState{h: h, now: now}
-	if PeekVersion(msg) == VersionNetFlowV9 {
+	switch PeekVersion(msg) {
+	case VersionNetFlowV9:
 		return s.decodeNetFlowV9(d, msg)
+	case VersionNetFlowV5:
+		return s.decodeNetFlowV5(d, msg)
 	}
 	if len(msg) < HeaderLength {
 		d.deviate(DevShortMessage, "%d bytes", len(msg))

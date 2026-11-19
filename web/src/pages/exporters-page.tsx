@@ -30,7 +30,7 @@ const RECEIVING_WINDOW_MS = 2 * 60 * 1000
 
 const deviationLabels: Record<string, string> = {
   short_message: "Message shorter than a header",
-  wrong_version: "Not IPFIX or NetFlow v9",
+  wrong_version: "Not IPFIX or NetFlow",
   bad_message_length: "Invalid message length",
   truncated_message: "Message cut off",
   trailing_bytes: "Bytes after the message",
@@ -50,7 +50,7 @@ const deviationLabels: Record<string, string> = {
   nonzero_padding: "Padding isn't zero",
   sequence_gap: "Sequence number gap",
   exporter_restarted: "Exporter restarted (its uptime started again)",
-  netflow_v5_not_supported_yet: "NetFlow v5 (not supported yet)",
+  too_many_records: "More records claimed than a NetFlow v5 packet holds",
   unknown_version: "Unknown export version",
   decoder_panic: "Decoder error",
 }
@@ -129,7 +129,7 @@ export function ExportersPage() {
           }
         >
           <p>
-            Point your router's flow export (IPFIX or NetFlow v9) at this host, on one of the ports above. An Exporter appears here as
+            Point your router's flow export (IPFIX, NetFlow v9 or v5) at this host, on one of the ports above. An Exporter appears here as
             soon as its first packet arrives, with every Template it sends.
           </p>
         </EmptyState>
@@ -301,13 +301,21 @@ function TemplateRow({ template, now }: { template: TemplateStatus; now: number 
       <CollapsibleTrigger className="group flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left text-sm hover:bg-muted/50">
         <ChevronRight className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         <span className="font-medium whitespace-nowrap">
-          {template.options ? "Options Template" : "Template"} {template.id}
+          {template.protocol === "netflow5"
+            ? "NetFlow v5 records"
+            : `${template.options ? "Options Template" : "Template"} ${template.id}`}
         </span>
         <span className="text-muted-foreground">
-          · {template.protocol === "netflow9" ? "Source ID" : "Observation Domain"} {template.observationDomain} ·{" "}
+          · {{ ipfix: "Observation Domain", netflow9: "Source ID", netflow5: "Engine" }[template.protocol]}{" "}
+          {template.protocol === "netflow5"
+            ? `${template.observationDomain >> 8}/${template.observationDomain & 255}`
+            : template.observationDomain}{" "}
+          ·{" "}
           {formatNumber(template.fields.length)} fields
         </span>
-        {template.protocol === "netflow9" && <Badge variant="secondary">NetFlow v9</Badge>}
+        {template.protocol !== "ipfix" && (
+          <Badge variant="secondary">{template.protocol === "netflow9" ? "NetFlow v9" : "NetFlow v5"}</Badge>
+        )}
         <span className="ml-auto flex items-center gap-2">
           {warnings > 0 && (
             <Badge variant="warning">

@@ -9,3 +9,4 @@ Note each file below: the exporter, its version and settings, and how the traffi
 | File | Exporter | How it was made |
 |---|---|---|
 | `sendipfix-netflow9.pcap` | `internal/devtools/sendipfix -version 9` (synthetic, not a real exporter) | `FLOWMON_DEBUG_CAPTURE` on a local Flowmon; checks the capture and replay path end to end |
+| `sendipfix-netflow5.pcap` | `internal/devtools/sendipfix -version 5` (synthetic, not a real exporter) | `FLOWMON_DEBUG_CAPTURE` on a local Flowmon |
