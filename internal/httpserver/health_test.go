@@ -1,6 +1,8 @@
 package httpserver
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 )
 
@@ -21,11 +24,20 @@ func (fakePipeline) Stats() ingest.Stats {
 	return ingest.Stats{Written: 1200, Dropped: 3, Late: 1, Queued: 5, QueueCapacity: 50000}
 }
 
-type fakeDisk struct{}
+type fakeDisk struct{ over bool }
 
-func (fakeDisk) DiskUsage() int64 { return 4096 }
+func (fakeDisk) Disk(context.Context) (flowstore.Disk, error) {
+	return flowstore.Disk{Used: 3072, File: 4096}, nil
+}
+func (fakeDisk) Memory(context.Context) (flowstore.Memory, error) {
+	return flowstore.Memory{Used: 1 << 20, Limit: "953.6 MiB", Threads: 4}, nil
+}
+func (f fakeDisk) CapStatus() flowstore.CapStatus { return flowstore.CapStatus{Over: f.over} }
 func (fakeDisk) RawDays(time.Time) []time.Time {
 	return []time.Time{time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)}
+}
+func (fakeDisk) Snapshot(context.Context) (*flowstore.Snapshot, error) {
+	return nil, errors.New("no snapshots")
 }
 
 func collectorWith(started time.Time, last *time.Time) fakeCollector {
@@ -41,7 +53,8 @@ func TestMetrics(t *testing.T) {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	last := now.Add(-time.Minute)
 	opts := Options{UI: builtUI, Version: "1.2.3", Collector: collectorWith(now.Add(-time.Hour), &last), Now: func() time.Time { return now },
-		NoFlowsWarning: 5 * time.Minute, Metrics: &MetricsOptions{Pipeline: fakePipeline{}, Store: fakeDisk{}}}
+		NoFlowsWarning: 5 * time.Minute, Metrics: &MetricsOptions{Pipeline: fakePipeline{}},
+		FlowStore: &FlowStoreOptions{Store: fakeDisk{over: true}, MaxBytes: 2048}}
 	rec := get(t, New(opts), "/metrics")
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain; version=0.0.4") {
@@ -56,6 +69,9 @@ func TestMetrics(t *testing.T) {
 		`flowmon_ingest_flows_dropped_total{reason="queue_full"} 3`,
 		`flowmon_ingest_queue_length 5`,
 		`flowmon_flowstore_disk_bytes 4096`,
+		`flowmon_flowstore_used_bytes 3072`,
+		`flowmon_flowstore_max_bytes 2048`,
+		`flowmon_flowstore_over_cap 1`,
 		`flowmon_flowstore_raw_days 1`,
 		`flowmon_collection_quiet 0`,
 		"# TYPE flowmon_ingest_flows_written_total counter",

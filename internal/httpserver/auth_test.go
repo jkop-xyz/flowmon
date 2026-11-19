@@ -39,7 +39,7 @@ func (c *client) do(method, target, body string, headers ...string) *httptest.Re
 	return w
 }
 
-func newAuthServer(t *testing.T) (*client, *setup.Controller) {
+func newAuthServer(t *testing.T, configure ...func(*Options)) (*client, *setup.Controller) {
 	t.Helper()
 	dir := t.TempDir()
 	holder := &appstore.Holder{}
@@ -50,8 +50,11 @@ func newAuthServer(t *testing.T) (*client, *setup.Controller) {
 	})
 	m := auth.NewManager(holder.Get, auth.Options{})
 	ctrl := setup.New(setup.Options{Holder: holder, Auth: m, BootstrapPath: filepath.Join(dir, "bootstrap.json"), DefaultSQLitePath: filepath.Join(dir, "flowmon.db")})
-	h := New(Options{UI: builtUI, Auth: m, Setup: ctrl})
-	return &client{t: t, h: h}, ctrl
+	opts := Options{UI: builtUI, Auth: m, Setup: ctrl}
+	for _, f := range configure {
+		f(&opts)
+	}
+	return &client{t: t, h: New(opts)}, ctrl
 }
 
 func TestSetupLoginAndProtectedAPI(t *testing.T) {

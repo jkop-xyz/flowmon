@@ -1,25 +1,26 @@
 import { useQuery } from "@tanstack/react-query"
-import { DatabaseZap, Unplug } from "lucide-react"
+import { DatabaseZap, HardDrive, Unplug } from "lucide-react"
 import { Link } from "react-router"
 
 import { TimeAgo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { fetchStatus, type AppStoreStatus, type CollectionStatus } from "@/lib/api"
-import { formatSeconds } from "@/lib/format"
+import { fetchStatus, type AppStoreStatus, type CollectionStatus, type FlowStoreCapStatus } from "@/lib/api"
+import { formatBytes, formatSeconds } from "@/lib/format"
 
-/** Warnings above every page: the App Store is down, or Flows stopped arriving. */
+/** Warnings above every page: the App Store is down, Flows stopped arriving, or the Flow Store outgrew its cap. */
 export function StatusBanners() {
   const query = useQuery({
     queryKey: ["status"],
     queryFn: ({ signal }) => fetchStatus(signal),
     refetchInterval: 15_000,
   })
-  const { appStore, collection } = query.data ?? {}
+  const { appStore, collection, flowStore } = query.data ?? {}
   const now = query.dataUpdatedAt
   return (
     <>
       {collection?.quiet && <QuietBanner c={collection} now={now} />}
       {appStore?.configured && !appStore.available && <AppStoreBanner store={appStore} now={now} />}
+      {flowStore?.overCap && <OverCapBanner s={flowStore} />}
     </>
   )
 }
@@ -70,6 +71,25 @@ function AppStoreBanner({ store, now }: { store: AppStoreStatus; now: number }) 
           until it's back, and new logins have to wait.
         </p>
         {store.error && <p className="mt-1 font-mono text-xs break-all">{store.error}</p>}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+function OverCapBanner({ s }: { s: FlowStoreCapStatus }) {
+  return (
+    <Alert variant="warning" className="mx-auto mb-6 max-w-6xl">
+      <HardDrive />
+      <AlertTitle>The Flow Store is over its size cap</AlertTitle>
+      <AlertDescription>
+        <p>
+          It takes {formatBytes(s.usedBytes)} of the {formatBytes(s.maxBytes)} FLOWMON_FLOW_STORE_MAX_GB allows, and
+          everything the cap may drop is gone, so it keeps growing. See the{" "}
+          <Link to="/settings" className="underline underline-offset-4">
+            Settings
+          </Link>{" "}
+          page.
+        </p>
       </AlertDescription>
     </Alert>
   )

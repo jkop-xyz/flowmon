@@ -735,9 +735,45 @@ export type CollectionStatus = {
   warnAfterSeconds: number
 }
 
+/** Present when FLOWMON_FLOW_STORE_MAX_GB caps the Flow Store. */
+export type FlowStoreCapStatus = { usedBytes: number; maxBytes: number; overCap: boolean }
+
 export function fetchStatus(signal?: AbortSignal) {
-  return getJSON<{ appStore?: AppStoreStatus; collection?: CollectionStatus }>("/api/status", signal)
+  return getJSON<{ appStore?: AppStoreStatus; collection?: CollectionStatus; flowStore?: FlowStoreCapStatus }>(
+    "/api/status",
+    signal,
+  )
 }
+
+export type FlowStoreInfo = {
+  /** The Flow Store's file, which a backup replaces to restore. */
+  path: string
+  /** What the data takes; space freed by drops is reused before the file grows. */
+  usedBytes: number
+  fileBytes: number
+  /** 0 without a cap. */
+  maxBytes: number
+  cap?: {
+    checked?: string
+    /** Still over the cap with nothing left the cap may drop. */
+    over: boolean
+    lastDrop?: string
+    dropped: string[]
+  }
+  memoryBytes: number
+  memoryLimit: string
+  threads: number
+  rawDays: number
+  oldestRawDay?: string
+  /** Whether FLOWMON_BACKUP_TOKEN is set. */
+  backupToken: boolean
+}
+
+export function fetchFlowStore(signal?: AbortSignal) {
+  return getJSON<FlowStoreInfo>("/api/flow-store", signal)
+}
+
+export const flowStoreBackupURL = "/api/flow-store/backup"
 
 export type RetentionSetting = { seconds: number; locked: boolean; env: string }
 

@@ -46,10 +46,16 @@ type Store struct {
 
 	topBuilt map[period]bool // Top Remote IPs periods built
 	topDirty map[period]bool // built periods that Flows were added to since
+
+	capMu     sync.Mutex
+	capStatus CapStatus
+
+	snapshotMu sync.Mutex
 }
 
 // Open opens (or creates) the Flow Store at path and applies pending migrations.
 func Open(ctx context.Context, path string, opts Options) (*Store, error) {
+	removeStaleSnapshots(path)
 	connector, err := duckdb.NewConnector(path, func(execer driver.ExecerContext) error {
 		var settings []string
 		if opts.MemoryLimit != "" {

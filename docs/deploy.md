@@ -123,6 +123,21 @@ If Postgres (or the SQLite file) stops answering, Flowmon keeps collecting and s
 - Changes stored in the App Store are refused with a clear message: Host Labels, Service Names and accounts. Host Labels and Service Names already loaded keep working.
 - Reverse DNS and RDAP results are cached in memory only.
 
+## Disk and memory
+
+The Flow Store grows with traffic and raw retention: raw Flows take by far the most space. Settings shows its size, how far back raw Flows reach, and DuckDB's memory use.
+
+- **`FLOWMON_FLOW_STORE_MAX_GB`** caps it, for a small disk or SD card. Every ten minutes, while the Flow Store is over the cap, Flowmon drops the oldest day of raw Flows, then the next, before their retention ends. When no raw day is left to drop, it drops minute Rollup days older than a day. It never drops:
+  - a raw day that may still receive late Flows (until its Watermark passes),
+  - today's raw Flows or the last day of minute Rollups,
+  - hour Rollups, which hold the long history and take little space.
+
+  Every Flow is rolled up as it is stored, and a day's Top Remote IPs are built before its raw Flows go, so charts and top lists keep their whole history. Only the Flow Explorer and exact Top Remote IPs reach back less far. Settings warns while the cap drops data early. If what's left is still over the cap, a banner says so on every page; raise the cap or shorten Rollup retention.
+
+  Dropped data's space is reused before the file grows, but the file doesn't shrink, so the file on disk can stay larger than the data. Leave headroom: the cap is checked every ten minutes and a backup needs space of its own (below).
+- **`FLOWMON_FLOW_STORE_MEMORY_LIMIT`** (default `1GB`) bounds DuckDB's memory. Large queries spill to `/data/flows.duckdb.tmp/` rather than use more. Lower it on a small host, such as `400MB` on a Raspberry Pi with 1 GB.
+- **`FLOWMON_FLOW_STORE_THREADS`** limits DuckDB's threads (default: one per CPU). Lower it so queries leave CPU for collection on a small host.
+
 ## Backups
 
 Back up the `/data` volume as a whole. It holds:
@@ -137,7 +152,25 @@ Back up the `/data` volume as a whole. It holds:
 
 If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels and Service Names live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
 
-To get a consistent copy of `flows.duckdb`, stop the container first (`docker compose stop`, or `systemctl stop flowmon`). An online snapshot endpoint is planned (#18).
+Copying `flows.duckdb` while Flowmon runs can give a broken copy. Either stop Flowmon first (`docker compose stop`, or `systemctl stop flowmon`), or download a snapshot while it runs:
+
+- **In the UI:** Settings → Flow Store → **Download a backup**.
+- **From a script:** set `FLOWMON_BACKUP_TOKEN` (or `FLOWMON_BACKUP_TOKEN_FILE`) and send it as a bearer token:
+
+  ```sh
+  curl -fsS -H "Authorization: Bearer $FLOWMON_BACKUP_TOKEN" \
+    -o flows-$(date +%F).duckdb http://flowmon.lan:8080/api/flow-store/backup
+  ```
+
+A snapshot holds everything committed when it started, taken in one transaction while collection keeps running. It's a complete DuckDB file, usually smaller than `flows.duckdb` because it has no free space. While it's taken, it needs about as much free space in `/data` as the Flow Store's data, and the download starts only when the snapshot is complete. One snapshot is taken at a time; a second request gets `409 Conflict`.
+
+To restore a snapshot:
+
+1. Stop Flowmon.
+2. Replace `/data/flows.duckdb` with the snapshot file, and delete `/data/flows.duckdb.wal` if it exists.
+3. Start Flowmon. Flows from after the snapshot are missing, and retention drops what has expired since.
+
+A snapshot from an older Flowmon version is upgraded when it opens, like the Flow Store itself on an update.
 
 ## Updating
 

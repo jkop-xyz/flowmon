@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
@@ -221,16 +222,15 @@ func DefaultRetention() Retention {
 // Flows that haven't been rolled up; it is still kept until its day is more than
 // safeAfter in the past (the largest Watermark), so late Flows aren't dropped with it.
 func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, safeAfter time.Duration) ([]string, error) {
-	type victim struct{ name, catalog, key string }
+	type victim struct{ name, catalog string }
 	var victims []victim
 
 	s.mu.Lock()
 	for name := range s.days {
-		day, err := time.Parse("20060102", name[len("flows_"):])
-		if err == nil {
+		if day, ok := rawDay(name); ok {
 			end := day.Add(24 * time.Hour)
 			if end.Before(now.Add(-r.Raw)) && end.Before(now.Add(-safeAfter)) {
-				victims = append(victims, victim{name, "flow_days", "table_name"})
+				victims = append(victims, victim{name, "flow_days"})
 			}
 		}
 	}
@@ -248,7 +248,7 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 			keep = r.Hour
 		}
 		if g.periodEnd(p).Before(now.Add(-keep)) {
-			victims = append(victims, victim{name, "rollup_partitions", "table_name"})
+			victims = append(victims, victim{name, "rollup_partitions"})
 		}
 	}
 	s.mu.Unlock()
@@ -258,15 +258,9 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 		if v.catalog != "flow_days" {
 			continue
 		}
-		if day, err := time.Parse("20060102", v.name[len("flows_"):]); err == nil {
-			p := period{"day", day.Unix()}
-			s.mu.Lock()
-			built := s.topBuilt[p] && !s.topDirty[p]
-			s.mu.Unlock()
-			if !built {
-				if err := s.buildTopRemote(ctx, p); err != nil {
-					return nil, err
-				}
+		if day, ok := rawDay(v.name); ok {
+			if err := s.buildDayTopBeforeDrop(ctx, day); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -276,34 +270,64 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 
 	var dropped []string
 	for _, v := range victims {
-		s.writeMu.Lock()
-		err := func() error {
-			tx, err := s.db.BeginTx(ctx, nil)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = tx.Rollback() }()
-			if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS `+v.name); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM `+v.catalog+` WHERE `+v.key+` = ?`, v.name); err != nil {
-				return err
-			}
-			return tx.Commit()
-		}()
-		s.writeMu.Unlock()
-		if err != nil {
-			return dropped, fmt.Errorf("dropping %s: %w", v.name, err)
+		if err := s.dropTable(ctx, v.name, v.catalog); err != nil {
+			return dropped, err
 		}
-		s.mu.Lock()
-		delete(s.days, v.name)
-		delete(s.rollups, v.name)
-		delete(s.dirty, v.name)
-		s.mu.Unlock()
 		dropped = append(dropped, v.name)
 	}
 	sort.Strings(dropped)
 	return dropped, nil
+}
+
+// rawDay parses a raw day table's name.
+func rawDay(name string) (time.Time, bool) {
+	if !strings.HasPrefix(name, "flows_") {
+		return time.Time{}, false
+	}
+	day, err := time.Parse("20060102", name[len("flows_"):])
+	return day, err == nil
+}
+
+// buildDayTopBeforeDrop builds a raw day's daily Top Remote IPs unless they are built
+// and current: once its Flows are gone they can't be.
+func (s *Store) buildDayTopBeforeDrop(ctx context.Context, day time.Time) error {
+	p := period{"day", day.Unix()}
+	s.mu.Lock()
+	built := s.topBuilt[p] && !s.topDirty[p]
+	s.mu.Unlock()
+	if built {
+		return nil
+	}
+	return s.buildTopRemote(ctx, p)
+}
+
+// dropTable drops a raw day or Rollup table and removes it from its catalog.
+func (s *Store) dropTable(ctx context.Context, name, catalog string) error {
+	s.writeMu.Lock()
+	err := func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS `+name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+catalog+` WHERE table_name = ?`, name); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
+	s.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("dropping %s: %w", name, err)
+	}
+	s.mu.Lock()
+	delete(s.days, name)
+	delete(s.rollups, name)
+	delete(s.dirty, name)
+	s.mu.Unlock()
+	return nil
 }
 
 // rollupTablesFor returns the existing tables of granularity g covering [from, to).

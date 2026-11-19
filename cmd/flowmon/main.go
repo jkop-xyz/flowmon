@@ -133,7 +133,8 @@ func serve(stderr io.Writer) int {
 		logger.Error("data directory", "err", err)
 		return 1
 	}
-	store, err := flowstore.Open(ctx, filepath.Join(cfg.DataDir, "flows.duckdb"), flowstore.Options{
+	flowStorePath := filepath.Join(cfg.DataDir, "flows.duckdb")
+	store, err := flowstore.Open(ctx, flowStorePath, flowstore.Options{
 		MemoryLimit: cfg.FlowStoreMemoryLimit,
 		Threads:     cfg.FlowStoreThreads,
 	})
@@ -185,7 +186,7 @@ func serve(stderr io.Writer) int {
 		pipelineDone.Wait()
 	}()
 
-	go maintain(pipelineCtx, logger, store, pipeline, func() flowstore.Retention { return collectionSettings.Current().Retention })
+	go maintain(pipelineCtx, logger, store, pipeline, func() flowstore.Retention { return collectionSettings.Current().Retention }, cfg.FlowStoreMaxBytes)
 	go geo.Run(pipelineCtx)
 
 	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
@@ -386,8 +387,10 @@ func serve(stderr io.Writer) int {
 		Explorer:       store,
 		Settings:       collectionSettings,
 		NoFlowsWarning: cfg.NoFlowsWarning,
-		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline, Store: store},
-		AppStore:       holder,
+		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline},
+		FlowStore: &httpserver.FlowStoreOptions{Store: store, Path: flowStorePath,
+			MaxBytes: cfg.FlowStoreMaxBytes, BackupToken: cfg.BackupToken},
+		AppStore: holder,
 		Services: services.NewDirectory(func() services.Store {
 			if s := holder.Usable(); s != nil {
 				return s
@@ -483,8 +486,9 @@ func expireSessions(ctx context.Context, logger *slog.Logger, s *appstore.Store)
 	}
 }
 
-// maintain compacts Rollups, builds Top Remote IPs and applies retention every ten minutes.
-func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, retention func() flowstore.Retention) {
+// maintain compacts Rollups, builds Top Remote IPs, applies retention and keeps the Flow
+// Store under maxBytes (0: no cap) every ten minutes.
+func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, pipeline *ingest.Pipeline, retention func() flowstore.Retention, maxBytes int64) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -502,6 +506,21 @@ func maintain(ctx context.Context, logger *slog.Logger, store *flowstore.Store, 
 		}
 		if len(dropped) > 0 {
 			logger.Info("retention dropped old data", "tables", dropped)
+		}
+		if maxBytes > 0 {
+			wasOver := store.CapStatus().Over
+			dropped, err := store.EnforceCap(ctx, maxBytes, time.Now(), pipeline.MaxWatermark())
+			if err != nil && ctx.Err() == nil {
+				logger.Error("applying the Flow Store size cap", "err", err)
+			}
+			if len(dropped) > 0 {
+				logger.Warn("the Flow Store size cap dropped data before its retention ended", "tables", dropped, "max_bytes", maxBytes)
+			}
+			if over := store.CapStatus().Over; over && !wasOver {
+				logger.Warn("the Flow Store is over its size cap and nothing more may be dropped: raise FLOWMON_FLOW_STORE_MAX_GB or shorten minute and hour Rollup retention", "max_bytes", maxBytes)
+			} else if !over && wasOver {
+				logger.Info("the Flow Store is back under its size cap")
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -55,7 +55,7 @@ func toSettingsJSON(m *settings.Manager) settingsJSON {
 }
 
 func registerSettings(mux *http.ServeMux, opts Options) {
-	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{}
 		if opts.AppStore != nil {
 			h := opts.AppStore.Health()
@@ -72,6 +72,9 @@ func registerSettings(mux *http.ServeMux, opts Options) {
 			out["appStore"] = st
 		}
 		out["collection"] = collectionHealth(opts)
+		if fs := flowStoreStatus(r.Context(), opts); fs != nil {
+			out["flowStore"] = fs
+		}
 		writeJSON(w, http.StatusOK, out)
 	})
 

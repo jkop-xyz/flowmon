@@ -28,6 +28,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_LOCAL_NETWORKS` | none | Extra Local Networks (comma-separated CIDRs) on top of the defaults: RFC 1918, ULA and link-local. 100.64.0.0/10 isn't a default; add it if you run Tailscale or similar |
 | `FLOWMON_FLOW_STORE_MEMORY_LIMIT` | `1GB` | DuckDB memory limit for the Flow Store |
 | `FLOWMON_FLOW_STORE_THREADS` | DuckDB's default | DuckDB threads for the Flow Store |
+| `FLOWMON_FLOW_STORE_MAX_GB` | no cap | Keep the Flow Store under this many GiB, e.g. `20`, by dropping the oldest raw days before their retention ends (see the deploy guide) |
 | `FLOWMON_RETENTION_RAW` | `7d` | How long raw Flows are kept (whole days are dropped) |
 | `FLOWMON_RETENTION_MINUTE` | `90d` | How long minute Rollups are kept |
 | `FLOWMON_RETENTION_HOUR` | `730d` | How long hour Rollups are kept |
@@ -43,6 +44,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_UDP_RECEIVE_BUFFER_MB` | `8` | Receive buffer to ask for on each UDP socket; the kernel caps it at `net.core.rmem_max` (see the deploy guide) |
 | `FLOWMON_NO_FLOWS_WARNING` | `5m` | Warn in the UI when no Flows arrive for this long; `off` disables it |
 | `FLOWMON_METRICS_TOKEN` (or `_FILE`) | none | Bearer token required on `/metrics`; without it, `/metrics` is open |
+| `FLOWMON_BACKUP_TOKEN` (or `_FILE`) | none | Bearer token that downloads Flow Store backups from `/api/flow-store/backup` without logging in, for scheduled backups |
 | `FLOWMON_GEOIP_DIR` | `/data/geoip` | Your own GeoIP MMDB files (country, city or ASN, from MaxMind or DB-IP). They win over downloads |
 | `FLOWMON_GEOIP_DOWNLOAD` | `true` | Download GeoIP databases weekly: MaxMind GeoLite2 with an account, DB-IP Lite otherwise. `false` uses only your own files |
 | `FLOWMON_MAXMIND_ACCOUNT_ID`, `FLOWMON_MAXMIND_LICENSE_KEY` (or `_FILE`) | none | Your free MaxMind account, for GeoLite2 instead of DB-IP Lite |
