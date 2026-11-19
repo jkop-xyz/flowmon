@@ -53,7 +53,16 @@ function binner(values: number[]) {
   }
 }
 
-export default function WorldMap({ items, total }: { items: TopItem[]; total: number }) {
+export default function WorldMap({
+  items,
+  total,
+  onSelect,
+}: {
+  items: TopItem[]
+  total: number
+  /** Called with a country's ISO code when it is clicked (countries with traffic only). */
+  onSelect?: (country: string) => void
+}) {
   const shapes = useShapes()
   const [hover, setHover] = useState<{ shape: Shape; x: number; y: number; flip: boolean } | null>(null)
 
@@ -76,7 +85,8 @@ export default function WorldMap({ items, total }: { items: TopItem[]; total: nu
                 fill={step < 0 ? "var(--muted)" : stepColor(step)}
                 stroke={active ? "var(--foreground)" : "var(--background)"}
                 strokeWidth={active ? 1.5 : 0.6}
-                className="transition-[stroke]"
+                className={`transition-[stroke] ${item && onSelect ? "cursor-pointer" : ""}`}
+                onClick={item && onSelect && s.country ? () => onSelect(s.country!) : undefined}
                 onMouseMove={(e) => {
                   const box = e.currentTarget.ownerSVGElement!.parentElement!.getBoundingClientRect()
                   const x = e.clientX - box.left
@@ -111,6 +121,7 @@ export default function WorldMap({ items, total }: { items: TopItem[]; total: nu
             ) : (
               <div className="mt-1 text-muted-foreground">No traffic</div>
             )}
+            {hovered && onSelect && <div className="mt-1 text-muted-foreground">Click for its Flows</div>}
           </div>
         )}
       </div>

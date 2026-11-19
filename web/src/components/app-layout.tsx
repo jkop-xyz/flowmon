@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Outlet, useLocation } from "react-router"
+import { Link, Outlet, useLocation } from "react-router"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { ExporterPicker } from "@/components/exporter-picker"
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { StatusBanners } from "@/components/status-banners"
-import { fetchHealth } from "@/lib/api"
+import { appStoreNames, fetchHealth, fetchStatus } from "@/lib/api"
 import { routeMeta } from "@/lib/navigation"
 
 function ServerStatus() {
@@ -27,6 +27,29 @@ function ServerStatus() {
     <Badge variant="secondary" className="hidden sm:inline-flex">
       {/^\d/.test(version) ? `v${version}` : version}
     </Badge>
+  )
+}
+
+/** The version and which databases are in use, on every page. */
+function AppFooter() {
+  const health = useQuery({ queryKey: ["health"], queryFn: ({ signal }) => fetchHealth(signal), refetchInterval: 30_000 })
+  const status = useQuery({ queryKey: ["status"], queryFn: ({ signal }) => fetchStatus(signal), refetchInterval: 15_000 })
+  const version = health.data?.version
+  const driver = status.data?.appStore?.driver
+  return (
+    <footer className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
+      <span>Flowmon {version ? (/^\d/.test(version) ? `v${version}` : version) : ""}</span>
+      {driver && (
+        <>
+          <span aria-hidden>·</span>
+          <Link to="/settings" className="underline-offset-4 hover:underline">
+            App Store: {appStoreNames[driver]}
+          </Link>
+        </>
+      )}
+      <span aria-hidden>·</span>
+      <span>Flow Store: DuckDB</span>
+    </footer>
   )
 }
 
@@ -61,6 +84,7 @@ export function AppLayout() {
           <StatusBanners />
           <Outlet />
         </main>
+        <AppFooter />
       </SidebarInset>
     </SidebarProvider>
   )

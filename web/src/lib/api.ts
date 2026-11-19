@@ -789,12 +789,17 @@ export async function deleteServiceName(protocol: number, port: number) {
   if (!response.ok) await parse(path, response)
 }
 
+/** How the App Store's database is named in the UI. */
+export const appStoreNames = { sqlite: "SQLite (built in)", postgres: "PostgreSQL" } as const
+
 export type AppStoreStatus = {
   configured: boolean
   available: boolean
   since?: string
   error?: string
   driver?: "sqlite" | "postgres"
+  /** The SQLite path or the Postgres URL and schema, without the password. */
+  location?: string
 }
 
 export type CollectionStatus = {

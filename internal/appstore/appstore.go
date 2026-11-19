@@ -85,6 +85,8 @@ func (c Config) Redacted() string {
 type Store struct {
 	db     *sql.DB
 	driver Driver
+	// location is where it is, without the password, for the Settings page.
+	location string
 }
 
 // Open connects, creates the Postgres schema if needed, and applies migrations.
@@ -110,7 +112,11 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("app store: %w", err)
 	}
-	s := &Store{db: db, driver: cfg.Driver}
+	location := cfg.Redacted()
+	if cfg.Schema != "" {
+		location += " (schema " + cfg.Schema + ")"
+	}
+	s := &Store{db: db, driver: cfg.Driver, location: location}
 
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -177,6 +183,10 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // Driver reports the engine.
 func (s *Store) Driver() Driver { return s.driver }
+
+// Location is where the store is: the SQLite path or the Postgres URL and schema,
+// without the password.
+func (s *Store) Location() string { return s.location }
 
 // Ping checks the connection, for the "App Store unavailable" banner.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }

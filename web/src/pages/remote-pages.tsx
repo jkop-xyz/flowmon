@@ -158,14 +158,14 @@ export function RemoteIPsPage() {
                 <TableBody>
                   {items.map((it) => (
                     <TableRow key={it.remoteIp}>
-                      <TableCell className="max-w-72">
+                      <TableCell className="max-w-56">
                         <div className="flex flex-col gap-0.5">
                           <RemoteIPLink ip={it.remoteIp} />
                           <ReverseDNS name={names[it.remoteIp]} />
                         </div>
                       </TableCell>
                       <TableCell>{countryLabel(it.country)}</TableCell>
-                      <TableCell className="max-w-64 truncate" title={asnLabel(it)}>
+                      <TableCell className="max-w-52 truncate" title={asnLabel(it)}>
                         {asnLabel(it)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
