@@ -1,5 +1,5 @@
-// Package ipfix decodes IPFIX messages (RFC 7011) and NetFlow v9 export packets
-// (RFC 3954) into one lossless record model.
+// Package ipfix decodes IPFIX messages (RFC 7011), NetFlow v9 export packets (RFC 3954)
+// and NetFlow v5 packets into one lossless record model.
 //
 // Decoding follows ADR 0002: build to the standard, decode leniently and report
 // strictly. Anything the standard lets an exporter choose (reduced-size integers,
@@ -76,7 +76,8 @@ func (s FieldSpec) Name() string {
 
 // Template describes the layout of the data records an exporter sends for one Template ID.
 type Template struct {
-	// Version is the protocol that defined it: Version (IPFIX) or VersionNetFlowV9.
+	// Version is the protocol that defined it: Version (IPFIX), VersionNetFlowV9, or
+	// VersionNetFlowV5 for the fixed v5 record.
 	Version uint16
 	ID      uint16
 	// ScopeFieldCount is non-zero for Options Templates: the first ScopeFieldCount fields are scope fields.

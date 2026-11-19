@@ -118,12 +118,12 @@ func TestNoneDecodedFindingAfterGrace(t *testing.T) {
 	}
 }
 
-func TestNetFlowV5IsCountedNotDecoded(t *testing.T) {
+func TestUnknownVersionIsCountedNotDecoded(t *testing.T) {
 	c := New(Options{Now: (&clock{now: t0}).Now})
-	v5 := []byte{0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	c.HandleDatagram(router, local, v5)
+	v8 := []byte{0, 8, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	c.HandleDatagram(router, local, v8)
 	exp := c.Status().Exporters[0]
-	if len(exp.Deviations) != 1 || exp.Deviations[0].Kind != string(DevNetFlowV5Unsupported) {
+	if len(exp.Deviations) != 1 || exp.Deviations[0].Kind != string(DevUnknownVersion) {
 		t.Errorf("deviations %+v", exp.Deviations)
 	}
 	if len(exp.Findings) != 1 || exp.Findings[0].Code != "not_ipfix" {

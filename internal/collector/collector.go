@@ -21,9 +21,8 @@ import (
 
 // Collector-level deviations, reported alongside ipfix.Deviation values.
 const (
-	DevNetFlowV5Unsupported ipfix.Deviation = "netflow_v5_not_supported_yet"
-	DevUnknownVersion       ipfix.Deviation = "unknown_version"
-	DevDecoderPanic         ipfix.Deviation = "decoder_panic"
+	DevUnknownVersion ipfix.Deviation = "unknown_version"
+	DevDecoderPanic   ipfix.Deviation = "decoder_panic"
 )
 
 // RecordSink receives decoded records. It is called outside the collector's lock and
@@ -260,15 +259,13 @@ func (c *Collector) HandleDatagram(src, local netip.AddrPort, data []byte) {
 
 	var records []ipfix.Record
 	switch ipfix.PeekVersion(data) {
-	case ipfix.Version, ipfix.VersionNetFlowV9:
+	case ipfix.Version, ipfix.VersionNetFlowV9, ipfix.VersionNetFlowV5:
 		records = c.decodeLocked(exp, src, local, data, now)
 		if admission == AdmitPending {
 			// Templates are kept so approval decodes at once; the data isn't held.
 			exp.pendingDropped += uint64(len(records))
 			records = nil
 		}
-	case 5:
-		exp.deviation(DevNetFlowV5Unsupported, "NetFlow v5 support comes in v1.1; send IPFIX instead", now)
 	default:
 		exp.deviation(DevUnknownVersion, fmt.Sprintf("version %d", ipfix.PeekVersion(data)), now)
 	}
@@ -317,7 +314,7 @@ func (c *Collector) exporterLocked(addr netip.Addr, admission Admission, now tim
 	return exp, true
 }
 
-// decodeLocked decodes an IPFIX message or NetFlow v9 packet, recovering from any panic so one bad packet
+// decodeLocked decodes an IPFIX message or NetFlow v9 or v5 packet, recovering from any panic so one bad packet
 // can't stop collection.
 func (c *Collector) decodeLocked(exp *exporter, src, local netip.AddrPort, data []byte, now time.Time) (records []ipfix.Record) {
 	sess := exp.session(sessionKey{remote: src, local: local}, now, c.opts.Limits, c.opts.MaxSessionsPerExporter)

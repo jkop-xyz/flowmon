@@ -5,6 +5,8 @@
 # Local data and captures
 /data/
 *.pcap
+# …except exporter captures kept as test data (see their README).
+!internal/collector/testdata/captures/*.pcap
 *.pcapng
 
 # Local issue tracker scratch space

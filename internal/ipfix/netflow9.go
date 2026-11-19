@@ -50,9 +50,10 @@ func netflow9ScopeSpec(typ, length uint16) FieldSpec {
 	return FieldSpec{Enterprise: EnterpriseNetFlowV9, ID: typ, Length: length}
 }
 
-// netflow9Domain is what a Session knows about one NetFlow v9 Source ID: the Exporter's
-// clock, to convert uptime-relative flow times and notice restarts, and its sequence.
-type netflow9Domain struct {
+// uptimeDomain is what a Session knows about one NetFlow v9 Source ID or v5 engine: the
+// Exporter's clock, to convert uptime-relative flow times and notice restarts, and its
+// sequence.
+type uptimeDomain struct {
 	uptime uint32    // sysUptime (ms) of the newest packet
 	unix   uint32    // its export time (s)
 	boot   time.Time // best estimate of when the Exporter booted
@@ -91,7 +92,7 @@ func (s *Session) decodeNetFlowV9(d *decodeState, msg []byte) (Header, error) {
 	d.hdr.ExportTime = time.Unix(int64(secs), 0).UTC()
 
 	s.expire(d)
-	dom := s.netflow9Clock(d, uptime, secs)
+	dom := s.uptimeClock(d, uptime, d.hdr.ExportTime)
 	d.base = recordBase{exportTime: d.hdr.ExportTime, sysInit: dom.boot}
 	s.checkNetFlow9Sequence(d, dom)
 
@@ -142,26 +143,27 @@ func (s *Session) decodeNetFlowV9(d *decodeState, msg []byte) (Header, error) {
 // trackedDomain is a Source ID's state, and whether the Session keeps it (it holds a
 // bounded number of them).
 type trackedDomain struct {
-	*netflow9Domain
+	*uptimeDomain
 	tracked bool
 }
 
-// netflow9Clock follows the Exporter's uptime: it estimates the boot time that flow
+// uptimeClock follows the Exporter's uptime: it estimates the boot time that flow
 // times count from, and notices when the uptime starts again from zero, either because
 // the 32-bit counter wrapped or because the Exporter restarted. A restarted Exporter
 // numbers its Templates afresh, so its old ones are dropped.
-func (s *Session) netflow9Clock(d *decodeState, uptime, secs uint32) trackedDomain {
+func (s *Session) uptimeClock(d *decodeState, uptime uint32, exportTime time.Time) trackedDomain {
 	od := d.hdr.ObservationDomain
-	// The export time is whole seconds, so this is up to a second early; the newest
-	// (latest) estimate is the best.
-	est := time.Unix(int64(secs), 0).UTC().Add(-time.Duration(uptime) * time.Millisecond)
-	dom := s.netflow9[od]
+	secs := uint32(exportTime.Unix())
+	// NetFlow v9's export time is whole seconds, so this is up to a second early; the
+	// newest (latest) estimate is the best.
+	est := exportTime.Add(-time.Duration(uptime) * time.Millisecond)
+	dom := s.uptimes[od]
 	if dom == nil {
-		dom = &netflow9Domain{uptime: uptime, unix: secs, boot: est}
-		if len(s.netflow9) >= s.limits.MaxTemplates {
+		dom = &uptimeDomain{uptime: uptime, unix: secs, boot: est}
+		if len(s.uptimes) >= s.limits.MaxTemplates {
 			return trackedDomain{dom, false} // bounded like Templates
 		}
-		s.netflow9[od] = dom
+		s.uptimes[od] = dom
 		return trackedDomain{dom, true}
 	}
 
@@ -172,11 +174,15 @@ func (s *Session) netflow9Clock(d *decodeState, uptime, secs uint32) trackedDoma
 	case dom.wrapped(uptime, secs):
 		dom.boot = dom.boot.Add(uptimeWrap)
 	default:
-		d.deviate(DevExporterRestarted, "uptime went from %s to %s (Source ID %d): the Exporter restarted, so its Templates were dropped until it sends them again",
-			(time.Duration(dom.uptime) * time.Millisecond).Round(time.Second), (time.Duration(uptime) * time.Millisecond).Round(time.Second), od)
+		templates := ", so its Templates were dropped until it sends them again"
+		if d.hdr.Version != VersionNetFlowV9 {
+			templates = ""
+		}
+		d.deviate(DevExporterRestarted, "uptime went from %s to %s (domain %d): the Exporter restarted%s",
+			(time.Duration(dom.uptime) * time.Millisecond).Round(time.Second), (time.Duration(uptime) * time.Millisecond).Round(time.Second), od, templates)
 		s.forgetDomain(od)
-		dom = &netflow9Domain{uptime: uptime, unix: secs, boot: est}
-		s.netflow9[od] = dom
+		dom = &uptimeDomain{uptime: uptime, unix: secs, boot: est}
+		s.uptimes[od] = dom
 		return trackedDomain{dom, true}
 	}
 	dom.uptime, dom.unix = uptime, secs
@@ -189,7 +195,7 @@ func (s *Session) netflow9Clock(d *decodeState, uptime, secs uint32) trackedDoma
 
 // wrapped reports whether a smaller uptime is the 32-bit counter wrapping: the uptime
 // that passed, counted modulo 2³², matches the time that passed by the export clock.
-func (dom *netflow9Domain) wrapped(uptime, secs uint32) bool {
+func (dom *uptimeDomain) wrapped(uptime, secs uint32) bool {
 	if secs < dom.unix {
 		return false
 	}
@@ -215,7 +221,7 @@ func (s *Session) forgetDomain(od uint32) {
 		kept = append(kept, p)
 	}
 	s.pending = kept
-	delete(s.netflow9, od)
+	delete(s.uptimes, od)
 }
 
 // checkNetFlow9Sequence compares the packet's sequence number with the previous one.

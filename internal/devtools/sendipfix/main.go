@@ -1,4 +1,4 @@
-// Command sendipfix sends synthetic IPFIX (or NetFlow v9 with -version 9) to a
+// Command sendipfix sends synthetic IPFIX (or NetFlow v9 or v5 with -version) to a
 // collector, for developing the UI without a router:
 //
 //	go run ./internal/devtools/sendipfix -addr 127.0.0.1:4739
@@ -8,10 +8,12 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"log"
 	"math/rand/v2"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/ipfix/ipfixtest"
@@ -23,11 +25,14 @@ func main() {
 	count := flag.Int("count", 0, "messages to send (0 = forever)")
 	perMessage := flag.Int("flows", 10, "Flows per message")
 	noTemplate := flag.Bool("no-template", false, "never send the Template")
-	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9")
+	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9, 5 for NetFlow v5")
 	source := flag.String("source", "", "local address to send from, e.g. 127.0.0.3:0, to simulate another Exporter")
 	flag.Parse()
-	if *version != 9 && *version != 10 {
-		log.Fatal("-version must be 9 or 10")
+	if *version != 5 && *version != 9 && *version != 10 {
+		log.Fatal("-version must be 5, 9 or 10")
+	}
+	if *version == 5 && *perMessage > 30 {
+		log.Fatal("a NetFlow v5 packet holds at most 30 Flows")
 	}
 
 	dialer := net.Dialer{}
@@ -94,14 +99,18 @@ func main() {
 		// RouterOS resends Templates every 20 packets by default.
 		withTemplate := !*noTemplate && i%20 == 0
 		var packet []byte
-		if *version == 9 {
+		switch *version {
+		case 5:
+			packet = netflowV5(records, boot, wan, seq)
+			seq += uint32(len(records))
+		case 9:
 			// NetFlow v9 counts packets, not records.
 			msg := ipfixtest.NewNetFlowV9(0, uint32(i), time.Now(), boot)
 			if withTemplate {
 				msg.TemplateFlowSet(tmpl)
 			}
 			packet = msg.DataFlowSet(tmpl, records...).Bytes()
-		} else {
+		default:
 			msg := ipfixtest.NewMessage(0, seq, time.Now())
 			if withTemplate {
 				msg.TemplateSet(tmpl)
@@ -114,4 +123,26 @@ func main() {
 		}
 		time.Sleep(*interval)
 	}
+}
+
+// netflowV5 sends the same Flows as NetFlow v5, which has no NAT fields: the router
+// reports a download reply as going to the Local Host, as one exporting from its LAN
+// side would.
+func netflowV5(records [][][]byte, boot time.Time, wan []byte, seq uint32) []byte {
+	m := &ipfixtest.NetFlowV5{Sequence: seq, ExportTime: time.Now(), Boot: boot}
+	u16 := func(b []byte) uint16 { return binary.BigEndian.Uint16(b) }
+	u32 := func(b []byte) uint32 { return binary.BigEndian.Uint32(b) }
+	for _, r := range records {
+		dst := r[1]
+		if string(dst) == string(wan) {
+			dst = r[12] // the post-NAT destination: the Local Host
+		}
+		m.Records = append(m.Records, ipfixtest.NetFlowV5Record{
+			Src: netip.AddrFrom4([4]byte(r[0])), Dst: netip.AddrFrom4([4]byte(dst)),
+			SrcPort: u16(r[2]), DstPort: u16(r[3]), Protocol: r[4][0],
+			Input: uint16(u32(r[5])), Output: uint16(u32(r[6])), Octets: u32(r[7]), Packets: u32(r[8]),
+			First: boot.Add(time.Duration(u32(r[9])) * time.Millisecond), Last: boot.Add(time.Duration(u32(r[10])) * time.Millisecond),
+		})
+	}
+	return m.Bytes()
 }

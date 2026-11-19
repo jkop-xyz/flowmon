@@ -332,11 +332,11 @@ func TestMalformedMessages(t *testing.T) {
 		}
 		r.onlyDeviations(t, ipfix.DevShortMessage)
 	})
-	t.Run("netflow v5", func(t *testing.T) {
-		v5 := append([]byte{}, good...)
-		binary.BigEndian.PutUint16(v5, 5)
+	t.Run("netflow v8", func(t *testing.T) {
+		v8 := append([]byte{}, good...)
+		binary.BigEndian.PutUint16(v8, 8)
 		r := newRecorder()
-		if _, err := newSession().Decode(v5, t0, r); !errors.Is(err, ipfix.ErrNotIPFIX) {
+		if _, err := newSession().Decode(v8, t0, r); !errors.Is(err, ipfix.ErrNotIPFIX) {
 			t.Errorf("err %v", err)
 		}
 		r.onlyDeviations(t, ipfix.DevWrongVersion)
