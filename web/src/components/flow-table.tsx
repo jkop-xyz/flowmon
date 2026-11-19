@@ -25,6 +25,9 @@ import { formatBytes, formatDateTime, formatNumber, protocolName } from "@/lib/f
 import { useHostNames } from "@/lib/hosts"
 import { serviceKey, useServiceNames } from "@/lib/services"
 
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" })
+
 function DirectionLabel({ direction }: { direction: Direction }) {
   const d = directionInfo[direction]
   return (
@@ -43,8 +46,9 @@ function formatDuration(start: string, end: string) {
 }
 
 function Endpoint({ address, port, children }: { address?: string; port: number; children?: ReactNode }) {
+  // A width limit lets long Host Names truncate (full name on hover) instead of widening the table.
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="flex max-w-44 min-w-0 flex-col">
       {children ?? <span className="truncate font-mono text-xs">{address}</span>}
       {port > 0 && <span className="font-mono text-xs text-muted-foreground">port {port}</span>}
     </div>
@@ -60,7 +64,16 @@ function columns({ hosts, services }: Lookups): ColumnDef<FlowItem>[] {
       id: "end",
       accessorFn: (f) => f.end,
       header: "Ended",
-      cell: ({ row }) => <span className="tabular-nums whitespace-nowrap">{formatDateTime(row.original.end)}</span>,
+      // Time over date: two short lines take half the width of one long one.
+      cell: ({ row }) => {
+        const end = new Date(row.original.end)
+        return (
+          <span className="flex flex-col tabular-nums whitespace-nowrap" title={formatDateTime(row.original.end)}>
+            <span>{timeFormat.format(end)}</span>
+            <span className="text-xs text-muted-foreground">{dateFormat.format(end)}</span>
+          </span>
+        )
+      },
     },
     { id: "direction", header: "Direction", enableSorting: false, cell: ({ row }) => <DirectionLabel direction={row.original.direction} /> },
     {
@@ -130,7 +143,7 @@ function columns({ hosts, services }: Lookups): ColumnDef<FlowItem>[] {
         if (f.direction !== "inbound" && f.direction !== "outbound") return null
         const label = [f.country, f.asn ? `AS${f.asn}${f.asnOrg ? ` ${f.asnOrg}` : ""}` : ""].filter(Boolean).join(" · ")
         return (
-          <span className="block max-w-48 truncate" title={f.country ? `${countryName(f.country)}${label ? ` · ${label}` : ""}` : label}>
+          <span className="block max-w-40 truncate" title={f.country ? `${countryName(f.country)}${label ? ` · ${label}` : ""}` : label}>
             {label || "Unknown"}
           </span>
         )
