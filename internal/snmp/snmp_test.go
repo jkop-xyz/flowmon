@@ -2,6 +2,7 @@ package snmp
 
 import (
 	"context"
+	"encoding/json"
 	"net/netip"
 	"path/filepath"
 	"sync"
@@ -219,4 +220,16 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// With SNMP on and no WAN Interface marked yet, the report is an empty list, not
+// null: the Exporters page reads its length.
+func TestReconcileWithoutWANInterfacesIsAnEmptyList(t *testing.T) {
+	reps, err := Reconcile(ctx, openStore(t), exp, map[string]uint32{}, 14, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(reps); string(b) != "[]" {
+		t.Errorf("got %s, want []", b)
+	}
 }

@@ -67,7 +67,7 @@ func large(d Direction) bool { return d.Gap != nil && math.Abs(*d.Gap) > GapThre
 func Reconcile(ctx context.Context, s Store, exporter netip.Addr, wan map[string]uint32, overhead int, now time.Time) ([]InterfaceReport, error) {
 	to := now.UTC().Truncate(time.Hour) // the current hour is still running
 	from := to.Add(-ReconcileWindow)
-	var out []InterfaceReport
+	out := []InterfaceReport{}
 	for name, idx := range wan {
 		hours, err := s.SNMPHours(ctx, exporter, name, from, to)
 		if err != nil {
