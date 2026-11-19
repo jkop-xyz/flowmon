@@ -6,6 +6,7 @@ import { ApprovalPanel, ExporterActions } from "@/components/exporter-approval"
 import { InterfacesSection } from "@/components/interfaces-section"
 import { CollectorCard } from "@/components/collector-card"
 import { EmptyState, Page, QueryError, Section, SectionHeading, Stat, TimeAgo } from "@/components/page"
+import { SamplingSection } from "@/components/sampling-section"
 import { SNMPSection } from "@/components/snmp-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -205,6 +206,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
 
         {exporter.timing && <Timing timing={exporter.timing} />}
         {exporter.deviations.length > 0 && <Deviations deviations={exporter.deviations} now={now} />}
+        {approved && <SamplingSection key={exporter.samplingRate} exporter={exporter} />}
         {approved && <InterfacesSection address={exporter.address} />}
         {approved && <SNMPSection address={exporter.address} />}
 

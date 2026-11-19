@@ -28,6 +28,10 @@ How an Exporter's Flows are sorted into local and remote. **By interface** uses 
 One flow record sent by an Exporter. It describes packets that shared a key (addresses, ports, protocol) between a start time and an end time.
 _Avoid_: Connection, session, conversation
 
+**Sampling Rate**:
+The share of packets an Exporter counts: at 1 in N it counts one packet in every N, so a Flow's real bytes and packets are about N times what it reported. Flowmon takes the rate the Exporter announces (in its records or Options records), or one set by hand on the Exporters page when it announces none, and scales the counts up. The results are estimates, and every chart, list and Flow made of them says so.
+_Avoid_: sample ratio, sampling interval (the IPFIX element names vary)
+
 **Template**:
 A description an Exporter sends of the field layout of its later Flows. Flows can't be read without it.
 

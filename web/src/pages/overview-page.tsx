@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   fetchBandwidth,
   fetchTop,
+  type BandwidthResult,
   type TopDimension,
   type TopItem,
 } from "@/lib/api"
@@ -14,6 +15,7 @@ import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
 import { BarList, BarRow } from "@/components/bar-list"
+import { EstimateNote } from "@/components/estimate"
 import { HostLink } from "@/components/host"
 import { RemoteIPLink } from "@/components/remote"
 import { ServicePort } from "@/components/service-port"
@@ -72,6 +74,11 @@ export function OverviewPage() {
               incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
               changes={query.data.changes ?? []}
             />
+          )}
+          {query.data && (
+            <div className="mt-3">
+              <EstimateNote estimated={query.data.result.estimatedBytes} total={bandwidthBytes(query.data.result)} />
+            </div>
           )}
         </CardContent>
       </Card>
@@ -134,6 +141,11 @@ export function OverviewPage() {
       </div>
     </Page>
   )
+}
+
+/** The bytes a bandwidth series shows: its rates times the step. */
+function bandwidthBytes(r: BandwidthResult) {
+  return r.points.reduce((n, p) => n + ((p.inboundBps + p.outboundBps + p.internalBps) * r.stepSeconds) / 8, 0)
 }
 
 /** Text labels; hosts, Remote IPs and ports are rendered as links and names instead. */
@@ -204,6 +216,9 @@ function CountriesCard() {
             <TopList dimension="countries" items={countries.data.result.items.slice(0, 8)} mono={false} />
           </div>
         )}
+        {countries.data && (
+          <EstimateNote estimated={countries.data.result.estimatedBytes} total={countries.data.result.totalBytes} />
+        )}
         <CardFooterNote>
           <GeoIPNote />
         </CardFooterNote>
@@ -269,6 +284,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
           received={item.receivedBytes}
           sent={item.sentBytes + item.internalBytes}
           max={items[0].totalBytes}
+          estimated={item.estimatedBytes}
         />
       ))}
     </BarList>
@@ -319,6 +335,9 @@ function TopCard({
           <QueryError title={`Couldn't load the busiest ${what}`} error={query.error} />
         ) : (
           <TopList dimension={dimension} items={query.data.result.items} mono={mono} />
+        )}
+        {query.data && (
+          <EstimateNote estimated={query.data.result.estimatedBytes} total={query.data.result.totalBytes} />
         )}
         {query.data?.result.approximate && (
           <CardFooterNote>

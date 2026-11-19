@@ -9,6 +9,7 @@ import { Field, FormActions, FormError, Page, QueryError, SectionSkeleton, Stat,
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { ServicePort } from "@/components/service-port"
+import { EstimateNote } from "@/components/estimate"
 import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -375,6 +376,12 @@ export function LocalHostPage() {
               incompleteFrom={new Date(traffic.data.incompleteFrom).getTime()}
             />
           )}
+          {summary.data && (
+            <EstimateNote
+              estimated={summary.data.result.estimatedBytes}
+              total={summary.data.result.receivedBytes + summary.data.result.sentBytes}
+            />
+          )}
         </CardContent>
       </Card>
       {summary.data && host.includes("/") && <AddressesCard addresses={summary.data.result.addresses} />}
@@ -642,6 +649,7 @@ function BarCard({
                 received={it.receivedBytes}
                 sent={it.sentBytes}
                 max={items[0].totalBytes}
+                estimated={it.estimatedBytes}
               />
             ))}
           </BarList>

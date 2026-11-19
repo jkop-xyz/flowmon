@@ -67,6 +67,7 @@ func groupTopHosts(items []TopItem, groups []netip.Prefix, limit int) []TopItem 
 		g.InternalBytes += it.InternalBytes
 		g.TotalBytes += it.TotalBytes
 		g.Flows += it.Flows
+		g.EstimatedBytes += it.EstimatedBytes
 	}
 	slices.SortStableFunc(out, func(a, b TopItem) int {
 		switch {
@@ -192,6 +193,8 @@ type HostPoint struct {
 	Time        time.Time `json:"t"`
 	ReceivedBps float64   `json:"receivedBps"`
 	SentBps     float64   `json:"sentBps"`
+	// EstimatedBps is the part of both scaled up from sampled Flows.
+	EstimatedBps float64 `json:"estimatedBps,omitempty"`
 }
 
 // HostTrafficResult is a Local Host's traffic over time.
@@ -201,6 +204,8 @@ type HostTrafficResult struct {
 	StepS  float64     `json:"stepSeconds"`
 	Source Source      `json:"source"`
 	Points []HostPoint `json:"points"`
+	// EstimatedBytes is how many of the bytes shown were scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes"`
 }
 
 // HostTraffic returns what a Local Host received and sent per time bucket, from every
@@ -229,7 +234,8 @@ func (s *Store) HostTraffic(ctx context.Context, q HostQuery) (HostTrafficResult
 	if err != nil || union == "" {
 		return res, err
 	}
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`SELECT time_bucket(INTERVAL %d SECOND, bucket) AS b, sum(bytes_rx), sum(bytes_tx)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`SELECT time_bucket(INTERVAL %d SECOND, bucket) AS b, sum(bytes_rx), sum(bytes_tx),
+	sum(estimated_rx + estimated_tx)
 FROM (%s) GROUP BY b`, int64(step.Seconds()), union), a.args...)
 	if err != nil {
 		return HostTrafficResult{}, fmt.Errorf("local host traffic query: %w", err)
@@ -238,13 +244,15 @@ FROM (%s) GROUP BY b`, int64(step.Seconds()), union), a.args...)
 	perSecond := 8 / step.Seconds()
 	for rows.Next() {
 		var b time.Time
-		var rx, tx float64
-		if err := rows.Scan(&b, &rx, &tx); err != nil {
+		var rx, tx, est float64
+		if err := rows.Scan(&b, &rx, &tx, &est); err != nil {
 			return HostTrafficResult{}, err
 		}
 		if i, ok := buckets[b.UTC().Unix()]; ok {
 			res.Points[i].ReceivedBps += rx * perSecond
 			res.Points[i].SentBps += tx * perSecond
+			res.Points[i].EstimatedBps += est * perSecond
+			res.EstimatedBytes += est
 		}
 	}
 	return res, rows.Err()
@@ -268,6 +276,8 @@ type HostSummary struct {
 	// Flows counts the Flows the Local Host took part in, except Internal ones it
 	// received: Rollups count those for the Local Host that sent them.
 	Flows float64 `json:"flows"`
+	// EstimatedBytes is the part of Received and Sent scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes"`
 	// Ports are Service Ports; LocalPeers other Local Hosts (grouped by HostGroups);
 	// Countries and ASNs the Remote IPs' countries and ASN Owners.
 	Ports      []HostItem `json:"ports"`
@@ -298,6 +308,8 @@ type HostItem struct {
 	SentBytes     float64 `json:"sentBytes"`
 	TotalBytes    float64 `json:"totalBytes"`
 	Flows         float64 `json:"flows"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes,omitempty"`
 }
 
 // HostDetail summarises a Local Host's traffic over a range.
@@ -329,7 +341,8 @@ SELECT CASE
 		ELSE 'total' END AS k,
 	coalesce(local_host, ''), coalesce(protocol, 0), coalesce(service_port, 0), coalesce(peer_local_host, ''),
 	coalesce(peer_country, ''), coalesce(peer_asn, 0), coalesce(peer_kind, 0),
-	coalesce(sum(bytes_rx), 0), coalesce(sum(bytes_tx), 0), coalesce(sum(flows), 0)::DOUBLE, coalesce(bool_or(local_is_exporter_host), false)
+	coalesce(sum(bytes_rx), 0), coalesce(sum(bytes_tx), 0), coalesce(sum(flows), 0)::DOUBLE, coalesce(bool_or(local_is_exporter_host), false),
+	coalesce(sum(estimated_rx + estimated_tx), 0)
 FROM r
 GROUP BY GROUPING SETS ((local_host), (protocol, service_port), (peer_kind, peer_local_host), (peer_kind, peer_country), (peer_kind, peer_asn), (peer_kind), ())`, union)
 	rows, err := s.db.QueryContext(ctx, query, a.args...)
@@ -343,12 +356,12 @@ GROUP BY GROUPING SETS ((local_host), (protocol, service_port), (peer_kind, peer
 		var proto, kind uint8
 		var port uint16
 		var asn uint32
-		var rx, tx, flows float64
+		var rx, tx, flows, est float64
 		var leh bool
-		if err := rows.Scan(&k, &host, &proto, &port, &peer, &country, &asn, &kind, &rx, &tx, &flows, &leh); err != nil {
+		if err := rows.Scan(&k, &host, &proto, &port, &peer, &country, &asn, &kind, &rx, &tx, &flows, &leh, &est); err != nil {
 			return HostSummary{}, err
 		}
-		it := HostItem{ReceivedBytes: rx, SentBytes: tx, TotalBytes: rx + tx, Flows: flows}
+		it := HostItem{ReceivedBytes: rx, SentBytes: tx, TotalBytes: rx + tx, Flows: flows, EstimatedBytes: est}
 		switch {
 		case k == "address":
 			res.Addresses = append(res.Addresses, HostAddress{Address: host, ReceivedBytes: rx, SentBytes: tx, TotalBytes: rx + tx})
@@ -356,7 +369,7 @@ GROUP BY GROUPING SETS ((local_host), (protocol, service_port), (peer_kind, peer
 			it.Protocol, it.ServicePort = proto, port
 			res.Ports = append(res.Ports, it)
 		case k == "peer" && kind == 2:
-			peers = append(peers, TopItem{Host: peer, ReceivedBytes: rx, SentBytes: tx, TotalBytes: rx + tx, Flows: flows})
+			peers = append(peers, TopItem{Host: peer, ReceivedBytes: rx, SentBytes: tx, TotalBytes: rx + tx, Flows: flows, EstimatedBytes: est})
 		case k == "country" && kind == 1:
 			it.Country = country
 			res.Countries = append(res.Countries, it)
@@ -368,7 +381,7 @@ GROUP BY GROUPING SETS ((local_host), (protocol, service_port), (peer_kind, peer
 		case k == "total" && kind == 2:
 			res.InternalBytes = rx + tx
 		case k == "total" && kind == 0:
-			res.ReceivedBytes, res.SentBytes, res.Flows, res.LocalIsExporterHost = rx, tx, flows, leh
+			res.ReceivedBytes, res.SentBytes, res.Flows, res.LocalIsExporterHost, res.EstimatedBytes = rx, tx, flows, leh, est
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -376,7 +389,7 @@ GROUP BY GROUPING SETS ((local_host), (protocol, service_port), (peer_kind, peer
 	}
 	for _, p := range groupTopHosts(peers, q.HostGroups, q.Limit) {
 		res.LocalPeers = append(res.LocalPeers, HostItem{Host: p.Host, Addresses: p.Addresses,
-			ReceivedBytes: p.ReceivedBytes, SentBytes: p.SentBytes, TotalBytes: p.TotalBytes, Flows: p.Flows})
+			ReceivedBytes: p.ReceivedBytes, SentBytes: p.SentBytes, TotalBytes: p.TotalBytes, Flows: p.Flows, EstimatedBytes: p.EstimatedBytes})
 	}
 	byTotal := func(a, b HostItem) int {
 		switch {

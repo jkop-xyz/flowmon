@@ -17,6 +17,7 @@ import { ServicePort } from "@/components/service-port"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { EstimateMark } from "@/components/estimate"
 import { fetchFlow, type Direction, type FlowDetail, type FlowItem, type HostName, type ServiceName } from "@/lib/api"
 import { countryName } from "@/lib/countries"
 import { directionInfo } from "@/lib/flows"
@@ -104,14 +105,14 @@ function columns({ hosts, services }: Lookups): ColumnDef<FlowItem>[] {
       accessorFn: (f) => f.bytes,
       header: "Bytes",
       meta: { numeric: true },
-      cell: ({ row }) => formatBytes(row.original.bytes),
+      cell: ({ row }) => <Sampled rate={row.original.samplingRate}>{formatBytes(row.original.bytes)}</Sampled>,
     },
     {
       id: "packets",
       accessorFn: (f) => f.packets,
       header: "Packets",
       meta: { numeric: true },
-      cell: ({ row }) => formatNumber(row.original.packets),
+      cell: ({ row }) => <Sampled rate={row.original.samplingRate}>{formatNumber(row.original.packets)}</Sampled>,
     },
     {
       id: "duration",
@@ -273,6 +274,16 @@ export function FlowDetailSheet({ id, onClose }: { id: string | null; onClose: (
   )
 }
 
+/** A count that is an estimate when the Flow was sampled. */
+function Sampled({ rate, children }: { rate?: number; children: ReactNode }) {
+  if (!rate) return children
+  return (
+    <span title={`Sampled 1 in ${formatNumber(rate)} packets: an estimate`}>
+      <EstimateMark title={`Sampled 1 in ${formatNumber(rate)} packets: an estimate`} /> {children}
+    </span>
+  )
+}
+
 function FlowDetailView({ d }: { d: FlowDetail }) {
   const rows: [string, ReactNode][] = [
     ["Direction", <DirectionLabel key="d" direction={d.direction} />],
@@ -291,8 +302,16 @@ function FlowDetailView({ d }: { d: FlowDetail }) {
   }
   rows.push(
     ["Protocol", protocolName(d.protocol)],
-    ["Bytes", `${formatBytes(d.bytes)} (${formatNumber(d.bytes)})`],
-    ["Packets", formatNumber(d.packets)],
+    ["Bytes", `${d.samplingRate ? "≈ " : ""}${formatBytes(d.bytes)} (${formatNumber(d.bytes)})`],
+    ["Packets", `${d.samplingRate ? "≈ " : ""}${formatNumber(d.packets)}`],
+    ...(d.samplingRate
+      ? ([
+          [
+            "Sampling",
+            `1 in ${formatNumber(d.samplingRate)} packets. The Exporter counted ${formatNumber(Math.round(d.bytes / d.samplingRate))} bytes in ${formatNumber(Math.round(d.packets / d.samplingRate))} packets; the counts above are scaled up to estimate the real traffic.`,
+          ],
+        ] as [string, ReactNode][])
+      : []),
     ["Interfaces", `in ${d.ingressInterface || "–"}, out ${d.egressInterface || "–"}`],
     ["Exporter", <span key="e" className="font-mono text-xs">{`${d.exporter} (domain ${d.observationDomain})`}</span>],
   )

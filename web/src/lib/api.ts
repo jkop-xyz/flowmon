@@ -118,7 +118,23 @@ export type ExporterStatus = {
   templates: TemplateStatus[]
   findings: Finding[]
   timing: TimingStatus | null
+  /** Whether its Flows are sampled; null before any arrived. */
+  sampling: SamplingStatus | null
+  /** The rate set by hand, for an Exporter that samples without saying so; 0 for none. */
+  samplingRate: number
 }
+
+export type SamplingStatus = {
+  /** What the newest Flow's Exporter announced: N for 1 in N, 1 for every packet, 0 for nothing. */
+  announcedRate: number
+  flows: number
+  /** Flows scaled up since Flowmon started, and the rate the newest was scaled by (0: not). */
+  sampledFlows: number
+  lastRate: number
+}
+
+export const setSamplingRate = (address: string, samplingRate: number) =>
+  putJSON<unknown>(`/api/exporters/${encodeURIComponent(address)}/sampling`, { samplingRate })
 
 export type ListenerStatus = {
   address: string
@@ -167,6 +183,8 @@ export type BandwidthPoint = {
   inboundBps: number
   outboundBps: number
   internalBps: number
+  /** The part of the three that was scaled up from sampled Flows. */
+  estimatedBps?: number
 }
 
 export type Source = "raw" | "minute" | "hour"
@@ -177,6 +195,7 @@ export type BandwidthResult = {
   stepSeconds: number
   source: Source
   points: BandwidthPoint[]
+  estimatedBytes: number
 }
 
 /** Query results carry the time after which data may still change (the Watermark). */
@@ -222,6 +241,8 @@ export type TopItem = {
   internalBytes: number
   totalBytes: number
   flows?: number
+  /** The part of the bytes scaled up from sampled Flows: an estimate. */
+  estimatedBytes?: number
 }
 
 export type TopResult = {
@@ -230,6 +251,7 @@ export type TopResult = {
   source: Source
   items: TopItem[]
   totalBytes: number
+  estimatedBytes: number
   /** Set when the list came from the Top Remote IPs lists (see Coverage). */
   approximate?: boolean
 }
@@ -427,12 +449,15 @@ export type RemoteItem = {
   totalBytes: number
   flows: number
   localHosts: number
+  /** The part of the bytes scaled up from sampled Flows: an estimate. */
+  estimatedBytes?: number
 }
 
 export type RemoteResult = Coverage & {
   items: RemoteItem[]
   totalBytes: number
   otherBytes: number
+  estimatedBytes: number
 }
 
 export type RemoteHost = {
@@ -442,6 +467,8 @@ export type RemoteHost = {
   sentBytes: number
   totalBytes: number
   flows: number
+  /** The part of the bytes scaled up from sampled Flows: an estimate. */
+  estimatedBytes?: number
 }
 
 export type GeoInfo = { country?: string; asn?: number; asnOrg?: string }
@@ -452,6 +479,7 @@ export type RemoteDetail = Coverage &
     receivedBytes: number
     sentBytes: number
     flows: number
+    estimatedBytes: number
     localHosts: RemoteHost[]
     /** What today's GeoIP databases say. */
     current?: GeoInfo
@@ -481,6 +509,8 @@ export type FlowItem = {
   servicePort: number
   bytes: number
   packets: number
+  /** N when the Exporter sampled 1 in N packets: bytes and packets are then estimates, scaled up by N. */
+  samplingRate?: number
   country?: string
   asn?: number
   asnOrg?: string
@@ -641,6 +671,8 @@ export type HostItem = {
   sentBytes: number
   totalBytes: number
   flows: number
+  /** The part of the bytes scaled up from sampled Flows: an estimate. */
+  estimatedBytes?: number
 }
 
 export type HostSummary = {
@@ -654,6 +686,7 @@ export type HostSummary = {
   remoteBytes: number
   internalBytes: number
   flows: number
+  estimatedBytes: number
   ports: HostItem[]
   localPeers: HostItem[]
   countries: HostItem[]
@@ -665,7 +698,8 @@ export type HostTraffic = {
   to: string
   stepSeconds: number
   source: Source
-  points: { t: string; receivedBps: number; sentBps: number }[]
+  points: { t: string; receivedBps: number; sentBps: number; estimatedBps?: number }[]
+  estimatedBytes: number
 }
 
 function hostParams(host: string, range: RangeParams) {

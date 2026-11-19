@@ -166,7 +166,19 @@ func serve(stderr io.Writer) int {
 	}, resolver)
 	geo.Load() // what is already on disk, so the first Flows are enriched
 
+	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error: FLOWMON_EXPORTER_ALLOWLIST:", err)
+		return 2
+	}
+	registry, err := exporters.Load(ctx, exporters.Options{Persister: store, AutoAccept: cfg.ExporterAutoAccept, Allowlist: allowlist})
+	if err != nil {
+		logger.Error("exporters", "err", err)
+		return 1
+	}
+
 	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: resolver.Enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
+		SamplingRate: registry.SamplingRate,
 		OnInterfaceName: func(exp netip.Addr, idx uint32, name string, at time.Time) {
 			if _, err := ifaceRegistry.SetName(context.Background(), exp, idx, name, interfaces.SourceOptions, at); err != nil {
 				logger.Warn("saving an interface name from an Options Template", "exporter", exp.String(), "err", err)
@@ -189,16 +201,6 @@ func serve(stderr io.Writer) int {
 	go maintain(pipelineCtx, logger, store, pipeline, func() flowstore.Retention { return collectionSettings.Current().Retention }, cfg.FlowStoreMaxBytes)
 	go geo.Run(pipelineCtx)
 
-	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
-	if err != nil {
-		fmt.Fprintln(stderr, "configuration error: FLOWMON_EXPORTER_ALLOWLIST:", err)
-		return 2
-	}
-	registry, err := exporters.Load(ctx, exporters.Options{Persister: store, AutoAccept: cfg.ExporterAutoAccept, Allowlist: allowlist})
-	if err != nil {
-		logger.Error("exporters", "err", err)
-		return 1
-	}
 	classifier.SetInterfaces(interfaceClassification{registry, ifaceRegistry})
 	collectionSettings.OnChange(func(v settings.Values) {
 		before := classifier.LocalNetworks()

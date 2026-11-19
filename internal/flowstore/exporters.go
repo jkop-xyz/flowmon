@@ -15,11 +15,13 @@ type ExporterRecord struct {
 	Name               string
 	DecidedAt          time.Time
 	DecidedBy          string
+	// SamplingRate is set by hand for an Exporter that samples without announcing it.
+	SamplingRate uint32
 }
 
 // ExporterRecords returns every stored Exporter decision.
 func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT address, status, role, classification_mode, name, decided_at, decided_by FROM exporters ORDER BY address`)
+	rows, err := s.db.QueryContext(ctx, `SELECT address, status, role, classification_mode, name, decided_at, decided_by, coalesce(sampling_rate, 0) FROM exporters ORDER BY address`)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +30,7 @@ func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
 	for rows.Next() {
 		var r ExporterRecord
 		var addr string
-		if err := rows.Scan(&addr, &r.Status, &r.Role, &r.ClassificationMode, &r.Name, &r.DecidedAt, &r.DecidedBy); err != nil {
+		if err := rows.Scan(&addr, &r.Status, &r.Role, &r.ClassificationMode, &r.Name, &r.DecidedAt, &r.DecidedBy, &r.SamplingRate); err != nil {
 			return nil, err
 		}
 		if r.Address, err = netip.ParseAddr(addr); err != nil {
@@ -42,8 +44,9 @@ func (s *Store) ExporterRecords(ctx context.Context) ([]ExporterRecord, error) {
 
 // SaveExporterRecord inserts or replaces a decision.
 func (s *Store) SaveExporterRecord(ctx context.Context, r ExporterRecord) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO exporters VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Address.String(), r.Status, r.Role, r.ClassificationMode, r.Name, r.DecidedAt.UTC(), r.DecidedBy)
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO exporters (address, status, role, classification_mode, name, decided_at, decided_by, sampling_rate)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Address.String(), r.Status, r.Role, r.ClassificationMode, r.Name, r.DecidedAt.UTC(), r.DecidedBy, r.SamplingRate)
 	return err
 }
 

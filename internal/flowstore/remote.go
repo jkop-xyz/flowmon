@@ -61,6 +61,9 @@ const topRemoteMigration = `CREATE TABLE top_remote (
 	flows DOUBLE NOT NULL
 )`
 
+// Migration 12 adds estimated_rx and estimated_tx DOUBLE DEFAULT 0 to top_remote: the
+// bytes that are estimates from sampled Flows.
+
 const topRemoteBuiltMigration = `CREATE TABLE top_remote_built (granularity VARCHAR NOT NULL, period TIMESTAMP NOT NULL, built_at TIMESTAMP NOT NULL, PRIMARY KEY (granularity, period))`
 
 func (s *Store) loadTopRemoteBuilt(ctx context.Context) error {
@@ -145,11 +148,12 @@ func (s *Store) rawRemoteSQL(a *sqlArgs, w0, w1 time.Time, f remoteFilter) strin
 	var parts []string
 	for _, t := range tables {
 		parts = append(parts, fmt.Sprintf(`SELECT exporter, local_host, local_is_exporter_host, peer, peer_country, peer_asn, direction, bytes, packets,
-			%s AS share, CASE WHEN %s THEN 1.0 ELSE 0.0 END AS flows FROM %s WHERE %s`, share, inWindow, t, where))
+			coalesce(sampling_rate, 0) > 1 AS sampled, %s AS share, CASE WHEN %s THEN 1.0 ELSE 0.0 END AS flows FROM %s WHERE %s`, share, inWindow, t, where))
 	}
 	return `SELECT exporter, local_host, local_is_exporter_host, peer, coalesce(peer_country, '') AS peer_country, coalesce(peer_asn, 0)::UINTEGER AS peer_asn,
 		share * CASE WHEN direction = 1 THEN bytes ELSE 0 END AS rx, share * CASE WHEN direction = 2 THEN bytes ELSE 0 END AS tx,
-		share * CASE WHEN direction = 1 THEN packets ELSE 0 END AS prx, share * CASE WHEN direction = 2 THEN packets ELSE 0 END AS ptx, flows
+		share * CASE WHEN direction = 1 THEN packets ELSE 0 END AS prx, share * CASE WHEN direction = 2 THEN packets ELSE 0 END AS ptx, flows,
+		share * CASE WHEN direction = 1 AND sampled THEN bytes ELSE 0 END AS erx, share * CASE WHEN direction = 2 AND sampled THEN bytes ELSE 0 END AS etx
 		FROM (` + strings.Join(parts, "\nUNION ALL\n") + `) WHERE share > 0 OR flows > 0`
 }
 
@@ -174,7 +178,7 @@ func (s *Store) buildTopRemote(ctx context.Context, p period) error {
 		q := fmt.Sprintf(`INSERT INTO top_remote
 WITH f AS (%[1]s),
 g AS (SELECT exporter, local_host, bool_or(local_is_exporter_host) AS leh, peer, max(peer_country) AS pc, max(peer_asn) AS pa,
-	sum(rx) AS rx, sum(tx) AS tx, sum(prx) AS prx, sum(ptx) AS ptx, sum(flows) AS flows
+	sum(rx) AS rx, sum(tx) AS tx, sum(prx) AS prx, sum(ptx) AS ptx, sum(flows) AS flows, sum(erx) AS erx, sum(etx) AS etx
 	FROM f GROUP BY exporter, local_host, peer),
 r AS (SELECT *,
 	row_number() OVER (PARTITION BY exporter, local_host ORDER BY rx + tx DESC, peer) <= %[4]d
@@ -182,7 +186,7 @@ r AS (SELECT *,
 	FROM g),
 k AS (SELECT *, CASE WHEN keep THEN peer ELSE '' END AS rip, CASE WHEN keep THEN pc ELSE '' END AS rpc,
 	CASE WHEN keep THEN pa ELSE 0 END::UINTEGER AS rpa FROM r)
-SELECT %[2]s, %[3]s, exporter, local_host, bool_or(leh), rip, rpc, rpa, sum(rx), sum(tx), sum(prx), sum(ptx), sum(flows)
+SELECT %[2]s, %[3]s, exporter, local_host, bool_or(leh), rip, rpc, rpa, sum(rx), sum(tx), sum(prx), sum(ptx), sum(flows), sum(erx), sum(etx)
 FROM k GROUP BY exporter, local_host, rip, rpc, rpa`, src, g, ps, TopRemoteKeep)
 		if _, err := tx.ExecContext(ctx, q, a.args...); err != nil {
 			return fmt.Errorf("building Top Remote IPs: %w", err)
@@ -320,6 +324,8 @@ type RemoteItem struct {
 	TotalBytes    float64 `json:"totalBytes"`
 	Flows         float64 `json:"flows"`
 	LocalHosts    int     `json:"localHosts"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes,omitempty"`
 }
 
 // Coverage says where an answer about Remote IPs came from and what it can't include.
@@ -346,6 +352,8 @@ type RemoteResult struct {
 	// listed Remote IP (only with lists).
 	TotalBytes float64 `json:"totalBytes"`
 	OtherBytes float64 `json:"otherBytes"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes"`
 }
 
 // remoteSource builds the union of list rows and raw Flows that answers a query over
@@ -359,7 +367,7 @@ func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, f remoteFilter
 		rawFrom = days[0]
 		cov.RawFrom = &rawFrom
 	}
-	rawCols := `exporter, local_host, local_is_exporter_host, peer, peer_country, peer_asn, rx, tx, flows`
+	rawCols := `exporter, local_host, local_is_exporter_host, peer, peer_country, peer_asn, rx, tx, flows, erx + etx AS est`
 	if !rawFrom.IsZero() && !from.Before(rawFrom) && to.Sub(from) <= rawRemoteRange {
 		raw := s.rawRemoteSQL(a, from, to, f)
 		if raw == "" {
@@ -396,8 +404,8 @@ func (s *Store) remoteSource(a *sqlArgs, from, to, now time.Time, f remoteFilter
 		cov.ListsFrom = &oldest
 		where := fmt.Sprintf(`granularity = %s AND period >= %s AND period < %s`, a.add(gran), a.add(from.Truncate(size)), a.add(minTime(to, newestEnd))) +
 			f.where(a, "remote_ip")
-		parts = append(parts, `SELECT exporter, local_host, local_is_exporter_host, remote_ip AS peer, peer_country, peer_asn, bytes_rx AS rx, bytes_tx AS tx, flows
-			FROM top_remote WHERE `+where)
+		parts = append(parts, `SELECT exporter, local_host, local_is_exporter_host, remote_ip AS peer, peer_country, peer_asn, bytes_rx AS rx, bytes_tx AS tx, flows,
+			estimated_rx + estimated_tx AS est FROM top_remote WHERE `+where)
 		if newestEnd.After(tail) {
 			tail = newestEnd
 		}
@@ -449,8 +457,9 @@ func (s *Store) TopRemoteIPs(ctx context.Context, q RemoteQuery) (RemoteResult, 
 	}
 	query := fmt.Sprintf(`WITH u AS (%s),
 g AS (SELECT peer, max(peer_country) AS pc, max(peer_asn) AS pa, sum(rx) AS rx, sum(tx) AS tx, sum(flows) AS flows,
-	count(DISTINCT local_host) AS hosts FROM u GROUP BY peer)
-SELECT peer, pc, pa, rx, tx, flows, hosts, sum(rx + tx) OVER () AS total, coalesce(sum(CASE WHEN peer = '' THEN rx + tx END) OVER (), 0) AS other
+	count(DISTINCT local_host) AS hosts, sum(est) AS est FROM u GROUP BY peer)
+SELECT peer, pc, pa, rx, tx, flows, hosts, sum(rx + tx) OVER () AS total, coalesce(sum(CASE WHEN peer = '' THEN rx + tx END) OVER (), 0) AS other,
+	est, sum(est) OVER () AS total_est
 FROM g ORDER BY peer = '', %s, peer LIMIT %d`, src, order, q.Limit+1)
 	rows, err := s.db.QueryContext(ctx, query, a.args...)
 	if err != nil {
@@ -460,7 +469,7 @@ FROM g ORDER BY peer = '', %s, peer LIMIT %d`, src, order, q.Limit+1)
 	for rows.Next() {
 		var it RemoteItem
 		if err := rows.Scan(&it.RemoteIP, &it.Country, &it.ASN, &it.ReceivedBytes, &it.SentBytes, &it.Flows, &it.LocalHosts,
-			&res.TotalBytes, &res.OtherBytes); err != nil {
+			&res.TotalBytes, &res.OtherBytes, &it.EstimatedBytes, &res.EstimatedBytes); err != nil {
 			return RemoteResult{}, err
 		}
 		if it.RemoteIP == "" || len(res.Items) == q.Limit {
@@ -483,6 +492,8 @@ type RemoteHost struct {
 	SentBytes           float64 `json:"sentBytes"`
 	TotalBytes          float64 `json:"totalBytes"`
 	Flows               float64 `json:"flows"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes,omitempty"`
 }
 
 // RemoteDetail is one Remote IP over a time range: its totals and the Local Hosts that
@@ -498,6 +509,8 @@ type RemoteDetail struct {
 	SentBytes     float64      `json:"sentBytes"`
 	Flows         float64      `json:"flows"`
 	LocalHosts    []RemoteHost `json:"localHosts"`
+	// EstimatedBytes is the part of the bytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes"`
 }
 
 // RemoteIP describes one Remote IP over [from, to).
@@ -513,7 +526,7 @@ func (s *Store) RemoteIP(ctx context.Context, ip netip.Addr, q RemoteQuery) (Rem
 	}
 	query := fmt.Sprintf(`WITH u AS (%s)
 SELECT local_host, bool_or(local_is_exporter_host), sum(rx) AS rx, sum(tx) AS tx, sum(flows) AS flows,
-	max(peer_country), max(peer_asn)
+	max(peer_country), max(peer_asn), sum(est)
 FROM u GROUP BY local_host ORDER BY sum(rx) + sum(tx) DESC, local_host`, src)
 	rows, err := s.db.QueryContext(ctx, query, a.args...)
 	if err != nil {
@@ -524,13 +537,14 @@ FROM u GROUP BY local_host ORDER BY sum(rx) + sum(tx) DESC, local_host`, src)
 		var h RemoteHost
 		var country string
 		var asn uint32
-		if err := rows.Scan(&h.Host, &h.LocalIsExporterHost, &h.ReceivedBytes, &h.SentBytes, &h.Flows, &country, &asn); err != nil {
+		if err := rows.Scan(&h.Host, &h.LocalIsExporterHost, &h.ReceivedBytes, &h.SentBytes, &h.Flows, &country, &asn, &h.EstimatedBytes); err != nil {
 			return RemoteDetail{}, err
 		}
 		h.TotalBytes = h.ReceivedBytes + h.SentBytes
 		d.ReceivedBytes += h.ReceivedBytes
 		d.SentBytes += h.SentBytes
 		d.Flows += h.Flows
+		d.EstimatedBytes += h.EstimatedBytes
 		if country > d.Country {
 			d.Country = country
 		}

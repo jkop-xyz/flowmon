@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/ipfix"
 	"github.com/jkop-xyz/flowmon/internal/ipfix/ipfixtest"
 )
 
@@ -26,6 +27,7 @@ func main() {
 	perMessage := flag.Int("flows", 10, "Flows per message")
 	noTemplate := flag.Bool("no-template", false, "never send the Template")
 	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9, 5 for NetFlow v5")
+	sampling := flag.Int("sampling", 0, "announce sampling 1 in N packets (an Options record, or the v5 header)")
 	source := flag.String("source", "", "local address to send from, e.g. 127.0.0.3:0, to simulate another Exporter")
 	flag.Parse()
 	if *version != 5 && *version != 9 && *version != 10 {
@@ -101,19 +103,29 @@ func main() {
 		var packet []byte
 		switch *version {
 		case 5:
-			packet = netflowV5(records, boot, wan, seq)
+			packet = netflowV5(records, boot, wan, seq, uint16(*sampling))
 			seq += uint32(len(records))
 		case 9:
 			// NetFlow v9 counts packets, not records.
 			msg := ipfixtest.NewNetFlowV9(0, uint32(i), time.Now(), boot)
 			if withTemplate {
 				msg.TemplateFlowSet(tmpl)
+				if *sampling > 0 {
+					// Scope System (v9 scope type 1) → samplingInterval.
+					opts := ipfix.Template{ID: 257, ScopeFieldCount: 1, Fields: []ipfix.FieldSpec{{ID: 1, Length: 4}, {ID: 34, Length: 4}}}
+					msg.OptionsTemplateFlowSet(opts).DataFlowSet(opts, [][]byte{ipfixtest.U32(0), ipfixtest.U32(uint32(*sampling))})
+				}
 			}
 			packet = msg.DataFlowSet(tmpl, records...).Bytes()
 		default:
 			msg := ipfixtest.NewMessage(0, seq, time.Now())
 			if withTemplate {
 				msg.TemplateSet(tmpl)
+				if *sampling > 0 {
+					opts := ipfix.Template{ID: 257, ScopeFieldCount: 1, Fields: []ipfix.FieldSpec{{ID: 144, Length: 4}, {ID: 305, Length: 4}, {ID: 306, Length: 4}}}
+					msg.OptionsTemplateSet(opts).DataSet(opts, [][]byte{ipfixtest.U32(1), ipfixtest.U32(1), ipfixtest.U32(uint32(*sampling - 1))})
+					seq++ // IPFIX sequence numbers count every data record, Options ones too
+				}
 			}
 			packet = msg.DataSet(tmpl, records...).Bytes()
 			seq += uint32(len(records))
@@ -128,8 +140,11 @@ func main() {
 // netflowV5 sends the same Flows as NetFlow v5, which has no NAT fields: the router
 // reports a download reply as going to the Local Host, as one exporting from its LAN
 // side would.
-func netflowV5(records [][][]byte, boot time.Time, wan []byte, seq uint32) []byte {
+func netflowV5(records [][][]byte, boot time.Time, wan []byte, seq uint32, sampling uint16) []byte {
 	m := &ipfixtest.NetFlowV5{Sequence: seq, ExportTime: time.Now(), Boot: boot}
+	if sampling > 0 {
+		m.Sampling = 0x4000 | sampling&0x3FFF // mode 1: deterministic
+	}
 	u16 := func(b []byte) uint16 { return binary.BigEndian.Uint16(b) }
 	u32 := func(b []byte) uint32 { return binary.BigEndian.Uint32(b) }
 	for _, r := range records {

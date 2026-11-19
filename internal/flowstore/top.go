@@ -60,6 +60,8 @@ type TopItem struct {
 	InternalBytes       float64 `json:"internalBytes"`
 	TotalBytes          float64 `json:"totalBytes"`
 	Flows               float64 `json:"flows,omitempty"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes,omitempty"`
 }
 
 // TopResult is a ranked list plus the total over every value, so the UI can show shares.
@@ -69,9 +71,15 @@ type TopResult struct {
 	Source     Source    `json:"source"`
 	Items      []TopItem `json:"items"`
 	TotalBytes float64   `json:"totalBytes"`
+	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
+	EstimatedBytes float64 `json:"estimatedBytes"`
 	// Approximate is set when the list came from Top Remote IPs lists (see Coverage).
 	Approximate bool `json:"approximate,omitempty"`
 }
+
+// estimateColumns turns a sum over Rollup byte columns into the same sum over their
+// estimated parts.
+var estimateColumns = strings.NewReplacer("bytes_rx", "estimated_rx", "bytes_tx", "estimated_tx")
 
 // ErrUnknownDimension is returned for an unsupported TopDimension.
 var ErrUnknownDimension = errors.New("flowstore: unknown top dimension")
@@ -91,10 +99,12 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 		if err != nil {
 			return TopResult{}, err
 		}
-		res := TopResult{From: r.From, To: r.To, Source: r.Source, Items: []TopItem{}, TotalBytes: r.TotalBytes, Approximate: r.Approximate}
+		res := TopResult{From: r.From, To: r.To, Source: r.Source, Items: []TopItem{}, TotalBytes: r.TotalBytes,
+			EstimatedBytes: r.EstimatedBytes, Approximate: r.Approximate}
 		for _, it := range r.Items {
 			res.Items = append(res.Items, TopItem{RemoteIP: it.RemoteIP, Country: it.Country, ASN: it.ASN, ASNOrg: it.ASNOrg,
-				ReceivedBytes: it.ReceivedBytes, SentBytes: it.SentBytes, TotalBytes: it.TotalBytes, Flows: it.Flows})
+				ReceivedBytes: it.ReceivedBytes, SentBytes: it.SentBytes, TotalBytes: it.TotalBytes, Flows: it.Flows,
+				EstimatedBytes: it.EstimatedBytes})
 		}
 		return res, nil
 	}
@@ -149,11 +159,13 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 		limit = ""
 	}
 
+	// The estimated part of the total counts the same bytes, from the estimate columns.
+	estimated := estimateColumns.Replace(received + " + " + sent + " + " + internal)
 	query := fmt.Sprintf(`
 WITH r AS (%[1]s),
-g AS (SELECT %[2]s, %[3]s AS rx, %[4]s AS tx, %[5]s AS internal FROM r GROUP BY %[6]s)
-SELECT *, rx + tx + internal AS total, sum(rx + tx + internal) OVER () AS grand_total
-FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, group, limit)
+g AS (SELECT %[2]s, %[3]s AS rx, %[4]s AS tx, %[5]s AS internal, %[8]s AS est FROM r GROUP BY %[6]s)
+SELECT *, rx + tx + internal AS total, sum(rx + tx + internal) OVER () AS grand_total, sum(est) OVER () AS grand_est
+FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, group, limit, estimated)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -163,7 +175,7 @@ FROM g ORDER BY total DESC %[7]s`, union, selectKey, received, sent, internal, g
 	for rows.Next() {
 		var it TopItem
 		if err := rows.Scan(&it.Host, &it.LocalIsExporterHost, &it.Protocol, &it.ServicePort, &it.Country, &it.ASN,
-			&it.ReceivedBytes, &it.SentBytes, &it.InternalBytes, &it.TotalBytes, &res.TotalBytes); err != nil {
+			&it.ReceivedBytes, &it.SentBytes, &it.InternalBytes, &it.EstimatedBytes, &it.TotalBytes, &res.TotalBytes, &res.EstimatedBytes); err != nil {
 			return TopResult{}, err
 		}
 		if it.ASN != 0 {

@@ -56,8 +56,14 @@ type Flow struct {
 	PostNATSrc, PostNATDst         netip.Addr
 	PostNATSrcPort, PostNATDstPort uint16
 
+	// Bytes and Packets are estimates of the real traffic when SamplingRate is above 1:
+	// the counts the Exporter reported for its sample, multiplied by the rate.
 	Bytes   uint64
 	Packets uint64
+	// SamplingRate is N when the Exporter counted 1 in N packets. From the Normalizer it
+	// is what the Exporter announced: 0 for nothing, 1 for "every packet". After
+	// ApplySampling it is 0 for counted in full, or the rate the counts were scaled by.
+	SamplingRate uint32
 	// IngressInterface and EgressInterface are interface numbers, 0 when absent.
 	IngressInterface uint32
 	EgressInterface  uint32
