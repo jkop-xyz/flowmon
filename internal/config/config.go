@@ -39,6 +39,8 @@ type Config struct {
 	FlowStoreMemoryLimit string
 	// FlowStoreThreads is DuckDB's thread count; 0 lets DuckDB decide.
 	FlowStoreThreads int
+	// FlowStoreMaxBytes caps the Flow Store's size; 0 means no cap.
+	FlowStoreMaxBytes int64
 	// Retention of raw Flows and of minute and hour Rollups.
 	RetentionRaw, RetentionMinute, RetentionHour time.Duration
 	// RetentionFromEnv says which retention values were set by environment variable,
@@ -72,6 +74,9 @@ type Config struct {
 	NoFlowsWarning time.Duration
 	// MetricsToken, when set, is required as a bearer token on /metrics.
 	MetricsToken string
+	// BackupToken, when set, lets a bearer token download Flow Store backups without a
+	// session.
+	BackupToken string
 	// LocalDNSServer (host:port) answers reverse DNS for Local Hosts, such as the router
 	// or a Pi-hole. Empty uses the system resolver.
 	LocalDNSServer string
@@ -134,6 +139,13 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		if cfg.FlowStoreThreads, err = positiveInt(s); err != nil {
 			return Config{}, fmt.Errorf("FLOWMON_FLOW_STORE_THREADS: %w", err)
 		}
+	}
+	if s := get("FLOWMON_FLOW_STORE_MAX_GB", ""); s != "" {
+		gb, err := strconv.ParseFloat(s, 64)
+		if err != nil || gb < 0.1 || gb > 1e6 {
+			return Config{}, fmt.Errorf("FLOWMON_FLOW_STORE_MAX_GB: must be a number of gigabytes of at least 0.1, such as 20")
+		}
+		cfg.FlowStoreMaxBytes = int64(gb * (1 << 30))
 	}
 
 	for _, r := range []struct {
@@ -201,13 +213,11 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("FLOWMON_NO_FLOWS_WARNING: must be a duration such as 5m, or off")
 		}
 	}
-	cfg.MetricsToken = get("FLOWMON_METRICS_TOKEN", "")
-	if f := get("FLOWMON_METRICS_TOKEN_FILE", ""); f != "" {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			return Config{}, fmt.Errorf("FLOWMON_METRICS_TOKEN_FILE: %w", err)
-		}
-		cfg.MetricsToken = strings.TrimSpace(string(b))
+	if cfg.MetricsToken, err = secret(get, "FLOWMON_METRICS_TOKEN"); err != nil {
+		return Config{}, err
+	}
+	if cfg.BackupToken, err = secret(get, "FLOWMON_BACKUP_TOKEN"); err != nil {
+		return Config{}, err
 	}
 	if s := strings.TrimSpace(get("FLOWMON_LOCAL_DNS_SERVER", "")); s != "" {
 		if cfg.LocalDNSServer, err = dnsServer(s); err != nil {
@@ -262,4 +272,18 @@ func ParseDuration(s string) (time.Duration, error) {
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
 	return time.ParseDuration(s)
+}
+
+// secret reads a value given directly by name or in the file named by name_FILE, which
+// wins.
+func secret(get func(string, string) string, name string) (string, error) {
+	v := get(name, "")
+	if f := get(name+"_FILE", ""); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return "", fmt.Errorf("%s_FILE: %w", name, err)
+		}
+		v = strings.TrimSpace(string(b))
+	}
+	return v, nil
 }

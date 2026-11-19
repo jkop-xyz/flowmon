@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"crypto/subtle"
 	"net/http"
 	"net/netip"
@@ -16,10 +17,6 @@ type MetricsOptions struct {
 	// Token, when set, must be sent as "Authorization: Bearer <token>".
 	Token    string
 	Pipeline interface{ Stats() ingest.Stats }
-	Store    interface {
-		DiskUsage() int64
-		RawDays(from time.Time) []time.Time
-	}
 }
 
 // collectorStatus is the Exporters page's data: the collector, its Exporters with their
@@ -92,7 +89,7 @@ func registerMetrics(public *http.ServeMux, opts Options) {
 		}
 		w.Header().Set("Content-Type", metrics.ContentType)
 		w.Header().Set("Cache-Control", "no-store")
-		writeMetrics(metrics.NewWriter(w), opts)
+		writeMetrics(r.Context(), metrics.NewWriter(w), opts)
 	})
 }
 
@@ -105,7 +102,7 @@ func boolFloat(b bool) float64 {
 
 func unixSeconds(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
-func writeMetrics(m *metrics.Writer, opts Options) {
+func writeMetrics(ctx context.Context, m *metrics.Writer, opts Options) {
 	m.Gauge("flowmon_build_info", "Flowmon's version.", 1, "version", opts.Version)
 	st, ps := collectorStatus(opts)
 
@@ -182,9 +179,19 @@ func writeMetrics(m *metrics.Writer, opts Options) {
 			m.Gauge("flowmon_ingest_last_write_timestamp_seconds", "When Flows were last written to the Flow Store.", unixSeconds(*ps.LastWrite))
 		}
 	}
-	if opts.Metrics.Store != nil {
-		m.Gauge("flowmon_flowstore_disk_bytes", "Size of the Flow Store's files.", float64(opts.Metrics.Store.DiskUsage()))
-		days := opts.Metrics.Store.RawDays(time.Time{})
+	if fo := opts.FlowStore; fo != nil && fo.Store != nil {
+		if d, err := fo.Store.Disk(ctx); err == nil {
+			m.Gauge("flowmon_flowstore_disk_bytes", "Size of the Flow Store's files.", float64(d.File))
+			m.Gauge("flowmon_flowstore_used_bytes", "Space the Flow Store's data takes; space of dropped data is reused before the files grow.", float64(d.Used))
+		}
+		if fo.MaxBytes > 0 {
+			m.Gauge("flowmon_flowstore_max_bytes", "The Flow Store's size cap (FLOWMON_FLOW_STORE_MAX_GB).", float64(fo.MaxBytes))
+			m.Gauge("flowmon_flowstore_over_cap", "1 when the Flow Store is over its cap with nothing left the cap may drop.", boolFloat(fo.Store.CapStatus().Over))
+		}
+		if mem, err := fo.Store.Memory(ctx); err == nil {
+			m.Gauge("flowmon_flowstore_memory_bytes", "Memory DuckDB uses for the Flow Store.", float64(mem.Used))
+		}
+		days := fo.Store.RawDays(time.Time{})
 		m.Gauge("flowmon_flowstore_raw_days", "Days of raw Flows kept.", float64(len(days)))
 		if len(days) > 0 {
 			m.Gauge("flowmon_flowstore_oldest_raw_timestamp_seconds", "Start of the oldest day of raw Flows kept.", unixSeconds(days[0]))

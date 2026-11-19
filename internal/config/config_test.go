@@ -102,6 +102,9 @@ func TestInvalidValues(t *testing.T) {
 		{"FLOWMON_MAXMIND_LICENSE_KEY_FILE": "/does/not/exist"},
 		{"FLOWMON_UDP_RECEIVE_BUFFER_MB": "0"},
 		{"FLOWMON_NO_FLOWS_WARNING": "soon"},
+		{"FLOWMON_FLOW_STORE_MAX_GB": "0"},
+		{"FLOWMON_FLOW_STORE_MAX_GB": "lots"},
+		{"FLOWMON_BACKUP_TOKEN_FILE": "/does/not/exist"},
 	} {
 		if _, err := fromLookup(lookupFrom(env)); err == nil {
 			t.Errorf("%v: expected an error", env)
@@ -152,5 +155,20 @@ func TestCollectorHealthSettings(t *testing.T) {
 	cfg, err = fromLookup(lookupFrom(map[string]string{"FLOWMON_UDP_RECEIVE_BUFFER_MB": "32", "FLOWMON_NO_FLOWS_WARNING": "off", "FLOWMON_METRICS_TOKEN": "s3cret"}))
 	if err != nil || cfg.UDPReceiveBuffer != 32<<20 || cfg.NoFlowsWarning != 0 || cfg.MetricsToken != "s3cret" {
 		t.Fatalf("set %d %v %q %v", cfg.UDPReceiveBuffer, cfg.NoFlowsWarning, cfg.MetricsToken, err)
+	}
+}
+
+func TestFlowStoreSettings(t *testing.T) {
+	cfg, err := fromLookup(lookupFrom(nil))
+	if err != nil || cfg.FlowStoreMaxBytes != 0 || cfg.BackupToken != "" {
+		t.Fatalf("defaults %d %q %v", cfg.FlowStoreMaxBytes, cfg.BackupToken, err)
+	}
+	p := t.TempDir() + "/token"
+	if err := os.WriteFile(p, []byte("b4ckup\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = fromLookup(lookupFrom(map[string]string{"FLOWMON_FLOW_STORE_MAX_GB": "2.5", "FLOWMON_BACKUP_TOKEN_FILE": p}))
+	if err != nil || cfg.FlowStoreMaxBytes != 5<<29 || cfg.BackupToken != "b4ckup" {
+		t.Fatalf("set %d %q %v", cfg.FlowStoreMaxBytes, cfg.BackupToken, err)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 )
 
 // Setting returns a stored setting, and whether there is one.
@@ -35,15 +34,4 @@ func (s *Store) SetSettings(ctx context.Context, values map[string]string) error
 		}
 	}
 	return tx.Commit()
-}
-
-// DiskUsage is the size of the Flow Store's files: the database and its write-ahead log.
-func (s *Store) DiskUsage() int64 {
-	var n int64
-	for _, p := range []string{s.path, s.path + ".wal"} {
-		if fi, err := os.Stat(p); err == nil {
-			n += fi.Size()
-		}
-	}
-	return n
 }

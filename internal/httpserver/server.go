@@ -71,6 +71,8 @@ type Options struct {
 	NoFlowsWarning time.Duration
 	// Metrics wires /metrics and the pipeline counters on the Exporters page.
 	Metrics *MetricsOptions
+	// FlowStore wires the Flow Store card, backups and the disk cap.
+	FlowStore *FlowStoreOptions
 	// Explorer answers the Flow Explorer.
 	Explorer FlowStore
 	// Services names Service Ports.
@@ -113,6 +115,7 @@ func New(opts Options) http.Handler {
 	registerServices(mux, opts)
 	registerFlows(mux, opts)
 	registerSettings(mux, opts)
+	registerFlowStore(public, mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "flow store not available"})
