@@ -537,7 +537,13 @@ export type FlowItem = {
   asnOrg?: string
 }
 
-export type FlowPage = { items: FlowItem[]; total: number; rawFrom?: string }
+export type FlowPage = {
+  items: FlowItem[]
+  total: number
+  rawFrom?: string
+  /** What a Host Name in the Local Host filter matched: the Local Hosts with their names. */
+  hostMatch?: { name: string; hosts: { host: string; name: string }[] }
+}
 
 export type FieldView = {
   enterprise?: number
