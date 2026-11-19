@@ -25,6 +25,7 @@ import {
   type TemplateStatus,
   type TimingStatus,
 } from "@/lib/api"
+import { modeHelp } from "@/lib/classification-help"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { formatBytes, formatNumber, formatSeconds } from "@/lib/format"
 
@@ -149,7 +150,6 @@ export function ExportersPage() {
 }
 
 const roleLabels: Record<string, string> = { edge: "Edge", internal: "Internal" }
-const modeLabels: Record<string, string> = { interface: "By interface", address: "By address" }
 
 function ApprovalBadge({ exporter, receiving }: { exporter: ExporterStatus; receiving: boolean }) {
   switch (exporter.approval) {
@@ -179,7 +179,7 @@ function ExporterCard({ exporter, now }: { exporter: ExporterStatus; now: number
           {approved && (
             <Badge variant="outline">
               {roleLabels[exporter.role] ?? exporter.role}
-              {exporter.role !== "internal" && <> · {modeLabels[exporter.classificationMode] ?? exporter.classificationMode}</>}
+              {exporter.role !== "internal" && <> · {exporter.classificationMode && modeHelp[exporter.classificationMode].label}</>}
             </Badge>
           )}
           <ExporterActions exporter={exporter} />

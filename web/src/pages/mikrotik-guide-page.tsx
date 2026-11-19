@@ -1,12 +1,13 @@
-import { AlertTriangle, ArrowLeft, ExternalLink } from "lucide-react"
+import { AlertTriangle, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
-import { useLocation, useNavigate } from "react-router"
+import { Link } from "react-router"
 
-import { Button } from "@/components/ui/button"
+import { GuideBackButton } from "@/components/guide-back-button"
 import { Page } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { classificationGuidePath } from "@/lib/classification-help"
 
 // Keep in step with docs/mikrotik-setup.md.
 
@@ -103,21 +104,10 @@ const ipfixFields: [string, string][] = [
 ]
 
 export function MikroTikGuidePage() {
-  const navigate = useNavigate()
-  // "default" is the first page of the session (a bookmark or a reload): nothing to go back to.
-  const { key } = useLocation()
   return (
     <Page narrow>
       <div className="flex flex-col gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 self-start"
-          onClick={() => (key === "default" ? navigate("/exporters") : navigate(-1))}
-        >
-          <ArrowLeft />
-          {key === "default" ? "Exporters" : "Back"}
-        </Button>
+        <GuideBackButton fallback="/exporters" fallbackLabel="Exporters" />
         <p className="text-sm text-muted-foreground">
           What to set on a router running RouterOS 7, and where to find it. There are no copy-paste scripts on purpose:
           the settings are few, and setting them in WinBox or WebFig shows what each one does. MikroTik's documentation
@@ -184,7 +174,11 @@ export function MikroTikGuidePage() {
           <li>
             Under Interfaces, name each interface number (or let SNMP do it) and set roles: the internet uplink is WAN,
             bridges and VLANs are LAN, WireGuard and other VPNs are Tunnel. Flowmon marks the interface that looks like
-            your WAN.
+            your WAN. The{" "}
+            <Link to={classificationGuidePath} className="underline underline-offset-4">
+              classification guide
+            </Link>{" "}
+            explains the modes and roles.
           </li>
           <li>Save the classification. Flowmon offers to reprocess the Flows it already has.</li>
         </ol>

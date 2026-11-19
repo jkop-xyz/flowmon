@@ -14,6 +14,7 @@ import { ExportersPage } from "@/pages/exporters-page"
 import { FlowExplorerPage } from "@/pages/flow-explorer-page"
 import { LocalHostPage, LocalHostsPage } from "@/pages/host-pages"
 import { MikroTikGuidePage } from "@/pages/mikrotik-guide-page"
+import { ClassificationGuidePage } from "@/pages/classification-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
@@ -61,6 +62,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/hosts/*" element={<LocalHostPage />} />
                   <Route path="/remote/:ip" element={<RemoteIPPage />} />
                   <Route path="/guide/mikrotik" element={<MikroTikGuidePage />} />
+                  <Route path="/guide/classification" element={<ClassificationGuidePage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>
               </Routes>

@@ -103,7 +103,8 @@ export type ExporterStatus = {
   seen: boolean
   name: string
   role: string
-  classificationMode: string
+  /** Empty until the Exporter is approved. */
+  classificationMode: ClassificationMode | ""
   pendingDroppedRecords: number
   ignoredDatagrams: number
   lastSource: string
