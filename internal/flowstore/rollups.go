@@ -177,7 +177,11 @@ func (s *Store) Compact(ctx context.Context) error {
 	sort.Strings(names)
 
 	for _, name := range names {
-		if err := s.compactTable(ctx, name); err != nil {
+		compact := s.compactTable
+		if _, _, ok := parseDomainTable(name); ok {
+			compact = s.compactDomainTable
+		}
+		if err := compact(ctx, name); err != nil {
 			s.mu.Lock()
 			s.dirty[name] = true // try again next time
 			s.mu.Unlock()
@@ -245,6 +249,16 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 			if end.Before(now.Add(-r.Raw)) && end.Before(now.Add(-safeAfter)) {
 				victims = append(victims, victim{name, "flow_days"})
 			}
+		}
+	}
+	for name := range s.domainRollups {
+		g, p, ok := parseDomainTable(name)
+		keep := r.Minute
+		if g == Hour {
+			keep = r.Hour
+		}
+		if ok && g.periodEnd(p).Before(now.Add(-keep)) {
+			victims = append(victims, victim{name, "domain_rollup_partitions"})
 		}
 	}
 	for name := range s.dnsDays {
@@ -343,6 +357,7 @@ func (s *Store) dropTable(ctx context.Context, name, catalog string) error {
 	s.mu.Lock()
 	delete(s.days, name)
 	delete(s.dnsDays, name)
+	delete(s.domainRollups, name)
 	delete(s.rollups, name)
 	delete(s.dirty, name)
 	s.mu.Unlock()

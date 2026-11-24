@@ -147,7 +147,12 @@ func (s *Store) EnforceCap(ctx context.Context, max int64, now time.Time, safeAf
 func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var dns, raw, minute []string
+	var dns, raw, minute, domainMinute []string
+	for name := range s.domainRollups {
+		if g, p, ok := parseDomainTable(name); ok && g == Minute && Minute.periodEnd(p).Before(now.Add(-capKeepMinute-safeAfter)) {
+			domainMinute = append(domainMinute, name)
+		}
+	}
 	for name := range s.dnsDays {
 		if day, ok := dnsDay(name); ok && day.Add(24*time.Hour).Before(now.Add(-safeAfter)) {
 			dns = append(dns, name)
@@ -171,11 +176,15 @@ func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog
 	sort.Strings(dns)
 	sort.Strings(raw)
 	sort.Strings(minute)
+	sort.Strings(domainMinute)
 	switch {
 	case len(dns) > 0:
 		return dns[0], "dns_days", true
 	case len(raw) > 0:
 		return raw[0], "flow_days", true
+	case len(domainMinute) > 0 && (len(minute) == 0 || domainMinute[0][len("domain_minute_"):] <= minute[0][len("rollup_minute_"):]):
+		// A day of minute Domain Rollups goes with, or before, that day's minute Rollups.
+		return domainMinute[0], "domain_rollup_partitions", true
 	case len(minute) > 0:
 		return minute[0], "rollup_partitions", true
 	}
