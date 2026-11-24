@@ -157,7 +157,7 @@ var (
 
 // Update is a change; nil fields stay as they are.
 type Update struct {
-	LocalNetworks     []netip.Prefix
+	LocalNetworks          []netip.Prefix
 	Raw, Minute, Hour, DNS *time.Duration
 }
 
