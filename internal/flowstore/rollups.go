@@ -72,11 +72,16 @@ const rollupColumns = `(
 	packets_tx DOUBLE NOT NULL,
 	flows UBIGINT NOT NULL,
 	estimated_rx DOUBLE DEFAULT 0,
-	estimated_tx DOUBLE DEFAULT 0
+	estimated_tx DOUBLE DEFAULT 0,
+	local_mac VARCHAR DEFAULT ''
 )`
 
 // rollupKeyColumns are the grouping columns, in table order.
 const rollupKeyColumns = `bucket, exporter, local_host, local_is_exporter_host, peer_kind, peer_local_host, peer_asn, peer_country, protocol, service_port`
+
+// rollupGroupColumns are every grouping column: the key, and the Local Host's Device,
+// which migration 16 added at the end of the table.
+const rollupGroupColumns = rollupKeyColumns + `, local_mac`
 
 func (s *Store) ensureRollup(ctx context.Context, g Granularity, period time.Time) (string, error) {
 	name := g.table(period)
@@ -143,7 +148,7 @@ func (s *Store) writeRollups(ctx context.Context, dc driver.Conn, flows []flow.F
 				m := agg[k]
 				if err := app.AppendRow(k.Bucket, k.Exporter, k.LocalHost, k.LocalIsExporterHost, uint8(k.PeerKind), k.PeerLocalHost,
 					k.PeerASN, k.PeerCountry, k.Protocol, k.ServicePort, m.BytesRx, m.BytesTx, m.PacketsRx, m.PacketsTx, m.Flows,
-					m.EstimatedRx, m.EstimatedTx); err != nil {
+					m.EstimatedRx, m.EstimatedTx, k.LocalMAC); err != nil {
 					_ = app.Close()
 					return fmt.Errorf("appending to %s: %w", name, err)
 				}
@@ -195,9 +200,10 @@ func (s *Store) compactTable(ctx context.Context, name string) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS ` + tmp,
 		`CREATE TABLE ` + tmp + ` ` + rollupColumns,
-		`INSERT INTO ` + tmp + ` SELECT ` + rollupKeyColumns + `, sum(bytes_rx), sum(bytes_tx), sum(packets_rx), sum(packets_tx), sum(flows)::UBIGINT,
-			sum(estimated_rx), sum(estimated_tx)
-			FROM ` + name + ` GROUP BY ` + rollupKeyColumns,
+		`INSERT INTO ` + tmp + ` (` + rollupKeyColumns + `, bytes_rx, bytes_tx, packets_rx, packets_tx, flows, estimated_rx, estimated_tx, local_mac)
+			SELECT ` + rollupKeyColumns + `, sum(bytes_rx), sum(bytes_tx), sum(packets_rx), sum(packets_tx), sum(flows)::UBIGINT,
+			sum(estimated_rx), sum(estimated_tx), local_mac
+			FROM ` + name + ` GROUP BY ` + rollupGroupColumns,
 		`DROP TABLE ` + name,
 		`ALTER TABLE ` + tmp + ` RENAME TO ` + name,
 	}

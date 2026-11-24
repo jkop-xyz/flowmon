@@ -34,6 +34,8 @@ type Key struct {
 	PeerCountry string
 	Protocol    uint8
 	ServicePort uint16
+	// LocalMAC is the Local Host's Device (flow.MAC.String()), "" when unknown.
+	LocalMAC string
 }
 
 // Measures are additive. Bytes and packets are float because a Flow's bytes are
@@ -88,6 +90,7 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 		PeerCountry:         f.PeerCountry,
 		Protocol:            f.Protocol,
 		ServicePort:         flow.ServicePort(f.Protocol, f.LocalPort, f.PeerPort),
+		LocalMAC:            f.LocalMAC.String(),
 	}
 	total := Measures{Flows: 1}
 	switch f.Direction {
@@ -109,6 +112,7 @@ func Contributions(f *flow.Flow, bucket time.Duration) []Row {
 		receiver := sender
 		receiver.LocalHost, receiver.PeerLocalHost = f.Peer.String(), f.Local.String()
 		receiver.LocalIsExporterHost = false
+		receiver.LocalMAC = f.PeerMAC.String()
 		keys = []Key{sender, receiver}
 		measures = []Measures{total, {BytesRx: total.BytesTx, PacketsRx: total.PacketsTx, EstimatedRx: total.EstimatedTx}}
 	} else {

@@ -91,6 +91,11 @@ type Flow struct {
 	// PeerASNOrg is the ASN Owner's name at that time. The Flow Store keeps it per ASN.
 	PeerASNOrg string
 
+	// LocalMAC is the Local Host's Device, and PeerMAC the Peer's for Internal Flows:
+	// the MAC address of that end, fixed when the Flow is stored (see package devices).
+	// Zero when unknown.
+	LocalMAC, PeerMAC MAC
+
 	// Fields holds every original field, encoded with EncodeFields.
 	Fields []byte
 }

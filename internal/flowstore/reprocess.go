@@ -28,10 +28,11 @@ func scanFlow(rows *sql.Rows) (flow.Flow, error) {
 	var exporter, src, dst string
 	var postSrc, postDst, local, peer sql.NullString
 	var direction uint8
+	var localMAC, peerMAC string
 	err := rows.Scan(&exporter, &f.ObservationDomain, &f.Received, &f.ExportTime, &f.Start, &f.End, &f.TimeEstimated,
 		&src, &dst, &f.SrcPort, &f.DstPort, &f.Protocol, &postSrc, &postDst, &f.PostNATSrcPort, &f.PostNATDstPort,
 		&f.Bytes, &f.Packets, &f.IngressInterface, &f.EgressInterface, &direction, &local, &f.LocalIsExporterHost, &peer,
-		&f.LocalPort, &f.PeerPort, &f.Fields, &f.PeerCountry, &f.PeerASN, &f.SamplingRate)
+		&f.LocalPort, &f.PeerPort, &f.Fields, &f.PeerCountry, &f.PeerASN, &f.SamplingRate, &localMAC, &peerMAC)
 	if err != nil {
 		return f, err
 	}
@@ -40,6 +41,8 @@ func scanFlow(rows *sql.Rows) (flow.Flow, error) {
 	f.Dst, _ = netip.ParseAddr(dst)
 	f.PostNATSrc, f.PostNATDst, f.Local, f.Peer = parseAddr(postSrc), parseAddr(postDst), parseAddr(local), parseAddr(peer)
 	f.Direction = flow.Direction(direction)
+	f.LocalMAC, _ = flow.ParseMAC(localMAC)
+	f.PeerMAC, _ = flow.ParseMAC(peerMAC)
 	f.Received, f.ExportTime, f.Start, f.End = f.Received.UTC(), f.ExportTime.UTC(), f.Start.UTC(), f.End.UTC()
 	return f, nil
 }
@@ -145,6 +148,9 @@ func (s *Store) reprocessDay(ctx context.Context, table string, exporter netip.A
 				return err
 			}
 			if err := s.writeRollups(ctx, dc.(driver.Conn), batch, window); err != nil {
+				return err
+			}
+			if err := s.saveDeviceAddresses(ctx, batch); err != nil {
 				return err
 			}
 			return s.saveASNNames(ctx, batch)
