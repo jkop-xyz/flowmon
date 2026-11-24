@@ -12,3 +12,6 @@
 # Local issue tracker scratch space
 .scratch/
 internal/services/service-names-port-numbers.csv
+internal/oui/oui.csv
+internal/oui/mam.csv
+internal/oui/oui36.csv
