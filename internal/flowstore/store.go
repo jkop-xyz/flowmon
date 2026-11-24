@@ -252,6 +252,9 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 14: Data Sources (v2): integrations other than Exporters, such as AdGuard Home.
+	// settings is a JSON object whose secret fields are sealed with secret.key.
+	stmt(`CREATE TABLE IF NOT EXISTS data_sources (id VARCHAR PRIMARY KEY, kind VARCHAR NOT NULL, name VARCHAR NOT NULL, enabled BOOLEAN NOT NULL, settings VARCHAR NOT NULL, created TIMESTAMP NOT NULL)`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {

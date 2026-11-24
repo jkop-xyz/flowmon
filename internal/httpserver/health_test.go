@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/datasource"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 )
@@ -53,7 +54,10 @@ func TestMetrics(t *testing.T) {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	last := now.Add(-time.Minute)
 	opts := Options{UI: builtUI, Version: "1.2.3", Collector: collectorWith(now.Add(-time.Hour), &last), Now: func() time.Time { return now },
-		NoFlowsWarning: 5 * time.Minute, Metrics: &MetricsOptions{Pipeline: fakePipeline{}},
+		NoFlowsWarning: 5 * time.Minute, Metrics: &MetricsOptions{Pipeline: fakePipeline{}, Sources: fakeSources{
+			{Source: datasource.Source{ID: "a1", Kind: "adguard", Name: "AdGuard", Enabled: true}, Health: datasource.Health{State: datasource.StateOK, LastSuccess: &last, Warnings: []string{"w"}}},
+			{Source: datasource.Source{ID: "b2", Kind: "adguard", Name: "Backup"}, Health: datasource.Health{State: datasource.StateDisabled}},
+		}},
 		FlowStore: &FlowStoreOptions{Store: fakeDisk{over: true}, MaxBytes: 2048}}
 	rec := get(t, New(opts), "/metrics")
 	body := rec.Body.String()
@@ -74,11 +78,18 @@ func TestMetrics(t *testing.T) {
 		`flowmon_flowstore_over_cap 1`,
 		`flowmon_flowstore_raw_days 1`,
 		`flowmon_collection_quiet 0`,
+		`flowmon_source_enabled{source="b2",kind="adguard",name="Backup"} 0`,
+		`flowmon_source_up{source="a1",kind="adguard",name="AdGuard"} 1`,
+		`flowmon_source_warnings{source="a1",kind="adguard",name="AdGuard"} 1`,
+		`flowmon_source_last_success_timestamp_seconds{source="a1",kind="adguard",name="AdGuard"} 1795003140`,
 		"# TYPE flowmon_ingest_flows_written_total counter",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics lack %s", want)
 		}
+	}
+	if strings.Contains(body, `flowmon_source_up{source="b2"`) {
+		t.Error("a disabled Data Source has an up metric")
 	}
 	// /metrics doesn't need a session, but takes a token when one is set.
 	opts.Metrics.Token = "s3cret"
@@ -94,6 +105,10 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("with the token: %d", rec.Code)
 	}
 }
+
+type fakeSources []datasource.Status
+
+func (f fakeSources) List() []datasource.Status { return f }
 
 func TestCollectionQuiet(t *testing.T) {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)

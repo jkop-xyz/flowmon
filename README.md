@@ -49,6 +49,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_GEOIP_DOWNLOAD` | `true` | Download GeoIP databases weekly: MaxMind GeoLite2 with an account, DB-IP Lite otherwise. `false` uses only your own files |
 | `FLOWMON_MAXMIND_ACCOUNT_ID`, `FLOWMON_MAXMIND_LICENSE_KEY` (or `_FILE`) | none | Your free MaxMind account, for GeoLite2 instead of DB-IP Lite |
 | `FLOWMON_LOCAL_DNS_SERVER` | system resolver | The DNS server that knows your Local Hosts' names, such as the router or a Pi-hole: `192.168.88.1` or `[fd00::1]:53` |
+| `FLOWMON_SOURCE_<ID>_KIND`, `_NAME`, `_ENABLED`, `_<SETTING>` | none | A Data Source set by environment variables instead of on the Sources page, which then can't be changed there. `<ID>` is letters and digits (see the deploy guide) |
 | `FLOWMON_DEBUG_CAPTURE` | off | Path of a pcap file to record received datagrams to (see below) |
 | `FLOWMON_DEBUG_CAPTURE_MAX_MB` | `64` | Size at which the capture file is rotated |
 | `FLOWMON_DEBUG_CAPTURE_FILES` | `3` | Capture files kept, including the current one |
