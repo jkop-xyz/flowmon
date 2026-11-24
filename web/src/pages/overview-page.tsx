@@ -198,8 +198,9 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
   }
 }
 
+/** A row's React key, from every field a list can be by. A field missing here gives that list's rows one key. */
 function itemKey(item: TopItem) {
-  return `${item.host}/${item.protocol}/${item.servicePort}/${item.country}/${item.asn}`
+  return `${item.host}/${item.remoteIp}/${item.protocol}/${item.servicePort}/${item.country}/${item.asn}`
 }
 
 /** Under GeoIP data: why it is missing, or the attribution DB-IP's licence asks for. */
