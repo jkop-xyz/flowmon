@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/adguard"
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/auth"
 	"github.com/jkop-xyz/flowmon/internal/capture"
@@ -243,7 +244,13 @@ func serve(stderr io.Writer) int {
 		fmt.Fprintln(stderr, "configuration error:", err)
 		return 2
 	}
-	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Env: sourceEnv, Logger: logger})
+	adguardKind := adguard.New(adguard.Options{
+		Store:      store,
+		IsExporter: func(a netip.Addr) bool { _, ok := registry.Config(a); return ok },
+		Retention:  func() time.Duration { return collectionSettings.Current().Retention.DNS },
+		Logger:     logger,
+	})
+	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind}, Env: sourceEnv, Logger: logger})
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error:", err)
 		return 2
