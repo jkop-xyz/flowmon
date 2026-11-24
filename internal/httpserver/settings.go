@@ -48,6 +48,7 @@ func toSettingsJSON(m *settings.Manager) settingsJSON {
 			"raw":    {v.Retention.Raw.Seconds(), l.RetentionRaw, "FLOWMON_RETENTION_RAW"},
 			"minute": {v.Retention.Minute.Seconds(), l.RetentionMinute, "FLOWMON_RETENTION_MINUTE"},
 			"hour":   {v.Retention.Hour.Seconds(), l.RetentionHour, "FLOWMON_RETENTION_HOUR"},
+			"dns":    {v.Retention.DNS.Seconds(), l.RetentionDNS, "FLOWMON_RETENTION_DNS"},
 		},
 		MinDays: int(settings.MinRetention.Hours() / 24),
 		MaxDays: int(settings.MaxRetention.Hours() / 24),
@@ -120,8 +121,10 @@ func registerSettings(mux *http.ServeMux, opts Options) {
 				u.Minute = &d
 			case "hour":
 				u.Hour = &d
+			case "dns":
+				u.DNS = &d
 			default:
-				errorJSON(w, http.StatusBadRequest, "retention is raw, minute or hour")
+				errorJSON(w, http.StatusBadRequest, "retention is raw, minute, hour or dns")
 				return
 			}
 		}

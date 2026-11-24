@@ -48,15 +48,15 @@ func TestSettingsEndpoints(t *testing.T) {
 			t.Errorf("settings lack %s: %s", want, rec.Body.String())
 		}
 	}
-	rec = c.do("PUT", "/api/settings", `{"localNetworks":["192.168.88.0/24","fd00::/8"],"retentionDays":{"raw":14,"minute":30}}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"value":["192.168.88.0/24","fd00::/8"]`) || m.Current().Retention.Raw != 14*24*time.Hour {
+	rec = c.do("PUT", "/api/settings", `{"localNetworks":["192.168.88.0/24","fd00::/8"],"retentionDays":{"raw":14,"minute":30,"dns":3}}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"value":["192.168.88.0/24","fd00::/8"]`) || m.Current().Retention.Raw != 14*24*time.Hour || m.Current().Retention.DNS != 3*24*time.Hour {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
 	}
 	for body, want := range map[string]string{
 		`{"localNetworks":["nope"]}`:     "not a prefix",
 		`{"retentionDays":{"hour":100}}`: "FLOWMON_RETENTION_HOUR",
 		`{"retentionDays":{"raw":60}}`:   "no longer than",
-		`{"retentionDays":{"weekly":3}}`: "raw, minute or hour",
+		`{"retentionDays":{"weekly":3}}`: "raw, minute, hour or dns",
 		`{"localNetworks":[]}`:           "at least one",
 	} {
 		if rec := c.do("PUT", "/api/settings", body); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), want) {

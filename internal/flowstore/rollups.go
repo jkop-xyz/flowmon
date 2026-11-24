@@ -214,11 +214,14 @@ type Retention struct {
 	Raw    time.Duration
 	Minute time.Duration
 	Hour   time.Duration
+	// DNS is how long DNS Queries are kept. 0 keeps them.
+	DNS time.Duration
 }
 
-// DefaultRetention is 7 days of raw Flows, 90 days of minute and 2 years of hour Rollups.
+// DefaultRetention is 7 days of raw Flows, 90 days of minute and 2 years of hour Rollups,
+// and 7 days of DNS Queries.
 func DefaultRetention() Retention {
-	return Retention{Raw: 7 * 24 * time.Hour, Minute: 90 * 24 * time.Hour, Hour: 730 * 24 * time.Hour}
+	return Retention{Raw: 7 * 24 * time.Hour, Minute: 90 * 24 * time.Hour, Hour: 730 * 24 * time.Hour, DNS: 7 * 24 * time.Hour}
 }
 
 // ApplyRetention drops every table whose whole period is older than its retention.
@@ -236,6 +239,11 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 			if end.Before(now.Add(-r.Raw)) && end.Before(now.Add(-safeAfter)) {
 				victims = append(victims, victim{name, "flow_days"})
 			}
+		}
+	}
+	for name := range s.dnsDays {
+		if day, ok := dnsDay(name); ok && r.DNS > 0 && day.Add(24*time.Hour).Before(now.Add(-r.DNS)) {
+			victims = append(victims, victim{name, "dns_days"})
 		}
 	}
 	for name := range s.rollups {
@@ -328,6 +336,7 @@ func (s *Store) dropTable(ctx context.Context, name, catalog string) error {
 	}
 	s.mu.Lock()
 	delete(s.days, name)
+	delete(s.dnsDays, name)
 	delete(s.rollups, name)
 	delete(s.dirty, name)
 	s.mu.Unlock()

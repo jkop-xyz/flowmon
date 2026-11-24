@@ -31,6 +31,7 @@ const (
 	keyRetentionRaw    = "retention_raw"
 	keyRetentionMinute = "retention_minute"
 	keyRetentionHour   = "retention_hour"
+	keyRetentionDNS    = "retention_dns"
 )
 
 // Values are the settings in effect.
@@ -43,6 +44,7 @@ type Values struct {
 type Locks struct {
 	LocalNetworks                                bool
 	RetentionRaw, RetentionMinute, RetentionHour bool
+	RetentionDNS                                 bool
 }
 
 // Env is what the environment says: defaults to seed with, and which are locked.
@@ -61,9 +63,9 @@ func FromConfig(cfg config.Config) (Env, error) {
 	}
 	return Env{
 		LocalNetworks: dedupe(append(classify.DefaultLocalNetworks(), extra...)),
-		Retention:     flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour},
+		Retention:     flowstore.Retention{Raw: cfg.RetentionRaw, Minute: cfg.RetentionMinute, Hour: cfg.RetentionHour, DNS: cfg.RetentionDNS},
 		Locks: Locks{LocalNetworks: len(extra) > 0, RetentionRaw: cfg.RetentionFromEnv.Raw,
-			RetentionMinute: cfg.RetentionFromEnv.Minute, RetentionHour: cfg.RetentionFromEnv.Hour},
+			RetentionMinute: cfg.RetentionFromEnv.Minute, RetentionHour: cfg.RetentionFromEnv.Hour, RetentionDNS: cfg.RetentionFromEnv.DNS},
 	}, nil
 }
 
@@ -121,6 +123,7 @@ func (m *Manager) retentionFields(r *flowstore.Retention) []retentionField {
 		{keyRetentionRaw, &r.Raw, m.env.Locks.RetentionRaw},
 		{keyRetentionMinute, &r.Minute, m.env.Locks.RetentionMinute},
 		{keyRetentionHour, &r.Hour, m.env.Locks.RetentionHour},
+		{keyRetentionDNS, &r.DNS, m.env.Locks.RetentionDNS},
 	}
 }
 
@@ -155,7 +158,7 @@ var (
 // Update is a change; nil fields stay as they are.
 type Update struct {
 	LocalNetworks     []netip.Prefix
-	Raw, Minute, Hour *time.Duration
+	Raw, Minute, Hour, DNS *time.Duration
 }
 
 // MinRetention and MaxRetention bound retention: a day, so the newest data is always
@@ -195,6 +198,7 @@ func (m *Manager) Update(ctx context.Context, u Update) (Values, error) {
 		{u.Raw, m.retentionFields(&next.Retention)[0], "FLOWMON_RETENTION_RAW"},
 		{u.Minute, m.retentionFields(&next.Retention)[1], "FLOWMON_RETENTION_MINUTE"},
 		{u.Hour, m.retentionFields(&next.Retention)[2], "FLOWMON_RETENTION_HOUR"},
+		{u.DNS, m.retentionFields(&next.Retention)[3], "FLOWMON_RETENTION_DNS"},
 	} {
 		if f.value == nil {
 			continue

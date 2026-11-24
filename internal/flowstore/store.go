@@ -40,6 +40,7 @@ type Store struct {
 
 	mu      sync.Mutex
 	days    map[string]bool   // raw day tables that exist, by name
+	dnsDays map[string]bool   // DNS Query day tables that exist, by name
 	rollups map[string]bool   // Rollup tables that exist, by name
 	dirty   map[string]bool   // Rollup tables written since the last compaction
 	asns    map[uint32]string // ASN Owner names, as stored in asn_names
@@ -76,7 +77,7 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
 	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
-		days: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
+		days: map[string]bool{}, dnsDays: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
 		topBuilt: map[period]bool{}, topDirty: map[period]bool{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
@@ -255,6 +256,8 @@ var migrations = []migration{
 	// 14: Data Sources (v2): integrations other than Exporters, such as AdGuard Home.
 	// settings is a JSON object whose secret fields are sealed with secret.key.
 	stmt(`CREATE TABLE IF NOT EXISTS data_sources (id VARCHAR PRIMARY KEY, kind VARCHAR NOT NULL, name VARCHAR NOT NULL, enabled BOOLEAN NOT NULL, settings VARCHAR NOT NULL, created TIMESTAMP NOT NULL)`),
+	// 15: DNS Queries (v2), one table per UTC day like raw Flows (see dns.go).
+	stmt(`CREATE TABLE IF NOT EXISTS dns_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -298,6 +301,7 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 func (s *Store) loadDays(ctx context.Context) error {
 	for query, into := range map[string]map[string]bool{
 		`SELECT table_name FROM flow_days`:         s.days,
+		`SELECT table_name FROM dns_days`:          s.dnsDays,
 		`SELECT table_name FROM rollup_partitions`: s.rollups,
 	} {
 		rows, err := s.db.QueryContext(ctx, query)
