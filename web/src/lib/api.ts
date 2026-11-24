@@ -868,7 +868,7 @@ export type RetentionSetting = { seconds: number; locked: boolean; env: string }
 
 export type Settings = {
   localNetworks: { value: string[]; defaults: string[]; locked: boolean; env: string }
-  retention: Record<"raw" | "minute" | "hour", RetentionSetting>
+  retention: Record<"raw" | "minute" | "hour" | "dns", RetentionSetting>
   minRetentionDays: number
   maxRetentionDays: number
 }
@@ -879,5 +879,5 @@ export function fetchSettings(signal?: AbortSignal) {
 
 export const saveSettings = (change: {
   localNetworks?: string[]
-  retentionDays?: Partial<Record<"raw" | "minute" | "hour", number>>
+  retentionDays?: Partial<Record<"raw" | "minute" | "hour" | "dns", number>>
 }) => putJSON<Settings>("/api/settings", change)

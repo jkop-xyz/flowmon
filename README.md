@@ -32,6 +32,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 | `FLOWMON_RETENTION_RAW` | `7d` | How long raw Flows are kept (whole days are dropped) |
 | `FLOWMON_RETENTION_MINUTE` | `90d` | How long minute Rollups are kept |
 | `FLOWMON_RETENTION_HOUR` | `730d` | How long hour Rollups are kept |
+| `FLOWMON_RETENTION_DNS` | `7d` | How long DNS Queries from DNS Data Sources (such as AdGuard Home) are kept (whole days are dropped) |
 | `FLOWMON_WATERMARK` | learned | Override the per-Exporter Watermark (how long after a minute its data may still change), e.g. `5m` |
 | `FLOWMON_DATABASE_URL` | setup screen | App Store location, e.g. `sqlite:///data/flowmon.db` or `postgres://flowmon@db.lan:5432/lab?sslmode=require&search_path=flowmon`. When set, it overrides and locks the setup screen's choice |
 | `FLOWMON_DATABASE_PASSWORD_FILE` | none | File holding the Postgres password (e.g. a Docker secret) |

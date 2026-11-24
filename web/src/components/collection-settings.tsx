@@ -158,6 +158,7 @@ const retentionFields = [
   { key: "raw", label: "Raw Flows", hint: "Every Flow with all its fields: the Flow Explorer and exact Top Remote IPs." },
   { key: "minute", label: "Minute Rollups", hint: "Totals per minute: charts and top lists for ranges under a day." },
   { key: "hour", label: "Hour Rollups", hint: "Totals per hour: charts and top lists for a day or more." },
+  { key: "dns", label: "DNS Queries", hint: "Every lookup a DNS Data Source logged, such as AdGuard Home. Kept apart from Flows; the size cap drops them first." },
 ] as const
 
 const days = (seconds: number) => Math.round((seconds / 86400) * 100) / 100

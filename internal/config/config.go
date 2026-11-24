@@ -43,9 +43,11 @@ type Config struct {
 	FlowStoreMaxBytes int64
 	// Retention of raw Flows and of minute and hour Rollups.
 	RetentionRaw, RetentionMinute, RetentionHour time.Duration
+	// RetentionDNS is how long DNS Queries are kept.
+	RetentionDNS time.Duration
 	// RetentionFromEnv says which retention values were set by environment variable,
 	// which locks them in Settings.
-	RetentionFromEnv struct{ Raw, Minute, Hour bool }
+	RetentionFromEnv struct{ Raw, Minute, Hour, DNS bool }
 	// WatermarkOverride replaces the learned Watermark when set.
 	WatermarkOverride time.Duration
 	// DatabaseURL, when set, decides the App Store and locks the setup screen.
@@ -156,6 +158,7 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 		{"FLOWMON_RETENTION_RAW", "7d", &cfg.RetentionRaw, &cfg.RetentionFromEnv.Raw},
 		{"FLOWMON_RETENTION_MINUTE", "90d", &cfg.RetentionMinute, &cfg.RetentionFromEnv.Minute},
 		{"FLOWMON_RETENTION_HOUR", "730d", &cfg.RetentionHour, &cfg.RetentionFromEnv.Hour},
+		{"FLOWMON_RETENTION_DNS", "7d", &cfg.RetentionDNS, &cfg.RetentionFromEnv.DNS},
 	} {
 		*r.fromEnv = get(r.key, "") != ""
 		if *r.into, err = ParseDuration(get(r.key, r.def)); err != nil || *r.into <= 0 {

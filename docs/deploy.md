@@ -139,9 +139,9 @@ If Postgres (or the SQLite file) stops answering, Flowmon keeps collecting and s
 
 The Flow Store grows with traffic and raw retention: raw Flows take by far the most space. Settings shows its size, how far back raw Flows reach, and DuckDB's memory use.
 
-- **`FLOWMON_FLOW_STORE_MAX_GB`** caps it, for a small disk or SD card. Every ten minutes, while the Flow Store is over the cap, Flowmon drops the oldest day of raw Flows, then the next, before their retention ends. When no raw day is left to drop, it drops minute Rollup days older than a day. It never drops:
+- **`FLOWMON_FLOW_STORE_MAX_GB`** caps it, for a small disk or SD card. Every ten minutes, while the Flow Store is over the cap, Flowmon drops the oldest day of DNS Queries (from DNS Data Sources such as AdGuard Home), then the next, and then the oldest day of raw Flows, before their retention ends. When no raw day is left to drop, it drops minute Rollup days older than a day. It never drops:
   - a raw day that may still receive late Flows (until its Watermark passes),
-  - today's raw Flows or the last day of minute Rollups,
+  - today's raw Flows or DNS Queries, or the last day of minute Rollups,
   - hour Rollups, which hold the long history and take little space.
 
   Every Flow is rolled up as it is stored, and a day's Top Remote IPs are built before its raw Flows go, so charts and top lists keep their whole history. Only the Flow Explorer and exact Top Remote IPs reach back less far. Settings warns while the cap drops data early. If what's left is still over the cap, a banner says so on every page; raise the cap or shorten Rollup retention.

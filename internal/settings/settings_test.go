@@ -115,3 +115,40 @@ func TestEnvironmentLocks(t *testing.T) {
 		t.Errorf("changing an unlocked one: %v", err)
 	}
 }
+
+func TestDNSRetention(t *testing.T) {
+	ctx := context.Background()
+	store := memStore{}
+	m, err := Load(ctx, store, env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Current().Retention.DNS; got != 7*day {
+		t.Fatalf("default DNS retention %v", got)
+	}
+	// DNS Queries are kept apart: longer than raw Flows is fine.
+	if _, err := m.Update(ctx, Update{DNS: dur(30 * day)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Update(ctx, Update{DNS: dur(time.Hour)}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an hour of DNS: %v", err)
+	}
+	m2, _ := Load(ctx, store, env())
+	if got := m2.Current().Retention.DNS; got != 30*day {
+		t.Errorf("reloaded DNS retention %v", got)
+	}
+
+	cfg := config.Config{RetentionRaw: 7 * day, RetentionMinute: 90 * day, RetentionHour: 730 * day, RetentionDNS: 2 * day}
+	cfg.RetentionFromEnv.DNS = true
+	e, err := FromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m3, _ := Load(ctx, store, e)
+	if m3.Current().Retention.DNS != 2*day || !m3.Locks().RetentionDNS {
+		t.Errorf("FLOWMON_RETENTION_DNS: %v, locked %v", m3.Current().Retention.DNS, m3.Locks().RetentionDNS)
+	}
+	if _, err := m3.Update(ctx, Update{DNS: dur(3 * day)}); !errors.Is(err, ErrLocked) {
+		t.Errorf("changing locked DNS retention: %v", err)
+	}
+}

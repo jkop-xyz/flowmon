@@ -92,11 +92,11 @@ func (s *Store) CapStatus() CapStatus {
 // days are gone, they are the finest data left for recent charts.
 const capKeepMinute = 24 * time.Hour
 
-// EnforceCap drops the oldest data until the Flow Store uses at most max bytes: whole raw
-// days first, oldest first, then minute Rollup days, oldest first. Every Flow is rolled
+// EnforceCap drops the oldest data until the Flow Store uses at most max bytes: whole days
+// of DNS Queries first, oldest first, then raw days, then minute Rollup days. Every Flow is rolled
 // up as it is written, and a raw day's daily Top Remote IPs are built before it goes, so
 // only detail is lost. It never drops a raw day that may still receive late Flows (it
-// ended less than safeAfter, the largest Watermark, ago), the last day of minute
+// ended less than safeAfter, the largest Watermark, ago), nor a DNS day that recent, the last day of minute
 // Rollups, or hour Rollups, which hold the long history and take little space. When
 // that isn't enough, CapStatus says so.
 func (s *Store) EnforceCap(ctx context.Context, max int64, now time.Time, safeAfter time.Duration) ([]string, error) {
@@ -147,7 +147,12 @@ func (s *Store) EnforceCap(ctx context.Context, max int64, now time.Time, safeAf
 func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var raw, minute []string
+	var dns, raw, minute []string
+	for name := range s.dnsDays {
+		if day, ok := dnsDay(name); ok && day.Add(24*time.Hour).Before(now.Add(-safeAfter)) {
+			dns = append(dns, name)
+		}
+	}
 	for name := range s.days {
 		if day, ok := rawDay(name); ok && day.Add(24*time.Hour).Before(now.Add(-safeAfter)) {
 			raw = append(raw, name)
@@ -163,9 +168,12 @@ func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog
 		}
 	}
 	// Names sort by date.
+	sort.Strings(dns)
 	sort.Strings(raw)
 	sort.Strings(minute)
 	switch {
+	case len(dns) > 0:
+		return dns[0], "dns_days", true
 	case len(raw) > 0:
 		return raw[0], "flow_days", true
 	case len(minute) > 0:
