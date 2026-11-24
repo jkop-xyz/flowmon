@@ -109,6 +109,24 @@ A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts 
 - **Reverse DNS** for Local Hosts asks the server in `FLOWMON_LOCAL_DNS_SERVER`, or the container's resolver when it is unset. Point it at the server that knows your hosts by name, such as the MikroTik or a Pi-hole. Names are cached for an hour, because DHCP can move them.
 - **Host Labels** are stored in the App Store. A label on a single address names that host. A label on a prefix, such as an IPv6 `/64` or a DHCP range written as a prefix, makes every address in it one Local Host. Use it for a device whose addresses rotate. A label on an address inside a labelled prefix keeps that address separate, because the longest prefix wins.
 
+## DNS from AdGuard Home
+
+Flowmon can read AdGuard Home's query log, to show which names each device looks up and, in later versions, which domains its traffic goes to. Nothing is collected until you add AdGuard Home as a Data Source, because DNS logs say much more about what people do than Flows. Flowmon polls `/control/querylog` every 15 seconds with AdGuard Home's own login, and keeps DNS Queries for the DNS retention on the Settings page (7 days unless changed). The first poll reaches back one day. If Flowmon is off longer than AdGuard Home keeps its log, that time has no DNS and the source shows a warning.
+
+Set it up on the Sources page (coming in a later v2 update) or with environment variables:
+
+```sh
+FLOWMON_SOURCE_ADGUARD_KIND=adguard
+FLOWMON_SOURCE_ADGUARD_URL=http://192.168.10.2:3000
+FLOWMON_SOURCE_ADGUARD_USERNAME=admin
+FLOWMON_SOURCE_ADGUARD_PASSWORD=...
+FLOWMON_SOURCE_ADGUARD_SKIP_TLS_VERIFY=false   # true for https with a self-signed certificate
+```
+
+Per-device DNS needs devices to ask AdGuard Home directly. If they ask the router and the router forwards to AdGuard Home, every query seems to come from the router: Flowmon warns when 90 % or more come from an Exporter. Hand out AdGuard Home's address by DHCP instead, or turn on EDNS Client Subnet on the router. Also leave AdGuard Home's "Anonymize client IP" off.
+
+Several AdGuard Home instances (for redundancy) can each be a source; their logs merge, and each query remembers which one answered.
+
 ## Settings and environment variables
 
 Local Networks and retention can be changed on the Settings page. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.
