@@ -2,7 +2,6 @@ package flowstore
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"net/netip"
@@ -318,51 +317,119 @@ func (s *Store) compactDomainTable(ctx context.Context, name string) error {
 	return tx.Commit()
 }
 
-// DomainTotal is one Registrable Domain's traffic ("" for traffic with no domain).
-type DomainTotal struct {
-	Registrable      string
-	BytesRx, BytesTx float64
-	Flows            uint64
-	// LocalHosts and Devices count who used it.
-	LocalHosts, Devices int
+// DomainQuery asks for the busiest Registrable Domains.
+type DomainQuery struct {
+	From, To time.Time
+	Exporter netip.Addr
+	// LocalHosts, when not nil, keeps the traffic of these Local Hosts (addresses).
+	LocalHosts []string
+	Limit      int
 }
 
-// DomainTotals sums Domain Rollups over [from, to) by Registrable Domain, largest first.
-// Ranges of a day or more read hour tables, shorter ones minute tables.
-func (s *Store) DomainTotals(ctx context.Context, from, to time.Time) ([]DomainTotal, error) {
-	g := Minute
-	if to.Sub(from) >= 24*time.Hour {
-		g = Hour
+// DomainItem is one Registrable Domain's traffic; Registrable is "" for traffic whose
+// Remote IP no Local Host looked up.
+type DomainItem struct {
+	Registrable   string  `json:"registrable"`
+	ReceivedBytes float64 `json:"receivedBytes"`
+	SentBytes     float64 `json:"sentBytes"`
+	TotalBytes    float64 `json:"totalBytes"`
+	Flows         uint64  `json:"flows"`
+	// LocalHosts and Devices count who used it.
+	LocalHosts int `json:"localHosts"`
+	Devices    int `json:"devices"`
+}
+
+// DomainResult is a ranked list of Registrable Domains.
+type DomainResult struct {
+	From   time.Time    `json:"from"`
+	To     time.Time    `json:"to"`
+	Source Source       `json:"source"`
+	Items  []DomainItem `json:"items"`
+	// TotalBytes is every byte counted in the range, with or without a domain.
+	TotalBytes float64 `json:"totalBytes"`
+	// Count is how many Registrable Domains had traffic, "" not counted.
+	Count int `json:"count"`
+	// CountedThrough is how far Domain Rollups are built: later traffic isn't counted yet.
+	// Since is the first bucket counted. Both are nil before anything was counted.
+	CountedThrough *time.Time `json:"countedThrough,omitempty"`
+	Since          *time.Time `json:"since,omitempty"`
+}
+
+// TopDomains ranks Registrable Domains by bytes. Ranges of a day or more are answered
+// from hour Domain Rollups, shorter ones from minute ones.
+func (s *Store) TopDomains(ctx context.Context, q DomainQuery) (DomainResult, error) {
+	if !q.To.After(q.From) || q.To.Sub(q.From) > MaxRange {
+		return DomainResult{}, ErrInvalidRange
 	}
+	if q.Limit <= 0 {
+		q.Limit = 10
+	}
+	q.Limit = min(q.Limit, MaxTopLimit)
+	g, source := Minute, SourceMinute
+	if q.To.Sub(q.From) >= 24*time.Hour {
+		g, source = Hour, SourceHour
+	}
+	from, to := q.From.UTC().Truncate(g.bucket()), q.To.UTC()
+	res := DomainResult{From: from, To: to, Source: source, Items: []DomainItem{}}
+	if built, err := s.DomainRollupsBuilt(ctx); err != nil {
+		return res, err
+	} else if !built.IsZero() {
+		res.CountedThrough = &built
+	}
+
 	s.mu.Lock()
-	var parts []string
+	var parts, all []string
 	for name := range s.domainRollups {
-		if tg, p, ok := parseDomainTable(name); ok && tg == g && p.Before(to) && g.periodEnd(p).After(from) {
+		tg, p, ok := parseDomainTable(name)
+		if !ok || tg != g {
+			continue
+		}
+		all = append(all, name)
+		if p.Before(to) && g.periodEnd(p).After(from) {
 			parts = append(parts, `SELECT * FROM `+name)
 		}
 	}
 	s.mu.Unlock()
+	sort.Strings(all)
+	if len(all) > 0 {
+		var since time.Time
+		if err := s.db.QueryRowContext(ctx, `SELECT min(bucket) FROM `+all[0]).Scan(&since); err == nil && !since.IsZero() {
+			since = since.UTC()
+			res.Since = &since
+		}
+	}
 	if len(parts) == 0 {
-		return nil, nil
+		return res, nil
 	}
 	sort.Strings(parts)
-	rows, err := s.db.QueryContext(ctx, `SELECT registrable, sum(bytes_rx), sum(bytes_tx), sum(flows)::UBIGINT,
-		count(DISTINCT local_host), count(DISTINCT local_mac) FILTER (WHERE local_mac <> '')
-		FROM (`+strings.Join(parts, ` UNION ALL `)+`) WHERE bucket >= ? AND bucket < ?
-		GROUP BY registrable ORDER BY sum(bytes_rx + bytes_tx) DESC, registrable`, from.UTC(), to.UTC())
+	a := &sqlArgs{}
+	where := fmt.Sprintf(`bucket >= %s AND bucket < %s`, a.add(from), a.add(to))
+	if q.Exporter.IsValid() {
+		where += ` AND exporter = ` + a.add(q.Exporter.String())
+	}
+	if q.LocalHosts != nil {
+		where += ` AND ` + inList(a, "local_host", q.LocalHosts)
+	}
+	rows, err := s.db.QueryContext(ctx, `WITH d AS (SELECT * FROM (`+strings.Join(parts, ` UNION ALL `)+`) WHERE `+where+`),
+		g AS (SELECT registrable, sum(bytes_rx) AS rx, sum(bytes_tx) AS tx, sum(flows)::UBIGINT AS flows,
+			count(DISTINCT local_host) AS hosts, count(DISTINCT local_mac) FILTER (WHERE local_mac <> '') AS devices
+			FROM d GROUP BY registrable)
+		SELECT registrable, rx, tx, flows, hosts, devices, sum(rx + tx) OVER (), count(*) FILTER (WHERE registrable <> '') OVER ()
+		FROM g ORDER BY rx + tx DESC, registrable LIMIT `+a.add(q.Limit), a.args...)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 	defer rows.Close()
-	var out []DomainTotal
 	for rows.Next() {
-		var d DomainTotal
-		var macs sql.NullInt64
-		if err := rows.Scan(&d.Registrable, &d.BytesRx, &d.BytesTx, &d.Flows, &d.LocalHosts, &macs); err != nil {
-			return nil, err
+		var it DomainItem
+		var total float64
+		var count int
+		if err := rows.Scan(&it.Registrable, &it.ReceivedBytes, &it.SentBytes, &it.Flows, &it.LocalHosts, &it.Devices, &total, &count); err != nil {
+			return res, err
 		}
-		d.Devices = int(macs.Int64)
-		out = append(out, d)
+		it.TotalBytes = it.ReceivedBytes + it.SentBytes
+		res.Items = append(res.Items, it)
+		res.TotalBytes, res.Count = total, count
 	}
-	return out, rows.Err()
+	return res, rows.Err()
 }

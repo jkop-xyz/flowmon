@@ -98,9 +98,16 @@ function columns({ hosts, services }: Lookups): ColumnDef<FlowItem>[] {
         const f = row.original
         if (!f.peer) return <Endpoint address={f.dst} port={f.dstPort} />
         return (
-          <Endpoint port={f.peerPort}>
-            {f.direction === "internal" ? <HostLink host={f.peer} name={hosts[f.peer]} /> : <RemoteIPLink ip={f.peer} />}
-          </Endpoint>
+          <>
+            <Endpoint port={f.peerPort}>
+              {f.direction === "internal" ? <HostLink host={f.peer} name={hosts[f.peer]} /> : <RemoteIPLink ip={f.peer} />}
+            </Endpoint>
+            {f.domain && (
+              <span className="block max-w-56 truncate text-xs text-muted-foreground" title={`Looked up as ${f.domain}`}>
+                {f.domain}
+              </span>
+            )}
+          </>
         )
       },
     },

@@ -4,6 +4,8 @@ import { lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
 import { AreaChip } from "@/components/area-chip"
+import { DomainsCard } from "@/components/domains-card"
+import { useDomainsShown } from "@/lib/domains"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -31,6 +33,7 @@ import { formatBytes, formatNumber, protocolName } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-range"
 import type { Area } from "@/lib/navigation"
+import { cn } from "@/lib/utils"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
@@ -67,6 +70,7 @@ export function OverviewPage() {
   const query = useQuery(bandwidthQuery({ preset, exporter }))
 
   const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
+  const showDomains = useDomainsShown()
 
   return (
     <Page>
@@ -110,9 +114,9 @@ export function OverviewPage() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <div className="grid items-start gap-6 lg:grid-cols-6 4xl:grid-cols-5">
+        <div className={cn("grid items-start gap-6 lg:grid-cols-6", showDomains ? "4xl:grid-cols-6" : "4xl:grid-cols-5")}>
           <TopCard
-            className="lg:col-span-3 4xl:col-span-1"
+            className={cn(showDomains ? "lg:col-span-2" : "lg:col-span-3", "4xl:col-span-1")}
             dimension="hosts"
             area="hosts"
             icon={Monitor}
@@ -126,7 +130,7 @@ export function OverviewPage() {
             }
           />
           <TopCard
-            className="lg:col-span-3 4xl:col-span-1"
+            className={cn(showDomains ? "lg:col-span-2" : "lg:col-span-3", "4xl:col-span-1")}
             dimension="remotes"
             area="remote"
             icon={Globe}
@@ -139,6 +143,7 @@ export function OverviewPage() {
               </Link>
             }
           />
+          {showDomains && <DomainsCard className="lg:col-span-2 4xl:col-span-1" />}
           <TopCard
             className="lg:col-span-2 4xl:col-span-1"
             dimension="asns"

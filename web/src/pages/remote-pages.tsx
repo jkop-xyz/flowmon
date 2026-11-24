@@ -15,9 +15,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   fetchRDAP,
+  fetchRemoteNames,
   fetchFlows,
   fetchRemoteIP,
   fetchRemoteIPs,
@@ -229,6 +230,7 @@ export function RemoteIPPage() {
       ) : (
         <>
           <IdentityCard d={detail.data.result} />
+          <LookedUpAsCard ip={ip} />
           <RegistrationCard ip={ip} />
           <LocalHostsCard d={detail.data.result} rangeFrom={rangeFrom} label={preset.label.toLowerCase()} />
         </>
@@ -388,6 +390,54 @@ function FlowsCard({ ip }: { ip: string }) {
         )}
       </CardContent>
       <FlowDetailSheet id={selected} onClose={() => setSelected(null)} />
+    </Card>
+  )
+}
+
+/** The names Local Hosts looked this address up as, from the DNS Data Sources. Shown only when there are any. */
+function LookedUpAsCard({ ip }: { ip: string }) {
+  const query = useQuery({
+    queryKey: ["remote-names", ip],
+    queryFn: ({ signal }) => fetchRemoteNames(ip, signal),
+    refetchInterval: 60_000,
+  })
+  if (!query.data || query.data.names.length === 0) return null
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Looked up as</CardTitle>
+        <CardDescription>
+          The names whose DNS answers held {ip} in the last {query.data.days} days, most looked up first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead className="text-right">Lookups</TableHead>
+              <TableHead className="text-right">Local Hosts</TableHead>
+              <TableHead>Last</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {query.data.names.map((n) => (
+              <TableRow key={n.name}>
+                <TableCell className="max-w-96 truncate font-mono text-ident" title={n.name}>
+                  {n.name}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(n.lookups)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(n.clients)}</TableCell>
+                <TableCell>
+                  <span title={formatDateTime(n.last)}>
+                    <TimeAgo iso={n.last} now={query.dataUpdatedAt} />
+                  </span>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
     </Card>
   )
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jkop-xyz/flowmon/internal/domains"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/hosts"
@@ -161,6 +162,13 @@ func parseFlowQuery(r *http.Request, opts Options) (flowstore.FlowQuery, error) 
 		return q, err
 	}
 	q.Port = uint16(port)
+	if s := strings.TrimSpace(v.Get("domain")); s != "" {
+		if s == "-" {
+			q.NoDomain = true
+		} else {
+			q.Domain = domains.Normalize(s)
+		}
+	}
 	if s := strings.TrimSpace(v.Get("country")); s != "" {
 		if len(s) != 2 {
 			return q, errors.New("country must be a two-letter code")
