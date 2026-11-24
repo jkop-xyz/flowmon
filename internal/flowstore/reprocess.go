@@ -96,8 +96,15 @@ func (s *Store) Reprocess(ctx context.Context, exporter netip.Addr, from time.Ti
 			progress(day, n)
 		}
 	}
-	// Top Remote IPs from the window on are built again from the reprocessed Flows.
+	// Top Remote IPs from the window on are built again from the reprocessed Flows, and
+	// Domain Rollups counted again.
 	s.markTopDirtyFrom(window)
+	s.writeMu.Lock()
+	err := s.rebuildDomainRollups(ctx, exporter, window)
+	s.writeMu.Unlock()
+	if err != nil {
+		return total, window, fmt.Errorf("recounting Domain Rollups: %w", err)
+	}
 	return total, window, nil
 }
 

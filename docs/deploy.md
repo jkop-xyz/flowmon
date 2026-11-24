@@ -127,6 +127,8 @@ Per-device DNS needs devices to ask AdGuard Home directly. If they ask the route
 
 Several AdGuard Home instances (for redundancy) can each be a source; their logs merge, and each query remembers which one answered.
 
+Flowmon also names traffic by domain. Each Flow gets the name its device looked up last, within a day before the Flow started, whose answer held the Flow's Remote IP. A Flow that arrives before its lookup was polled is named within a minute. Domain totals (per device and Registrable Domain, such as `bbc.co.uk`) are counted 5 minutes after a Flow arrives, once its name is final, so domain charts end 5 minutes before now while everything else is live. Domains start when collection starts: traffic from before has none. Traffic to addresses nobody looked up (DNS over HTTPS, hard-coded addresses) is counted as "no DNS lookup".
+
 ## Settings and environment variables
 
 Local Networks and retention can be changed on the Settings page. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.

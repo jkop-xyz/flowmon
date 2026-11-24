@@ -632,8 +632,9 @@ func lookupsFrom(qs []flowstore.DNSQuery) []domains.Lookup {
 // collected: AdGuard Home is polled every 15 s, and a poll can fail for a while.
 const lateDNS = 10 * time.Minute
 
-// fillDomains gives domains to Flows stored before their lookup arrived, every minute,
-// and forgets lookups too old to matter.
+// fillDomains gives domains to Flows stored before their lookup arrived, forgets
+// lookups too old to matter, then counts the Flows received DomainRollupDelay ago in
+// Domain Rollups, every minute.
 func fillDomains(ctx context.Context, logger *slog.Logger, store *flowstore.Store, a *domains.Attributor) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
@@ -650,6 +651,9 @@ func fillDomains(ctx context.Context, logger *slog.Logger, store *flowstore.Stor
 			logger.Debug("domains filled in from late DNS", "flows", n)
 		}
 		a.Prune(now)
+		if _, err := store.BuildDomainRollups(ctx, now); err != nil && ctx.Err() == nil {
+			logger.Error("building Domain Rollups", "err", err)
+		}
 	}
 }
 

@@ -39,11 +39,13 @@ type Store struct {
 	writeMu sync.Mutex
 
 	mu      sync.Mutex
-	days    map[string]bool   // raw day tables that exist, by name
-	dnsDays map[string]bool   // DNS Query day tables that exist, by name
-	rollups map[string]bool   // Rollup tables that exist, by name
-	dirty   map[string]bool   // Rollup tables written since the last compaction
-	asns    map[uint32]string // ASN Owner names, as stored in asn_names
+	days    map[string]bool // raw day tables that exist, by name
+	dnsDays map[string]bool // DNS Query day tables that exist, by name
+	// domainRollups are the Domain Rollup tables that exist, by name.
+	domainRollups map[string]bool
+	rollups       map[string]bool   // Rollup tables that exist, by name
+	dirty         map[string]bool   // Rollup tables written since the last compaction
+	asns          map[uint32]string // ASN Owner names, as stored in asn_names
 
 	topBuilt map[period]bool // Top Remote IPs periods built
 	topDirty map[period]bool // built periods that Flows were added to since
@@ -77,7 +79,7 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
 	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
-		days: map[string]bool{}, dnsDays: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
+		days: map[string]bool{}, dnsDays: map[string]bool{}, domainRollups: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
 		topBuilt: map[period]bool{}, topDirty: map[period]bool{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
@@ -301,6 +303,8 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 18: Domain Rollups (v2), listed like Rollup tables (see domainrollups.go).
+	stmt(`CREATE TABLE IF NOT EXISTS domain_rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -343,9 +347,10 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 
 func (s *Store) loadDays(ctx context.Context) error {
 	for query, into := range map[string]map[string]bool{
-		`SELECT table_name FROM flow_days`:         s.days,
-		`SELECT table_name FROM dns_days`:          s.dnsDays,
-		`SELECT table_name FROM rollup_partitions`: s.rollups,
+		`SELECT table_name FROM flow_days`:                s.days,
+		`SELECT table_name FROM dns_days`:                 s.dnsDays,
+		`SELECT table_name FROM domain_rollup_partitions`: s.domainRollups,
+		`SELECT table_name FROM rollup_partitions`:        s.rollups,
 	} {
 		rows, err := s.db.QueryContext(ctx, query)
 		if err != nil {
@@ -370,6 +375,9 @@ func (s *Store) loadDays(ctx context.Context) error {
 	// Tables may hold uncompacted rows from before a restart.
 	s.mu.Lock()
 	for name := range s.rollups {
+		s.dirty[name] = true
+	}
+	for name := range s.domainRollups {
 		s.dirty[name] = true
 	}
 	s.mu.Unlock()
