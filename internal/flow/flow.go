@@ -96,6 +96,11 @@ type Flow struct {
 	// Zero when unknown.
 	LocalMAC, PeerMAC MAC
 
+	// Domain is the name the Local Host looked up for the Remote IP (Domain Attribution,
+	// package domains), fixed when the Flow is stored or filled in shortly after; "" when
+	// none is known.
+	Domain string
+
 	// Fields holds every original field, encoded with EncodeFields.
 	Fields []byte
 }

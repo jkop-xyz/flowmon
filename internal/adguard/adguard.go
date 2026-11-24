@@ -38,6 +38,8 @@ type Options struct {
 	Interval time.Duration
 	// PageSize is how many entries a request asks for; 500 when 0.
 	PageSize int
+	// Stored, if set, is called with the queries each poll stored, oldest first.
+	Stored func([]flowstore.DNSQuery)
 }
 
 // FirstBackfill is how far back the first poll of a new source reaches.
@@ -234,6 +236,9 @@ func (p *poller) poll(ctx context.Context) error {
 		slices.SortFunc(fresh, func(a, b flowstore.DNSQuery) int { return a.Time.Compare(b.Time) })
 		if err := p.k.opts.Store.WriteDNS(ctx, fresh); err != nil {
 			return fmt.Errorf("storing queries: %w", err)
+		}
+		if p.k.opts.Stored != nil {
+			p.k.opts.Stored(fresh)
 		}
 		newest := fresh[len(fresh)-1].Time
 		if newest.After(p.cursor) {

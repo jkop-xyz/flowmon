@@ -70,7 +70,8 @@ func TestGeoColumnsAddedToExistingDayTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`ALTER TABLE flows_20261118 DROP COLUMN local_mac`, // the shape before migration 16
+		`ALTER TABLE flows_20261118 DROP COLUMN domain`, // the shape before migrations 16 and 17
+		`ALTER TABLE flows_20261118 DROP COLUMN local_mac`,
 		`ALTER TABLE flows_20261118 DROP COLUMN peer_mac`,
 		`ALTER TABLE rollup_minute_20261118 DROP COLUMN local_mac`,
 		`ALTER TABLE flows_20261118 DROP COLUMN sampling_rate`,

@@ -27,6 +27,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/config"
 	"github.com/jkop-xyz/flowmon/internal/datasource"
 	"github.com/jkop-xyz/flowmon/internal/devices"
+	"github.com/jkop-xyz/flowmon/internal/domains"
 	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flow"
@@ -194,9 +195,23 @@ func serve(stderr io.Writer) int {
 		},
 		Logger: logger,
 	})
+	// Domain Attribution: the lookups of the last day, then each one AdGuard Home sources
+	// store as they come.
+	attributor := domains.NewAttributor()
+	if qs, err := store.DNSQueries(ctx, time.Now().Add(-domains.Window), time.Now().Add(time.Minute), 10_000_000); err != nil {
+		logger.Error("loading DNS Queries for Domain Attribution", "err", err)
+	} else {
+		attributor.Add(lookupsFrom(qs))
+	}
+	attribute := func(f *flow.Flow) {
+		if f.Domain == "" && (f.Direction == flow.DirectionInbound || f.Direction == flow.DirectionOutbound) {
+			f.Domain = attributor.Name(f.Local, f.Peer, f.Start)
+		}
+	}
 	enrich := func(f *flow.Flow) {
 		resolver.Enrich(f)
 		assigner.Assign(f)
+		attribute(f)
 	}
 	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
 		SamplingRate:   registry.SamplingRate,
@@ -254,6 +269,7 @@ func serve(stderr io.Writer) int {
 		// Devices come from the stored fields, so reprocessing fills them in for Flows
 		// stored before Flowmon knew Devices.
 		assigner.Assign(f)
+		attribute(f)
 	}, logger)
 
 	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
@@ -270,8 +286,10 @@ func serve(stderr io.Writer) int {
 		Store:      store,
 		IsExporter: func(a netip.Addr) bool { _, ok := registry.Config(a); return ok },
 		Retention:  func() time.Duration { return collectionSettings.Current().Retention.DNS },
+		Stored:     func(qs []flowstore.DNSQuery) { attributor.Add(lookupsFrom(qs)) },
 		Logger:     logger,
 	})
+	go fillDomains(pipelineCtx, logger, store, attributor)
 	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind}, Env: sourceEnv, Logger: logger})
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error:", err)
@@ -596,6 +614,43 @@ func check(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// lookupsFrom turns stored DNS Queries into what Domain Attribution needs. Blocked
+// lookups name nothing a Flow could have gone to.
+func lookupsFrom(qs []flowstore.DNSQuery) []domains.Lookup {
+	out := make([]domains.Lookup, 0, len(qs))
+	for _, q := range qs {
+		if !q.Blocked && len(q.Answers) > 0 {
+			out = append(out, domains.Lookup{Time: q.Time, Client: q.Client, Name: q.Name, Answers: q.Answers})
+		}
+	}
+	return out
+}
+
+// lateDNS is how far back the late pass looks for Flows stored before their lookup was
+// collected: AdGuard Home is polled every 15 s, and a poll can fail for a while.
+const lateDNS = 10 * time.Minute
+
+// fillDomains gives domains to Flows stored before their lookup arrived, every minute,
+// and forgets lookups too old to matter.
+func fillDomains(ctx context.Context, logger *slog.Logger, store *flowstore.Store, a *domains.Attributor) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		now := time.Now()
+		if n, err := store.FillDomains(ctx, now.Add(-lateDNS), a.Name); err != nil && ctx.Err() == nil {
+			logger.Error("filling in domains", "err", err)
+		} else if n > 0 {
+			logger.Debug("domains filled in from late DNS", "flows", n)
+		}
+		a.Prune(now)
+	}
 }
 
 func routerMACsFrom(rs []flowstore.RouterMAC) []devices.Router {

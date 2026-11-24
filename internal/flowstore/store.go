@@ -288,6 +288,19 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 17: raw Flows keep the name their Remote IP was looked up as (Domain Attribution).
+	func(ctx context.Context, tx *sql.Tx) error {
+		days, err := queryStrings(ctx, tx, `SELECT table_name FROM flow_days`)
+		if err != nil {
+			return err
+		}
+		for _, t := range days {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS domain VARCHAR DEFAULT ''`); err != nil {
+				return fmt.Errorf("%s: %w", t, err)
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -400,7 +413,8 @@ const dayColumns = `(
 	peer_asn UINTEGER DEFAULT 0,
 	sampling_rate UINTEGER DEFAULT 0,
 	local_mac VARCHAR DEFAULT '',
-	peer_mac VARCHAR DEFAULT ''
+	peer_mac VARCHAR DEFAULT '',
+	domain VARCHAR DEFAULT ''
 )`
 
 func (s *Store) ensureDay(ctx context.Context, day time.Time) (string, error) {
@@ -566,7 +580,7 @@ func flowRow(f *flow.Flow) []driver.Value {
 		nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
 		f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
 		uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
-		f.Fields, f.PeerCountry, f.PeerASN, f.SamplingRate, f.LocalMAC.String(), f.PeerMAC.String(),
+		f.Fields, f.PeerCountry, f.PeerASN, f.SamplingRate, f.LocalMAC.String(), f.PeerMAC.String(), f.Domain,
 	}
 }
 
