@@ -258,6 +258,36 @@ var migrations = []migration{
 	stmt(`CREATE TABLE IF NOT EXISTS data_sources (id VARCHAR PRIMARY KEY, kind VARCHAR NOT NULL, name VARCHAR NOT NULL, enabled BOOLEAN NOT NULL, settings VARCHAR NOT NULL, created TIMESTAMP NOT NULL)`),
 	// 15: DNS Queries (v2), one table per UTC day like raw Flows (see dns.go).
 	stmt(`CREATE TABLE IF NOT EXISTS dns_days (day DATE PRIMARY KEY, table_name VARCHAR NOT NULL UNIQUE)`),
+	// 16: Devices (v2): raw Flows keep the MAC of their Local Host and Internal Peer,
+	// Rollups the Local Host's; the addresses each MAC used; and the MACs that are
+	// router hops (see devices.go).
+	func(ctx context.Context, tx *sql.Tx) error {
+		alters := []string{
+			`CREATE TABLE IF NOT EXISTS device_addresses (mac VARCHAR NOT NULL, address VARCHAR NOT NULL, first_seen TIMESTAMP NOT NULL, last_seen TIMESTAMP NOT NULL, PRIMARY KEY (mac, address))`,
+			`CREATE TABLE IF NOT EXISTS router_macs (mac VARCHAR PRIMARY KEY, exporter VARCHAR NOT NULL, reason VARCHAR NOT NULL, since TIMESTAMP NOT NULL)`,
+		}
+		days, err := queryStrings(ctx, tx, `SELECT table_name FROM flow_days`)
+		if err != nil {
+			return err
+		}
+		for _, t := range days {
+			alters = append(alters, `ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS local_mac VARCHAR DEFAULT ''`,
+				`ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS peer_mac VARCHAR DEFAULT ''`)
+		}
+		rollups, err := queryStrings(ctx, tx, `SELECT table_name FROM rollup_partitions`)
+		if err != nil {
+			return err
+		}
+		for _, t := range rollups {
+			alters = append(alters, `ALTER TABLE `+t+` ADD COLUMN IF NOT EXISTS local_mac VARCHAR DEFAULT ''`)
+		}
+		for _, q := range alters {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return fmt.Errorf("%s: %w", q, err)
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -368,7 +398,9 @@ const dayColumns = `(
 	fields BLOB NOT NULL,
 	peer_country VARCHAR DEFAULT '',
 	peer_asn UINTEGER DEFAULT 0,
-	sampling_rate UINTEGER DEFAULT 0
+	sampling_rate UINTEGER DEFAULT 0,
+	local_mac VARCHAR DEFAULT '',
+	peer_mac VARCHAR DEFAULT ''
 )`
 
 func (s *Store) ensureDay(ctx context.Context, day time.Time) (string, error) {
@@ -451,6 +483,9 @@ func (s *Store) Write(ctx context.Context, flows []flow.Flow) error {
 			return err
 		}
 		s.markTopDirty(remoteSpans(flows))
+		if err := s.saveDeviceAddresses(ctx, flows); err != nil {
+			return err
+		}
 		return s.saveASNNames(ctx, flows)
 	})
 }
@@ -531,7 +566,7 @@ func flowRow(f *flow.Flow) []driver.Value {
 		nullableAddr(f.PostNATSrc), nullableAddr(f.PostNATDst), f.PostNATSrcPort, f.PostNATDstPort,
 		f.Bytes, f.Packets, f.IngressInterface, f.EgressInterface,
 		uint8(f.Direction), nullableAddr(f.Local), f.LocalIsExporterHost, nullableAddr(f.Peer), f.LocalPort, f.PeerPort,
-		f.Fields, f.PeerCountry, f.PeerASN, f.SamplingRate,
+		f.Fields, f.PeerCountry, f.PeerASN, f.SamplingRate, f.LocalMAC.String(), f.PeerMAC.String(),
 	}
 }
 

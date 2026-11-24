@@ -25,6 +25,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
 	"github.com/jkop-xyz/flowmon/internal/datasource"
+	"github.com/jkop-xyz/flowmon/internal/devices"
 	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flow"
@@ -178,7 +179,25 @@ func serve(stderr io.Writer) int {
 		return 1
 	}
 
-	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: resolver.Enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
+	knownRouters, err := store.RouterMACs(ctx)
+	if err != nil {
+		logger.Error("router MACs", "err", err)
+		return 1
+	}
+	assigner := devices.New(devices.Options{
+		Known: routerMACsFrom(knownRouters),
+		Learned: func(r devices.Router) {
+			if err := store.AddRouterMAC(context.Background(), flowstore.RouterMAC(r)); err != nil {
+				logger.Error("saving a router MAC", "mac", r.MAC.String(), "err", err)
+			}
+		},
+		Logger: logger,
+	})
+	enrich := func(f *flow.Flow) {
+		resolver.Enrich(f)
+		assigner.Assign(f)
+	}
+	pipeline := ingest.New(ingest.Options{Writer: store, Classifier: classifier, Enrich: enrich, Logger: logger, WatermarkOverride: cfg.WatermarkOverride,
 		SamplingRate:   registry.SamplingRate,
 		MultiplePoints: registry.MultiplePoints,
 		OnInterfaceName: func(exp netip.Addr, idx uint32, name string, at time.Time) {
@@ -231,6 +250,9 @@ func serve(stderr io.Writer) int {
 		if f.Peer != peer {
 			resolver.Enrich(f)
 		}
+		// Devices come from the stored fields, so reprocessing fills them in for Flows
+		// stored before Flowmon knew Devices.
+		assigner.Assign(f)
 	}, logger)
 
 	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
@@ -567,4 +589,12 @@ func check(stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func routerMACsFrom(rs []flowstore.RouterMAC) []devices.Router {
+	out := make([]devices.Router, len(rs))
+	for i, r := range rs {
+		out[i] = devices.Router(r)
+	}
+	return out
 }
