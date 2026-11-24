@@ -32,7 +32,7 @@ func scanFlow(rows *sql.Rows) (flow.Flow, error) {
 	err := rows.Scan(&exporter, &f.ObservationDomain, &f.Received, &f.ExportTime, &f.Start, &f.End, &f.TimeEstimated,
 		&src, &dst, &f.SrcPort, &f.DstPort, &f.Protocol, &postSrc, &postDst, &f.PostNATSrcPort, &f.PostNATDstPort,
 		&f.Bytes, &f.Packets, &f.IngressInterface, &f.EgressInterface, &direction, &local, &f.LocalIsExporterHost, &peer,
-		&f.LocalPort, &f.PeerPort, &f.Fields, &f.PeerCountry, &f.PeerASN, &f.SamplingRate, &localMAC, &peerMAC)
+		&f.LocalPort, &f.PeerPort, &f.Fields, &f.PeerCountry, &f.PeerASN, &f.SamplingRate, &localMAC, &peerMAC, &f.Domain)
 	if err != nil {
 		return f, err
 	}

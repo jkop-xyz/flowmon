@@ -24,20 +24,22 @@ type site struct {
 	blocked bool
 }
 
+// sites answer with the Remote IPs internal/devtools/sendipfix sends Flows to, and the
+// clients are its Local Hosts, so the two together exercise Domain Attribution.
 var sites = []site{
-	{name: "www.example.com", answers: []string{"CNAME edge.example.net", "A 93.184.215.14"}},
-	{name: "api.github.com", answers: []string{"A 140.82.121.6"}},
-	{name: "www.youtube.com", answers: []string{"CNAME youtube-ui.l.google.com", "A 142.250.185.78", "A 142.250.185.110"}},
-	{name: "rr3---sn-4g5e6nsz.googlevideo.com", answers: []string{"A 173.194.160.8"}},
-	{name: "time.apple.com", answers: []string{"A 17.253.53.207"}},
-	{name: "www.bbc.co.uk", answers: []string{"CNAME www.bbc.net.uk", "A 151.101.0.81"}},
-	{name: "update.googleapis.com", answers: []string{"A 142.250.186.35"}},
+	{name: "www.google.com", answers: []string{"A 142.250.74.46"}},
+	{name: "www.youtube.com", answers: []string{"CNAME youtube-ui.l.google.com", "A 142.250.74.46"}},
+	{name: "www.cloudflare.com", answers: []string{"A 104.16.132.229"}},
+	{name: "www.reddit.com", answers: []string{"CNAME reddit.map.fastly.net", "A 151.101.1.140"}},
+	{name: "one.one.one.one", answers: []string{"A 1.1.1.1"}},
+	{name: "dns.quad9.net", answers: []string{"A 9.9.9.9"}},
+	{name: "www.bbc.co.uk", answers: []string{"CNAME www.bbc.net.uk", "A 151.101.1.140"}},
 	{name: "connectivity-check.ubuntu.com", answers: []string{"AAAA 2620:2d:4000:1::22"}},
 	{name: "ads.doubleclick.net", blocked: true},
 	{name: "telemetry.example-tv.com", blocked: true},
 }
 
-var clients = []string{"192.168.10.44", "192.168.10.45", "192.168.10.46", "fd00::44"}
+var clients = []string{"192.168.10.44", "192.168.10.50", "10.0.20.14", "10.0.20.15"}
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:3001", "address to listen on")
