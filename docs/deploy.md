@@ -69,6 +69,7 @@ If approved Exporters exist but no Flows arrive for `FLOWMON_NO_FLOWS_WARNING` (
 - The write pipeline: Flows stored and dropped by reason, queue length and the last write.
 - The Flow Store: disk size and raw days kept.
 - Whether the App Store answers, and whether collection has gone quiet.
+- Per Data Source: enabled, up, warnings and the last successful collection.
 
 The metrics hold counters and Exporter addresses, not Flow contents. To require a token, set `FLOWMON_METRICS_TOKEN` (or `FLOWMON_METRICS_TOKEN_FILE`) and configure Prometheus to send it:
 
@@ -111,6 +112,17 @@ A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts 
 ## Settings and environment variables
 
 Local Networks and retention can be changed on the Settings page. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.
+
+Data Sources (integrations other than Exporters) can be set by environment variables too. Each Source gets an ID of letters and digits, and its settings are the Source's fields in capitals:
+
+```sh
+FLOWMON_SOURCE_HOME_KIND=<kind>
+FLOWMON_SOURCE_HOME_NAME="At home"   # optional, defaults to the ID
+FLOWMON_SOURCE_HOME_ENABLED=true     # optional
+FLOWMON_SOURCE_HOME_<SETTING>=...
+```
+
+Such a Source is shown as locked and isn't stored. Flowmon refuses to start when one names an unknown kind or setting, so a typo can't go unnoticed. Passwords of Sources added in the UI are encrypted with `secret.key` in the data directory, like SNMP credentials.
 
 A change to Local Networks applies to Flows from then on, and charts mark when it happened. To classify stored Flows again, reprocess an Exporter on the Exporters page.
 

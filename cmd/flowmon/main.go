@@ -24,6 +24,7 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/classify"
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/config"
+	"github.com/jkop-xyz/flowmon/internal/datasource"
 	"github.com/jkop-xyz/flowmon/internal/enrichment"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flow"
@@ -237,6 +238,22 @@ func serve(stderr io.Writer) int {
 		logger.Error("secret key", "err", err)
 		return 1
 	}
+	sourceEnv, err := datasource.FromEnviron(os.Environ())
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error:", err)
+		return 2
+	}
+	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Env: sourceEnv, Logger: logger})
+	if err != nil {
+		fmt.Fprintln(stderr, "configuration error:", err)
+		return 2
+	}
+	if err := sources.Load(ctx); err != nil {
+		// Data Sources are optional; Flow collection starts regardless.
+		logger.Error("stored data sources unavailable", "err", err)
+	}
+	sources.Start(pipelineCtx)
+
 	snmpSettings := snmp.NewSettings(store, box)
 	snmpConfigs, unreadable, err := snmpSettings.All(ctx)
 	if err != nil {
@@ -391,7 +408,7 @@ func serve(stderr io.Writer) int {
 		Explorer:       store,
 		Settings:       collectionSettings,
 		NoFlowsWarning: cfg.NoFlowsWarning,
-		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline},
+		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline, Sources: sources},
 		FlowStore: &httpserver.FlowStoreOptions{Store: store, Path: flowStorePath,
 			MaxBytes: cfg.FlowStoreMaxBytes, BackupToken: cfg.BackupToken},
 		AppStore: holder,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/collector"
+	"github.com/jkop-xyz/flowmon/internal/datasource"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/internal/metrics"
 )
@@ -17,6 +18,8 @@ type MetricsOptions struct {
 	// Token, when set, must be sent as "Authorization: Bearer <token>".
 	Token    string
 	Pipeline interface{ Stats() ingest.Stats }
+	// Sources lists the Data Sources with their health.
+	Sources interface{ List() []datasource.Status }
 }
 
 // collectorStatus is the Exporters page's data: the collector, its Exporters with their
@@ -219,6 +222,31 @@ func writeMetrics(ctx context.Context, m *metrics.Writer, opts Options) {
 		m.Gauge("flowmon_appstore_configured", "Whether the App Store has been set up.", boolFloat(opts.AppStore.Get() != nil))
 		m.Gauge("flowmon_appstore_up", "Whether the App Store answers.", boolFloat(opts.AppStore.Health().Available))
 	}
+	if opts.Metrics != nil && opts.Metrics.Sources != nil {
+		writeSourceMetrics(m, opts.Metrics.Sources.List())
+	}
 	q := collectionHealth(opts)
 	m.Gauge("flowmon_collection_quiet", "1 when approved Exporters exist but no Flows arrived for FLOWMON_NO_FLOWS_WARNING.", boolFloat(q.Quiet))
+}
+
+func writeSourceMetrics(m *metrics.Writer, sources []datasource.Status) {
+	labels := func(s datasource.Status) []string { return []string{"source", s.ID, "kind", s.Kind, "name", s.Name} }
+	for _, s := range sources {
+		m.Gauge("flowmon_source_enabled", "1 when a Data Source is enabled.", boolFloat(s.Enabled), labels(s)...)
+	}
+	for _, s := range sources {
+		if s.Enabled {
+			m.Gauge("flowmon_source_up", "1 when an enabled Data Source's last attempt worked.", boolFloat(s.Health.State == datasource.StateOK), labels(s)...)
+		}
+	}
+	for _, s := range sources {
+		if s.Health.LastSuccess != nil {
+			m.Gauge("flowmon_source_last_success_timestamp_seconds", "When a Data Source last collected successfully.", unixSeconds(*s.Health.LastSuccess), labels(s)...)
+		}
+	}
+	for _, s := range sources {
+		if s.Enabled {
+			m.Gauge("flowmon_source_warnings", "Warnings a Data Source has, such as a misconfigured network.", float64(len(s.Health.Warnings)), labels(s)...)
+		}
+	}
 }
