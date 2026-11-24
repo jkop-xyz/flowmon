@@ -67,6 +67,8 @@ type Options struct {
 	Hosts *HostOptions
 	// Domains wires the domain views.
 	Domains *DomainOptions
+	// Sources configures Data Sources (Settings).
+	Sources Sources
 	// Settings holds Local Networks and retention.
 	Settings *settings.Manager
 	// AppStore reports App Store health for the outage banner.
@@ -120,6 +122,7 @@ func New(opts Options) http.Handler {
 	registerServices(mux, opts)
 	registerFlows(mux, opts)
 	registerSettings(mux, opts)
+	registerSources(mux, opts)
 	registerFlowStore(public, mux, opts)
 	mux.HandleFunc("GET /api/overview/bandwidth", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Flows == nil {
