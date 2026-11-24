@@ -14,15 +14,22 @@ func domainFlow(dir flow.Direction, end time.Time, bytes uint64, local, domain s
 	return f
 }
 
-func totalsByDomain(t *testing.T, s *Store, from, to time.Time) map[string]DomainTotal {
+// domainTotal is one Registrable Domain's totals, as the tests compare them.
+type domainTotal struct {
+	BytesRx, BytesTx    float64
+	Flows               uint64
+	LocalHosts, Devices int
+}
+
+func totalsByDomain(t *testing.T, s *Store, from, to time.Time) map[string]domainTotal {
 	t.Helper()
-	ts, err := s.DomainTotals(ctx, from, to)
+	res, err := s.TopDomains(ctx, DomainQuery{From: from, To: to, Limit: MaxTopLimit})
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := map[string]DomainTotal{}
-	for _, d := range ts {
-		out[d.Registrable] = d
+	out := map[string]domainTotal{}
+	for _, d := range res.Items {
+		out[d.Registrable] = domainTotal{d.ReceivedBytes, d.SentBytes, d.Flows, d.LocalHosts, d.Devices}
 	}
 	return out
 }
@@ -43,7 +50,7 @@ func TestDomainRollupsCountEachFlowOnceAfterTheDelay(t *testing.T) {
 	if err := s.Write(ctx, flows); err != nil {
 		t.Fatal(err)
 	}
-	range_ := func() map[string]DomainTotal { return totalsByDomain(t, s, t0.Add(-time.Hour), t0.Add(time.Hour)) }
+	range_ := func() map[string]domainTotal { return totalsByDomain(t, s, t0.Add(-time.Hour), t0.Add(time.Hour)) }
 
 	// Builds count whole minutes of Flows received at least DomainRollupDelay ago: at
 	// +7:00 the minute from +1:00, not yet those received at +2:00.
@@ -105,5 +112,65 @@ func TestDomainRollupsCountEachFlowOnceAfterTheDelay(t *testing.T) {
 	}
 	if !hasDomainMinute {
 		t.Errorf("dropped %v", dropped)
+	}
+}
+
+func TestTopDomainsFiltersAndExplorerDomains(t *testing.T) {
+	s := open(t)
+	if _, err := s.BuildDomainRollups(ctx, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, []flow.Flow{
+		domainFlow(flow.DirectionOutbound, t0.Add(time.Minute), 1000, "192.168.10.44", "www.bbc.co.uk", phoneMAC),
+		domainFlow(flow.DirectionInbound, t0.Add(time.Minute), 3000, "192.168.10.45", "news.bbc.co.uk", flow.MAC{}),
+		domainFlow(flow.DirectionInbound, t0.Add(time.Minute), 2000, "192.168.10.45", "", flow.MAC{}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BuildDomainRollups(ctx, t0.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// The Flows last 90 s, so part of them falls in the minute before t0.
+	res, err := s.TopDomains(ctx, DomainQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), LocalHosts: []string{"192.168.10.45"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 2 || res.Items[0].Registrable != "bbc.co.uk" || res.Items[0].ReceivedBytes != 3000 || res.TotalBytes != 5000 || res.Count != 1 {
+		t.Errorf("one host's domains: %+v", res)
+	}
+	if res.CountedThrough == nil || !res.CountedThrough.Equal(t0.Add(5*time.Minute)) || res.Since == nil || !res.Since.Equal(t0.Add(-time.Minute)) {
+		t.Errorf("counted through %v since %v", res.CountedThrough, res.Since)
+	}
+
+	page, err := s.Flows(ctx, FlowQuery{From: t0, To: t0.Add(time.Hour), Domain: "bbc.co.uk", Limit: 10})
+	if err != nil || page.Total != 2 || page.Items[0].Domain == "" {
+		t.Errorf("Flows under bbc.co.uk: %+v %v", page, err)
+	}
+	page, err = s.Flows(ctx, FlowQuery{From: t0, To: t0.Add(time.Hour), Domain: "news.bbc.co.uk", Limit: 10})
+	if err != nil || page.Total != 1 {
+		t.Errorf("Flows of news.bbc.co.uk: %d %v", page.Total, err)
+	}
+	page, err = s.Flows(ctx, FlowQuery{From: t0, To: t0.Add(time.Hour), NoDomain: true, Limit: 10})
+	if err != nil || page.Total != 1 || page.Items[0].Bytes != 2000 {
+		t.Errorf("Flows with no domain: %+v %v", page, err)
+	}
+}
+
+func TestRemoteNames(t *testing.T) {
+	s := open(t)
+	q := func(at time.Time, client, name string) DNSQuery {
+		return dnsQuery(at, client, name, "151.101.0.81", "151.101.64.81")
+	}
+	if err := s.WriteDNS(ctx, []DNSQuery{
+		q(t0, "192.168.10.44", "www.bbc.co.uk"), q(t0.Add(time.Minute), "192.168.10.45", "www.bbc.co.uk"),
+		q(t0.Add(2*time.Minute), "192.168.10.44", "www.reddit.com"),
+		dnsQuery(t0, "192.168.10.44", "other.example", "1.2.3.4"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	names, err := s.RemoteNames(ctx, netip.MustParseAddr("151.101.64.81"), t0.Add(-time.Hour), t0.Add(time.Hour), 10)
+	if err != nil || len(names) != 2 || names[0].Name != "www.bbc.co.uk" || names[0].Lookups != 2 || names[0].Clients != 2 ||
+		!names[0].Last.Equal(t0.Add(time.Minute)) || names[1].Name != "www.reddit.com" {
+		t.Errorf("names %+v %v", names, err)
 	}
 }

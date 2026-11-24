@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from "react"
 import { Link, useLocation, useParams } from "react-router"
 
 import { BarList, BarRow } from "@/components/bar-list"
+import { DomainsCard } from "@/components/domains-card"
 import { HostLink } from "@/components/host"
 import { Field, FormActions, FormError, Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { CoverageNote, RemoteIPLink } from "@/components/remote"
@@ -428,7 +429,8 @@ export function LocalHostPage() {
         <RemotePeersCard host={host} label={label} />
         <LocalPeersCard query={summary} peers={summary.data?.result.localPeers} label={label} />
       </div>
-      <div className="grid items-start gap-6 lg:grid-cols-3">
+      <div className="grid items-start gap-6 lg:grid-cols-2 3xl:grid-cols-4">
+        <DomainsCard host={host} />
         <BarCard
           title="Service Ports"
           description="The services it used or offered."

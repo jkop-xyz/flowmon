@@ -245,3 +245,45 @@ func (s *Store) DNSDays() []time.Time {
 	sort.Slice(out, func(i, j int) bool { return out[i].Before(out[j]) })
 	return out
 }
+
+// RemoteName is a name a Remote IP was looked up as.
+type RemoteName struct {
+	Name string `json:"name"`
+	// Lookups and Clients count the lookups that answered with the Remote IP, and the
+	// Local Hosts that made them.
+	Lookups int       `json:"lookups"`
+	Clients int       `json:"clients"`
+	Last    time.Time `json:"last"`
+}
+
+// RemoteNames returns the names ip was an answer to in [from, to), most looked up first,
+// at most limit.
+func (s *Store) RemoteNames(ctx context.Context, ip netip.Addr, from, to time.Time, limit int) ([]RemoteName, error) {
+	var parts []string
+	for _, t := range s.dnsTablesNewestFirst() {
+		day, _ := dnsDay(t)
+		if day.Before(to) && day.Add(24*time.Hour).After(from) {
+			parts = append(parts, `SELECT time, client, name, answers FROM `+t)
+		}
+	}
+	out := []RemoteName{}
+	if len(parts) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT name, count(*), count(DISTINCT client), max(time) FROM (`+strings.Join(parts, ` UNION ALL `)+`)
+		WHERE time >= ? AND time < ? AND list_contains(answers, ?)
+		GROUP BY name ORDER BY count(*) DESC, name LIMIT ?`, from.UTC(), to.UTC(), ip.Unmap().String(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n RemoteName
+		if err := rows.Scan(&n.Name, &n.Lookups, &n.Clients, &n.Last); err != nil {
+			return nil, err
+		}
+		n.Last = n.Last.UTC()
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}

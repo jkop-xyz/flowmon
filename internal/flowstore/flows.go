@@ -62,6 +62,10 @@ type FlowQuery struct {
 	HasProtocol bool
 	// Port keeps Flows with this port at either end, before or after NAT.
 	Port uint16
+	// Domain keeps Flows whose domain is this name or under it ("bbc.co.uk" keeps
+	// "www.bbc.co.uk"); NoDomain keeps Inbound and Outbound Flows without one.
+	Domain   string
+	NoDomain bool
 	// Directions keeps these Directions; empty keeps all.
 	Directions []flow.Direction
 	Sort       FlowSort
@@ -99,6 +103,8 @@ type FlowItem struct {
 	Country      string `json:"country,omitempty"`
 	ASN          uint32 `json:"asn,omitempty"`
 	ASNOrg       string `json:"asnOrg,omitempty"`
+	// Domain is the name the Local Host looked up for the Remote IP, if known.
+	Domain string `json:"domain,omitempty"`
 }
 
 // FlowPage is one page of raw Flows.
@@ -160,7 +166,7 @@ func parseFlowKey(id string) (flowKey, error) {
 // listColumns are the columns scanFlowItem reads.
 const listColumns = `exporter, observation_domain, received, start_ts, end_ts, direction, src, dst, src_port, dst_port,
 	local_host, local_is_exporter_host, local_port, peer, peer_port, protocol, bytes, packets,
-	coalesce(peer_country, ''), coalesce(peer_asn, 0), coalesce(sampling_rate, 0)`
+	coalesce(peer_country, ''), coalesce(peer_asn, 0), coalesce(sampling_rate, 0), coalesce(domain, '')`
 
 func (s *Store) scanFlowItem(rows interface{ Scan(...any) error }) (FlowItem, error) {
 	var f FlowItem
@@ -169,7 +175,7 @@ func (s *Store) scanFlowItem(rows interface{ Scan(...any) error }) (FlowItem, er
 	var local, peer sql.NullString
 	if err := rows.Scan(&f.Exporter, &k.domain, &k.received, &f.Start, &f.End, &dir, &f.Src, &f.Dst, &f.SrcPort, &f.DstPort,
 		&local, &f.LocalIsExporterHost, &f.LocalPort, &peer, &f.PeerPort, &f.Protocol, &f.Bytes, &f.Packets,
-		&f.Country, &f.ASN, &f.SamplingRate); err != nil {
+		&f.Country, &f.ASN, &f.SamplingRate, &f.Domain); err != nil {
 		return f, err
 	}
 	f.Start, f.End, f.LocalHost, f.Peer = f.Start.UTC(), f.End.UTC(), local.String, peer.String
@@ -207,6 +213,12 @@ func (q FlowQuery) where(a *sqlArgs) string {
 	}
 	if q.HasProtocol {
 		w += ` AND protocol = ` + a.add(q.Protocol)
+	}
+	if q.Domain != "" {
+		w += fmt.Sprintf(` AND (domain = %[1]s OR ends_with(domain, '.' || %[1]s))`, a.add(q.Domain))
+	}
+	if q.NoDomain {
+		w += ` AND direction IN (1, 2) AND coalesce(domain, '') = ''`
 	}
 	if q.Port != 0 {
 		p := a.add(q.Port)

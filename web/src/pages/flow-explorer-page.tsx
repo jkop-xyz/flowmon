@@ -16,7 +16,7 @@ import { directionInfo } from "@/lib/flows"
 import { formatDateTime, formatNumber } from "@/lib/format"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
-const filterKeys = ["host", "remote", "asn", "country", "protocol", "port", "direction"] as const satisfies (keyof FlowFilters)[]
+const filterKeys = ["host", "remote", "domain", "asn", "country", "protocol", "port", "direction"] as const satisfies (keyof FlowFilters)[]
 const sorts: FlowSort[] = ["end", "start", "bytes", "packets", "duration"]
 const pageSizes = [50, 100, 200, 500]
 const directions: Direction[] = ["inbound", "outbound", "internal", "transit", "uncounted"]
@@ -195,7 +195,7 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
   }
   const active = filterKeys.some((k) => k !== "direction" && filters[k])
   return (
-    <form onSubmit={submit} className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(6,minmax(0,1fr))_auto]">
+    <form onSubmit={submit} className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(7,minmax(0,1fr))_auto]">
       <Field id="f-host" label="Local Host">
         <Input
           id="f-host"
@@ -208,6 +208,16 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
       </Field>
       <Field id="f-remote" label="Remote IP">
         <Input id="f-remote" value={draft.remote} onChange={set("remote")} placeholder="1.1.1.1" className="font-mono" />
+      </Field>
+      <Field id="f-domain" label="Domain">
+        <Input
+          id="f-domain"
+          value={draft.domain}
+          onChange={set("domain")}
+          placeholder="bbc.co.uk"
+          title="A name looked up in DNS: Flows to it and its subdomains. - for Flows nobody looked up."
+          className="font-mono"
+        />
       </Field>
       <Field id="f-asn" label="ASN">
         <Input id="f-asn" inputMode="numeric" value={draft.asn} onChange={set("asn")} placeholder="15169" />
@@ -242,7 +252,7 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => onApply({ host: "", remote: "", asn: "", country: "", protocol: "", port: "" })}
+            onClick={() => onApply({ host: "", remote: "", domain: "", asn: "", country: "", protocol: "", port: "" })}
           >
             <X />
             Clear

@@ -282,6 +282,45 @@ export function fetchTop(dimension: TopDimension, range: RangeParams, signal?: A
   return getJSON<WithIncomplete<TopResult>>(`/api/overview/top?${params}`, signal)
 }
 
+/** One Registrable Domain's traffic; registrable is "" for traffic no Local Host looked up. */
+export type DomainItem = {
+  registrable: string
+  receivedBytes: number
+  sentBytes: number
+  totalBytes: number
+  flows: number
+  localHosts: number
+  devices: number
+}
+
+export type DomainResult = {
+  from: string
+  to: string
+  source: Source
+  items: DomainItem[]
+  totalBytes: number
+  count: number
+  /** How far domain totals are counted: they run a few minutes behind. */
+  countedThrough?: string
+  /** The first minute counted: traffic from before has no domain. */
+  since?: string
+}
+
+/** The busiest Registrable Domains, for the whole network or one Local Host. */
+export function fetchDomains(range: RangeParams, opts: { host?: string; limit?: number }, signal?: AbortSignal) {
+  const params = rangeParams(range)
+  if (opts.host) params.set("host", opts.host)
+  if (opts.limit) params.set("limit", String(opts.limit))
+  return getJSON<{ result: DomainResult; dnsSources: number }>(`/api/domains?${params}`, signal)
+}
+
+export type RemoteName = { name: string; lookups: number; clients: number; last: string }
+
+/** The names a Remote IP was looked up as, in the last `days` days. */
+export function fetchRemoteNames(ip: string, signal?: AbortSignal) {
+  return getJSON<{ names: RemoteName[]; days: number }>(`/api/remote-ips/${encodeURIComponent(ip)}/names`, signal)
+}
+
 export type ExporterOption = { address: string; name: string }
 
 export function fetchExporterOptions(signal?: AbortSignal) {
@@ -548,6 +587,8 @@ export type FlowItem = {
   country?: string
   asn?: number
   asnOrg?: string
+  /** The name the Local Host looked up for the Remote IP (Domain Attribution), if known. */
+  domain?: string
 }
 
 export type FlowPage = {
@@ -597,6 +638,8 @@ export type FlowFilters = {
   country?: string
   protocol?: string
   port?: string
+  /** A name, keeping Flows to it and its subdomains; "-" keeps Flows with no DNS lookup. */
+  domain?: string
   /** Comma-separated Directions. */
   direction?: string
 }

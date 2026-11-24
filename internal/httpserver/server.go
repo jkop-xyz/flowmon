@@ -65,6 +65,8 @@ type Options struct {
 	Remote *RemoteOptions
 	// Hosts wires Host Labels, Host Names and the Local Host screens.
 	Hosts *HostOptions
+	// Domains wires the domain views.
+	Domains *DomainOptions
 	// Settings holds Local Networks and retention.
 	Settings *settings.Manager
 	// AppStore reports App Store health for the outage banner.
@@ -114,6 +116,7 @@ func New(opts Options) http.Handler {
 	registerSNMP(mux, opts)
 	registerRemote(mux, opts)
 	registerHosts(mux, opts)
+	registerDomains(mux, opts)
 	registerServices(mux, opts)
 	registerFlows(mux, opts)
 	registerSettings(mux, opts)

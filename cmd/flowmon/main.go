@@ -448,10 +448,19 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: func() time.Duration { return collectionSettings.Current().Retention.Raw },
 		},
-		SNMP:           &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
-		GeoIP:          geo,
-		Remote:         &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
-		Hosts:          &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		GeoIP:  geo,
+		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
+		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
+		Domains: &httpserver.DomainOptions{Store: store, DNSSources: func() int {
+			n := 0
+			for _, src := range sources.List() {
+				if src.Kind == "adguard" {
+					n++
+				}
+			}
+			return n
+		}},
 		Explorer:       store,
 		Settings:       collectionSettings,
 		NoFlowsWarning: cfg.NoFlowsWarning,
