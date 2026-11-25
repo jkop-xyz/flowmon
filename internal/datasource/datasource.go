@@ -63,6 +63,9 @@ type Field struct {
 	Default string `json:"default,omitempty"`
 	// Options are a FieldSelect's choices; "" may be one, meaning none.
 	Options []string `json:"options,omitempty"`
+	// Endpoint marks where the Kind connects, such as a URL. An edit that changes it
+	// has to enter the secret settings again, so that stored ones aren't sent elsewhere.
+	Endpoint bool `json:"endpoint,omitempty"`
 }
 
 // Settings are a Source's settings by Field key. Booleans are "true" or "false".

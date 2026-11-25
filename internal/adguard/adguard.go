@@ -78,7 +78,7 @@ func (k *Kind) Info() datasource.KindInfo {
 			"so nothing is collected until a source is added. DNS Queries are kept for the DNS retention under " +
 			"Settings › Retention (7 days unless changed), apart from Flows.",
 		Fields: []datasource.Field{
-			{Key: "url", Label: "Address", Type: datasource.FieldURL, Required: true,
+			{Key: "url", Label: "Address", Type: datasource.FieldURL, Required: true, Endpoint: true,
 				Help: "AdGuard Home's web address, such as http://192.168.10.2:3000."},
 			{Key: "username", Label: "User name", Type: datasource.FieldText},
 			{Key: "password", Label: "Password", Type: datasource.FieldSecret},

@@ -34,7 +34,7 @@ type fakeRun struct {
 
 func (k *fakeKind) Info() datasource.KindInfo {
 	return datasource.KindInfo{Name: "fake", Title: "Fake", Fields: []datasource.Field{
-		{Key: "url", Label: "URL", Type: datasource.FieldURL, Required: true},
+		{Key: "url", Label: "URL", Type: datasource.FieldURL, Required: true, Endpoint: true},
 		{Key: "user", Label: "User", Type: datasource.FieldText},
 		{Key: "password", Label: "Password", Type: datasource.FieldSecret},
 		{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: datasource.FieldBool, Default: "false"},
@@ -293,7 +293,7 @@ func TestUpdateRestartsKeepsSecretsAndIgnoresTheOldRun(t *testing.T) {
 
 	upd := fakeSource
 	upd.Name = "AdGuard"
-	upd.Settings = datasource.Settings{"url": "https://dns2.example", "user": "admin", "password": ""}
+	upd.Settings = datasource.Settings{"url": " https://dns.example ", "user": "bob", "password": ""}
 	got, err := m.Update(context.Background(), st.ID, upd)
 	if err != nil {
 		t.Fatal(err)
@@ -307,8 +307,8 @@ func TestUpdateRestartsKeepsSecretsAndIgnoresTheOldRun(t *testing.T) {
 		t.Error("the old run is still going after Update returned")
 	}
 	next := k.run(t, 1)
-	if next.src.Settings["url"] != "https://dns2.example" || next.src.Settings["password"] != " s3cret " {
-		t.Errorf("new run settings %v; want the new URL and the stored password", next.src.Settings)
+	if next.src.Settings["user"] != "bob" || next.src.Settings["password"] != " s3cret " {
+		t.Errorf("new run settings %v; want the new user and the stored password", next.src.Settings)
 	}
 
 	next.results <- nil
@@ -367,7 +367,7 @@ func TestOverlappingEditsLeaveNoStrayRun(t *testing.T) {
 			k.mu.Unlock()
 
 			upd := fakeSource
-			upd.Settings = datasource.Settings{"url": "https://dns2.example", "user": "admin"}
+			upd.Settings = datasource.Settings{"url": "https://dns.example", "user": "bob"}
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				if _, err := m.Update(context.Background(), st.ID, upd); err != nil {
@@ -515,12 +515,41 @@ func TestTestUsesStoredSecretsForAnEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit := datasource.Source{Settings: datasource.Settings{"url": "http://other.example", "user": "bob"}}
+	edit := datasource.Source{Settings: datasource.Settings{"url": "https://dns.example", "user": "bob"}}
 	got, err := m.Test(context.Background(), st.ID, edit)
-	if err != nil || got != "connected to http://other.example as bob with  s3cret " {
+	if err != nil || got != "connected to https://dns.example as bob with  s3cret " {
 		t.Errorf("Test = %q, %v", got, err)
 	}
 	if _, err := m.Test(context.Background(), "", datasource.Source{Kind: "fake", Settings: datasource.Settings{}}); err == nil {
 		t.Error("Test without the required URL passed")
+	}
+}
+
+// A stored secret goes only to the address it was entered for: an edit to another one
+// has to enter it again.
+func TestStoredSecretsStayWithTheirEndpoint(t *testing.T) {
+	m := newEnv(t).manager(t, &fakeKind{}, nil)
+	st, err := m.Create(context.Background(), fakeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := datasource.Source{Name: "Home", Enabled: true, Settings: datasource.Settings{"url": "http://attacker.example", "user": "admin"}}
+	var inv *datasource.InvalidError
+	if got, err := m.Test(context.Background(), st.ID, moved); !errors.As(err, &inv) || inv.Field != "password" {
+		t.Errorf("Test against another URL = %q, %v; want the password asked for again", got, err)
+	}
+	if _, err := m.Update(context.Background(), st.ID, moved); !errors.As(err, &inv) || inv.Field != "password" {
+		t.Errorf("Update to another URL: %v; want the password asked for again", err)
+	}
+	if cur, _ := m.Get(st.ID); cur.Settings["url"] != "https://dns.example" {
+		t.Errorf("after the refused Update: %v", cur.Settings)
+	}
+
+	moved.Settings["password"] = "new"
+	if got, err := m.Test(context.Background(), st.ID, moved); err != nil || got != "connected to http://attacker.example as admin with new" {
+		t.Errorf("Test with the password entered = %q, %v", got, err)
+	}
+	if _, err := m.Update(context.Background(), st.ID, moved); err != nil {
+		t.Errorf("Update with the password entered: %v", err)
 	}
 }

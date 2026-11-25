@@ -294,7 +294,10 @@ func (m *Manager) Update(ctx context.Context, id string, src Source) (Status, er
 	if err := checkName(src.Name); err != nil {
 		return Status{}, err
 	}
-	s, err := normalize(k, keepSecrets(k, src.Settings, prev.Settings))
+	s, err := keepSecrets(k, src.Settings, prev.Settings)
+	if err == nil {
+		s, err = normalize(k, s)
+	}
 	if err != nil {
 		return Status{}, err
 	}
@@ -366,7 +369,10 @@ func (m *Manager) Test(ctx context.Context, id string, src Source) (string, erro
 	if !ok {
 		return "", ErrUnknownKind
 	}
-	s, err := normalize(k, keepSecrets(k, src.Settings, prev))
+	s, err := keepSecrets(k, src.Settings, prev)
+	if err == nil {
+		s, err = normalize(k, s)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -587,18 +593,40 @@ func normalize(k Kind, in Settings) (Settings, error) {
 	return out, nil
 }
 
-// keepSecrets fills empty secret settings in next from prev.
-func keepSecrets(k Kind, next, prev Settings) Settings {
+// keepSecrets fills empty secret settings in next from prev, as long as next connects
+// to the same Endpoint as prev. With another Endpoint, a secret prev had has to be
+// entered again.
+func keepSecrets(k Kind, next, prev Settings) (Settings, error) {
 	out := maps.Clone(next)
 	if out == nil {
 		out = Settings{}
 	}
+	var moved *Field
 	for _, f := range k.Info().Fields {
-		if f.Type == FieldSecret && out[f.Key] == "" && prev[f.Key] != "" {
-			out[f.Key] = prev[f.Key]
+		if f.Endpoint && endpointText(f, out[f.Key]) != endpointText(f, prev[f.Key]) {
+			moved = &f
+			break
 		}
 	}
-	return out
+	for _, f := range k.Info().Fields {
+		if f.Type != FieldSecret || out[f.Key] != "" || prev[f.Key] == "" {
+			continue
+		}
+		if moved != nil {
+			return nil, &InvalidError{Field: f.Key, Msg: fmt.Sprintf("%s changed, so enter %s again.", moved.Label, f.Label)}
+		}
+		out[f.Key] = prev[f.Key]
+	}
+	return out, nil
+}
+
+// endpointText is an Endpoint setting as normalize stores it, for comparison.
+func endpointText(f Field, v string) string {
+	v = strings.TrimSpace(v)
+	if f.Type == FieldURL {
+		v = strings.TrimRight(v, "/")
+	}
+	return v
 }
 
 func checkName(name string) error {
