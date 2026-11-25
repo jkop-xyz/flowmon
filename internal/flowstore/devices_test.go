@@ -146,6 +146,9 @@ func TestTopDevices(t *testing.T) {
 	if phone.Mac != phoneMAC.String() || phone.Host != "192.168.10.77" || phone.Addresses != 2 || phone.TotalBytes != 325 || phone.Vendor != "Google" {
 		t.Errorf("phone %+v; want both addresses under its MAC, named by the latest, vendor Google", phone)
 	}
+	if phone.LastSeen == nil || !phone.LastSeen.Equal(t0.Add(2*time.Minute)) {
+		t.Errorf("phone last seen %v, want its latest minute", phone.LastSeen)
+	}
 	byHost := map[string]TopItem{}
 	for _, it := range res.Items {
 		byHost[it.Host] = it

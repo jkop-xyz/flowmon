@@ -244,6 +244,8 @@ export type TopItem = {
   host?: string
   /** How many addresses a Host Label's prefix row merges. */
   addresses?: number
+  /** A Device's last minute or hour with traffic in the range (the devices list). */
+  lastSeen?: string
   remoteIp?: string
   localIsExporterHost?: boolean
   protocol: number
