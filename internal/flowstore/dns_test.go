@@ -1,6 +1,7 @@
 package flowstore
 
 import (
+	"math"
 	"net/netip"
 	"slices"
 	"testing"
@@ -152,5 +153,30 @@ func TestDNSSummary(t *testing.T) {
 	if err != nil || dom.Queries != 3 || len(dom.TopNames) != 2 || dom.TopNames[0].Name != "www.bbc.co.uk" || len(dom.Answers) != 2 ||
 		dom.Answers[0].Address != "151.101.0.81" || dom.Answers[0].Queries != 2 {
 		t.Errorf("one domain: %+v %v", dom, err)
+	}
+}
+
+// Every range's chart holds every lookup in it, whatever its step.
+func TestDNSSummaryChartCountsEveryQuery(t *testing.T) {
+	s := open(t)
+	var qs []DNSQuery
+	for i := range 5 {
+		qs = append(qs, dnsQuery(t0.Add(-time.Duration(i)*7*time.Minute), "192.168.10.44", "www.bbc.co.uk"))
+	}
+	if err := s.WriteDNS(ctx, qs); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []time.Duration{time.Hour, 24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 365 * 24 * time.Hour, 730 * 24 * time.Hour} {
+		res, err := s.DNSSummary(ctx, DNSFilter{From: t0.Add(time.Minute - r), To: t0.Add(time.Minute)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var charted float64
+		for _, p := range res.Points {
+			charted += p.Queries * float64(res.StepSeconds) / 60
+		}
+		if res.Queries != 5 || math.Round(charted) != 5 {
+			t.Errorf("range %v (step %ds): %d lookups, %v on the chart; want 5 on both", r, res.StepSeconds, res.Queries, charted)
+		}
 	}
 }

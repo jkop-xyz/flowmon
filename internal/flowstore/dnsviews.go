@@ -142,21 +142,23 @@ func (s *Store) DNSSummary(ctx context.Context, f DNSFilter) (DNSSummary, error)
 		return res, err
 	}
 	perMinute := step.Minutes()
+	// Each lookup's point is counted from from itself, so that the points can't fall
+	// out of step with it.
 	counts := map[int64][2]int{}
-	if err := query(fmt.Sprintf(`SELECT time_bucket(INTERVAL '%d seconds', time, TIMESTAMP '2000-01-01') AS b, count(*), count(*) FILTER (WHERE blocked)
-		FROM q GROUP BY b`, int(step.Seconds())), func(scan func(...any) error) error {
-		var b time.Time
+	if err := query(fmt.Sprintf(`SELECT (epoch(time)::BIGINT - %d) // %d AS i, count(*), count(*) FILTER (WHERE blocked)
+		FROM q GROUP BY i`, from.Unix(), int64(step.Seconds())), func(scan func(...any) error) error {
+		var i int64
 		var n, blocked int
-		if err := scan(&b, &n, &blocked); err != nil {
+		if err := scan(&i, &n, &blocked); err != nil {
 			return err
 		}
-		counts[b.UTC().Unix()] = [2]int{n, blocked}
+		counts[i] = [2]int{n, blocked}
 		return nil
 	}); err != nil {
 		return res, err
 	}
-	for t := from; t.Before(to); t = t.Add(step) {
-		c := counts[t.Unix()]
+	for i, t := int64(0), from; t.Before(to); i, t = i+1, t.Add(step) {
+		c := counts[i]
 		res.Points = append(res.Points, DNSPoint{T: t, Queries: float64(c[0]) / perMinute, Blocked: float64(c[1]) / perMinute})
 	}
 
