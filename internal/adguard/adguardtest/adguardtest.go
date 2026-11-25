@@ -6,6 +6,7 @@ package adguardtest
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -80,7 +81,7 @@ type Server struct {
 	LogOff bool
 
 	mu      sync.Mutex
-	entries []Entry // oldest first
+	entries []Entry // in the order they were logged
 	// Requests counts /control/querylog requests.
 	Requests int
 }
@@ -90,7 +91,7 @@ func New(user, password string) *Server {
 	return &Server{User: user, Password: password, Version: "v0.107.57", Keep: 90 * 24 * time.Hour}
 }
 
-// Add appends entries; they may come in any order.
+// Add logs entries as if each was answered at once; they may come in any order.
 func (s *Server) Add(es ...Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -98,12 +99,20 @@ func (s *Server) Add(es ...Entry) {
 	sort.SliceStable(s.entries, func(i, j int) bool { return s.time(s.entries[i]).Before(s.time(s.entries[j])) })
 }
 
+// Answer logs entries in the order given, after everything logged so far. AdGuard
+// Home logs a lookup when it is answered, with the time it was asked, so a slow
+// lookup is logged after newer ones.
+func (s *Server) Answer(es ...Entry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, es...)
+}
+
 // DropBefore removes entries older than t, as AdGuard Home's log rotation does.
 func (s *Server) DropBefore(t time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := sort.Search(len(s.entries), func(i int) bool { return !s.time(s.entries[i]).Before(t) })
-	s.entries = s.entries[i:]
+	s.entries = slices.DeleteFunc(s.entries, func(e Entry) bool { return s.time(e).Before(t) })
 }
 
 func (s *Server) time(e Entry) time.Time {
@@ -129,8 +138,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// queryLog answers like AdGuard Home: newest first, older than older_than, at most
-// limit, with "oldest" the time of the page's oldest entry.
+// queryLog answers like AdGuard Home: last logged first, older than older_than, at
+// most limit, with "oldest" the time of the page's last entry.
 func (s *Server) queryLog(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,18 +148,20 @@ func (s *Server) queryLog(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
 		limit = n
 	}
-	end := len(s.entries)
+	var olderThan time.Time
 	if ot := r.URL.Query().Get("older_than"); ot != "" {
 		t, err := time.Parse(time.RFC3339Nano, ot)
 		if err != nil {
 			http.Error(w, "bad older_than", http.StatusBadRequest)
 			return
 		}
-		end = sort.Search(len(s.entries), func(i int) bool { return !s.time(s.entries[i]).Before(t) })
+		olderThan = t
 	}
 	page := []Entry{}
-	for i := end - 1; i >= 0 && len(page) < limit; i-- {
-		page = append(page, s.entries[i])
+	for i := len(s.entries) - 1; i >= 0 && len(page) < limit; i-- {
+		if olderThan.IsZero() || s.time(s.entries[i]).Before(olderThan) {
+			page = append(page, s.entries[i])
+		}
 	}
 	oldest := ""
 	if len(page) > 0 {

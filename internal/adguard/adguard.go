@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -21,7 +22,7 @@ import (
 // Store keeps DNS Queries. *flowstore.Store implements it.
 type Store interface {
 	WriteDNS(ctx context.Context, qs []flowstore.DNSQuery) error
-	LatestDNS(ctx context.Context, source string) (time.Time, []flowstore.DNSQuery, error)
+	LatestDNS(ctx context.Context, source string, within time.Duration) (time.Time, []flowstore.DNSQuery, error)
 }
 
 // Options configure the kind.
@@ -44,6 +45,11 @@ type Options struct {
 
 // FirstBackfill is how far back the first poll of a new source reaches.
 const FirstBackfill = 24 * time.Hour
+
+// lateLogging is how much older than the newest stored query a query can be when
+// AdGuard Home logs it. It logs a lookup when it is answered, with the time it was
+// asked, and gives up on an upstream after 10 s by default.
+const lateLogging = time.Minute
 
 // Kind is the AdGuard Home Data Source kind.
 type Kind struct{ opts Options }
@@ -155,10 +161,10 @@ type poller struct {
 	r   datasource.Reporter
 
 	loaded bool
-	// cursor is the time of the newest stored query, atCursor the keys of the queries
-	// stored at exactly that time.
-	cursor   time.Time
-	atCursor map[string]bool
+	// cursor is the time of the newest stored query, seen the keys of the queries
+	// stored from lateLogging before it on, with their times.
+	cursor time.Time
+	seen   map[string]time.Time
 	// recent holds the clients of the latest queries, for the relay warning.
 	recent []netip.Addr
 	// gap is the newest hole in the log, kept as a warning for a day.
@@ -181,25 +187,28 @@ func key(q flowstore.DNSQuery) string {
 func (p *poller) poll(ctx context.Context) error {
 	now := p.k.opts.Now()
 	if !p.loaded {
-		at, qs, err := p.k.opts.Store.LatestDNS(ctx, p.src)
+		at, qs, err := p.k.opts.Store.LatestDNS(ctx, p.src, lateLogging)
 		if err != nil {
-			return fmt.Errorf("reading the newest stored query: %w", err)
+			return fmt.Errorf("reading the newest stored queries: %w", err)
 		}
-		p.cursor, p.atCursor = at, map[string]bool{}
+		p.cursor, p.seen = at, map[string]time.Time{}
 		for _, q := range qs {
-			p.atCursor[key(q)] = true
+			p.seen[key(q)] = q.Time
 		}
 		p.loaded = true
 	}
+	// The log is read back to floor: a day for a new source, otherwise lateLogging
+	// before the newest stored query, for the slow lookups logged after it.
 	floor := now.Add(-FirstBackfill)
 	if !p.cursor.IsZero() {
-		floor = p.cursor
+		floor = p.cursor.Add(-lateLogging)
 		if r := p.k.opts.Retention; r != nil && r() > 0 && floor.Before(now.Add(-r())) {
 			floor = now.Add(-r())
 		}
 	}
 
 	var fresh []flowstore.DNSQuery
+	inPoll := map[string]bool{} // pages can overlap
 	olderThan, reachedFloor, endOfLog := "", false, false
 	var oldestSeen time.Time
 	for !reachedFloor && !endOfLog {
@@ -213,13 +222,15 @@ func (p *poller) poll(ctx context.Context) error {
 				continue
 			}
 			oldestSeen = q.Time
-			if q.Time.Before(floor) || (q.Time.Equal(p.cursor) && p.atCursor[key(q)]) {
-				if q.Time.Before(floor) {
-					reachedFloor = true
-					break
-				}
+			if q.Time.Before(floor) {
+				reachedFloor = true
+				break
+			}
+			k := key(q)
+			if _, ok := p.seen[k]; ok || inPoll[k] {
 				continue
 			}
+			inPoll[k] = true
 			fresh = append(fresh, q)
 		}
 		endOfLog = len(page.Data) < p.k.opts.PageSize || page.Oldest == "" || page.Oldest == olderThan
@@ -240,14 +251,12 @@ func (p *poller) poll(ctx context.Context) error {
 		if p.k.opts.Stored != nil {
 			p.k.opts.Stored(fresh)
 		}
-		newest := fresh[len(fresh)-1].Time
-		if newest.After(p.cursor) {
-			p.cursor, p.atCursor = newest, map[string]bool{}
+		if newest := fresh[len(fresh)-1].Time; newest.After(p.cursor) {
+			p.cursor = newest
 		}
+		maps.DeleteFunc(p.seen, func(_ string, t time.Time) bool { return t.Before(p.cursor.Add(-lateLogging)) })
 		for _, q := range fresh {
-			if q.Time.Equal(p.cursor) {
-				p.atCursor[key(q)] = true
-			}
+			p.seen[key(q)] = q.Time
 			p.recent = append(p.recent, q.Client)
 		}
 		if n := len(p.recent); n > recentSize {

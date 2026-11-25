@@ -144,7 +144,7 @@ func TestCollectsEachQueryOnceAcrossPollsAndRestarts(t *testing.T) {
 func TestPagesBackToWhatWasStored(t *testing.T) {
 	r := newRig(t, 3)
 	for i := 0; i < 10; i++ {
-		r.fake.Add(adguardtest.Query(t0.Add(-time.Duration(10-i)*time.Minute), "192.168.10.44", "n"+string(rune('a'+i))+".example", "A"))
+		r.fake.Add(adguardtest.Query(t0.Add(-time.Duration(10-i)*2*time.Minute), "192.168.10.44", "n"+string(rune('a'+i))+".example", "A"))
 	}
 	p, _ := r.poller("a1")
 	if err := p.poll(ctx); err != nil {
@@ -301,5 +301,38 @@ func TestNanosecondTimesAreStoredOnceAcrossRestarts(t *testing.T) {
 	}
 	if got := r.stored(); len(got) != 1 {
 		t.Errorf("stored %v; want the query once", names(got))
+	}
+}
+
+// A slow lookup is logged when it is answered, after newer ones. It and the lookups
+// logged before it are still stored, once, across polls and restarts.
+func TestSlowLookupsLoggedLateAreStored(t *testing.T) {
+	r := newRig(t, 500)
+	last := t0.Add(-time.Minute)
+	r.fake.Add(adguardtest.Query(last, "192.168.10.44", "c.example", "A"))
+	p, _ := r.poller("a1")
+	if err := p.poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.Answer(
+		adguardtest.Query(last.Add(10*time.Millisecond), "192.168.10.44", "a.example", "A"),
+		// Asked 2 s before the newest stored lookup, answered after the one above.
+		adguardtest.Query(last.Add(-2*time.Second), "192.168.10.45", "slow.example", "A"),
+		adguardtest.Query(last.Add(time.Second), "192.168.10.44", "n.example", "A"),
+	)
+	r.now = t0.Add(15 * time.Second)
+	if err := p.poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"slow.example", "c.example", "a.example", "n.example"}
+	if got := names(r.stored()); !slices.Equal(got, want) {
+		t.Errorf("stored %v, want %v", got, want)
+	}
+	p2, _ := r.poller("a1")
+	if err := p2.poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(r.stored()); !slices.Equal(got, want) {
+		t.Errorf("after a restart, stored %v, want %v", got, want)
 	}
 }
