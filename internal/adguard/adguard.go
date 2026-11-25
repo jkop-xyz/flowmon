@@ -306,7 +306,9 @@ func convert(e logEntry, src string) (flowstore.DNSQuery, bool) {
 	}
 	name := domains.Normalize(e.Question.Name)
 	q := flowstore.DNSQuery{
-		Time: t.UTC(), Source: src, Client: client.Unmap(), ClientName: e.ClientInfo.Name,
+		// To the microsecond, as the Flow Store keeps it, so that a stored query matches
+		// its log entry in the next poll.
+		Time: t.UTC().Truncate(time.Microsecond), Source: src, Client: client.Unmap(), ClientName: e.ClientInfo.Name,
 		Name: name, Registrable: domains.Registrable(name), Type: e.Question.Type, Status: e.Status,
 		Blocked: blockedReasons[e.Reason], Reason: e.Reason, Upstream: e.Upstream, Cached: e.Cached, Protocol: e.ClientProto,
 	}

@@ -287,3 +287,19 @@ func TestRunReportsFailures(t *testing.T) {
 		t.Errorf("failures %v, successes %v", rep.failures, rep.successes)
 	}
 }
+
+// AdGuard Home writes times to the nanosecond; the Flow Store keeps microseconds. The
+// newest stored query still matches its log entry after a restart.
+func TestNanosecondTimesAreStoredOnceAcrossRestarts(t *testing.T) {
+	r := newRig(t, 500)
+	r.fake.Add(adguardtest.Query(t0.Add(-time.Minute+123456789*time.Nanosecond), "192.168.10.44", "www.example.com", "A"))
+	for range 2 {
+		p, _ := r.poller("a1")
+		if err := p.poll(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := r.stored(); len(got) != 1 {
+		t.Errorf("stored %v; want the query once", names(got))
+	}
+}
