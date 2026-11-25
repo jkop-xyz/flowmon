@@ -204,11 +204,13 @@ func (s *Store) SNMPInterfaces(ctx context.Context, source string) ([]SNMPInterf
 type InterfacePoint struct {
 	T time.Time `json:"t"`
 	// InBps and OutBps are bits per second over the seconds polling covered.
-	InBps, OutBps float64
+	InBps  float64 `json:"inBps"`
+	OutBps float64 `json:"outBps"`
 	// Errors and Discards are counts in the bucket, both directions.
-	Errors, Discards uint64
+	Errors   uint64 `json:"errors"`
+	Discards uint64 `json:"discards"`
 	// Coverage is the share of the bucket polling covered, 0 to 1.
-	Coverage float64
+	Coverage float64 `json:"coverage"`
 }
 
 // InterfaceSeries returns an interface's counters over [from, to): minute buckets for
@@ -316,4 +318,53 @@ func (s *Store) ReconciliationHours(ctx context.Context, source string, exporter
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Hour.Before(out[j].Hour) })
 	return out, nil
+}
+
+// InterfaceNow is an interface's latest minute and its last hour.
+type InterfaceNow struct {
+	IfIndex uint32 `json:"ifIndex"`
+	// At is the latest minute with counters; InBps and OutBps its rates.
+	At     time.Time `json:"at"`
+	InBps  float64   `json:"inBps"`
+	OutBps float64   `json:"outBps"`
+	// HourErrors and HourDiscards count both directions over the last hour.
+	HourErrors   uint64 `json:"hourErrors"`
+	HourDiscards uint64 `json:"hourDiscards"`
+}
+
+// InterfacesNow returns each interface of source with counters in the hour before now:
+// its latest minute's rates and the hour's errors and discards.
+func (s *Store) InterfacesNow(ctx context.Context, source string, now time.Time) (map[uint32]InterfaceNow, error) {
+	from := now.Add(-time.Hour).UTC()
+	s.mu.Lock()
+	var parts []string
+	for name := range s.ifaceTables {
+		if g, p, ok := parseIfaceTable(name); ok && g == Minute && p.Before(now) && Minute.periodEnd(p).After(from) {
+			parts = append(parts, `SELECT * FROM `+name)
+		}
+	}
+	s.mu.Unlock()
+	out := map[uint32]InterfaceNow{}
+	if len(parts) == 0 {
+		return out, nil
+	}
+	sort.Strings(parts)
+	rows, err := s.db.QueryContext(ctx, `WITH m AS (SELECT if_index, bucket, sum(in_octets) AS i, sum(out_octets) AS o, sum(seconds) AS secs,
+			sum(in_errors + out_errors) AS e, sum(in_discards + out_discards) AS d
+		FROM (`+strings.Join(parts, ` UNION ALL `)+`) WHERE source = ? AND bucket >= ? GROUP BY if_index, bucket)
+		SELECT if_index, max(bucket), arg_max(i * 8 / secs, bucket), arg_max(o * 8 / secs, bucket), sum(e), sum(d)
+		FROM m WHERE secs > 0 GROUP BY if_index`, source, from)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n InterfaceNow
+		if err := rows.Scan(&n.IfIndex, &n.At, &n.InBps, &n.OutBps, &n.HourErrors, &n.HourDiscards); err != nil {
+			return nil, err
+		}
+		n.At = n.At.UTC()
+		out[n.IfIndex] = n
+	}
+	return out, rows.Err()
 }

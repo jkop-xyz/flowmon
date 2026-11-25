@@ -22,10 +22,11 @@ export function SNMPSection({ address }: { address: string }) {
       ) : src ? (
         <p className="text-sm text-muted-foreground">
           Polled every minute by the SNMP Data Source{" "}
-          <Link to="/settings" className="underline underline-offset-4">
+          <Link to={`/snmp/${src.id}`} className="underline underline-offset-4">
             {src.name}
           </Link>
-          , which names its interfaces and keeps their counters. Change it under Settings → Data Sources.
+          , which names its interfaces and keeps their counters: open it for every interface's load and errors. Change it
+          under Settings → Data Sources.
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">

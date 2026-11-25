@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleCheck, CircleX, Lock, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState, type FormEvent } from "react"
+import { Link } from "react-router"
 
 import { Field, FormActions, FormError, QueryError, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -120,7 +121,16 @@ function SourceRow({ source: s, kind, now, onEdit }: { source: DataSource; kind?
           )
         )}
       </div>
-      {s.settings.url && <p className="font-mono text-sm text-ident">{s.settings.url}</p>}
+      {(s.settings.url || s.settings.address) && (
+        <p className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="font-mono text-ident">{s.settings.url || s.settings.address}</span>
+          {s.kind === "snmp" && (
+            <Link to={`/snmp/${s.id}`} className="underline underline-offset-4">
+              Its interfaces
+            </Link>
+          )}
+        </p>
+      )}
       <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
         {h.lastSuccess && (
           <>

@@ -102,6 +102,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/hosts/")) return { ...within("/hosts", "Local Host"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/devices/")) return { ...within("/hosts", "Device"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/remote/")) return { ...within("/remote", "Remote IP"), filters: { exporter: true, timeRange: true } }
+  if (pathname.startsWith("/snmp/")) return { ...within("/exporters", "SNMP device"), filters: { exporter: false, timeRange: true } }
   if (pathname.startsWith("/dns/")) return { ...within("/dns", "Domain"), filters: { exporter: false, timeRange: true } }
   if (pathname === "/guide/mikrotik") return { ...within("/exporters", "MikroTik setup guide"), filters: none }
   if (pathname === "/guide/classification") return { ...within("/exporters", "Classification guide"), filters: none }
