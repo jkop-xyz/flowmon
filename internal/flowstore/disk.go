@@ -143,14 +143,36 @@ func (s *Store) EnforceCap(ctx context.Context, max int64, now time.Time, safeAf
 	return dropped, err
 }
 
-// capVictim picks the next table the cap drops.
+// capVictim picks the next table the cap drops: days of DNS Queries, then raw days,
+// then minute tables oldest first. A day's minute Domain Rollups and Interface Counters
+// go with, or before, that day's minute Rollups.
 func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var dns, raw, minute, domainMinute []string
+	type table struct {
+		name, catalog string
+		day           time.Time
+		// rank orders tables of one day: the extras before the Rollups.
+		rank int
+	}
+	var dns, raw []string
+	var minute []table
+	old := func(p time.Time) bool { return Minute.periodEnd(p).Before(now.Add(-capKeepMinute - safeAfter)) }
 	for name := range s.domainRollups {
-		if g, p, ok := parseDomainTable(name); ok && g == Minute && Minute.periodEnd(p).Before(now.Add(-capKeepMinute-safeAfter)) {
-			domainMinute = append(domainMinute, name)
+		if g, p, ok := parseDomainTable(name); ok && g == Minute && old(p) {
+			minute = append(minute, table{name, "domain_rollup_partitions", p, 0})
+		}
+	}
+	for name := range s.ifaceTables {
+		if g, p, ok := parseIfaceTable(name); ok && g == Minute && old(p) {
+			minute = append(minute, table{name, "iface_partitions", p, 0})
+		}
+	}
+	for name := range s.rollups {
+		if rest, ok := strings.CutPrefix(name, "rollup_minute_"); ok {
+			if p, err := time.Parse("20060102", rest); err == nil && old(p) {
+				minute = append(minute, table{name, "rollup_partitions", p, 1})
+			}
 		}
 	}
 	for name := range s.dnsDays {
@@ -163,30 +185,26 @@ func (s *Store) capVictim(now time.Time, safeAfter time.Duration) (name, catalog
 			raw = append(raw, name)
 		}
 	}
-	for name := range s.rollups {
-		if !strings.HasPrefix(name, "rollup_minute_") {
-			continue
-		}
-		p, err := time.Parse("20060102", name[len("rollup_minute_"):])
-		if err == nil && Minute.periodEnd(p).Before(now.Add(-capKeepMinute-safeAfter)) {
-			minute = append(minute, name)
-		}
-	}
 	// Names sort by date.
 	sort.Strings(dns)
 	sort.Strings(raw)
-	sort.Strings(minute)
-	sort.Strings(domainMinute)
+	sort.Slice(minute, func(i, j int) bool {
+		a, b := minute[i], minute[j]
+		if !a.day.Equal(b.day) {
+			return a.day.Before(b.day)
+		}
+		if a.rank != b.rank {
+			return a.rank < b.rank
+		}
+		return a.name < b.name
+	})
 	switch {
 	case len(dns) > 0:
 		return dns[0], "dns_days", true
 	case len(raw) > 0:
 		return raw[0], "flow_days", true
-	case len(domainMinute) > 0 && (len(minute) == 0 || domainMinute[0][len("domain_minute_"):] <= minute[0][len("rollup_minute_"):]):
-		// A day of minute Domain Rollups goes with, or before, that day's minute Rollups.
-		return domainMinute[0], "domain_rollup_partitions", true
 	case len(minute) > 0:
-		return minute[0], "rollup_partitions", true
+		return minute[0].name, minute[0].catalog, true
 	}
 	return "", "", false
 }
