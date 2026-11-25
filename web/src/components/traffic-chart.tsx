@@ -27,6 +27,8 @@ export function TrafficChart<K extends string>({
   rangeMs,
   incompleteFrom,
   changes = [],
+  format = formatBitsPerSecond,
+  noun = "Flows",
 }: {
   points: ({ t: string } & Record<K, number>)[]
   series: TrafficSeries<K>[]
@@ -34,6 +36,10 @@ export function TrafficChart<K extends string>({
   rangeMs: number
   incompleteFrom: number
   changes?: ClassificationChange[]
+  /** How values read on the axis and in the tooltip; bits per second by default. */
+  format?: (v: number) => string
+  /** What the chart counts, for its notes: "Flows" by default. */
+  noun?: string
 }) {
   const config: ChartConfig = Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: s.color }]))
   const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
@@ -65,7 +71,7 @@ export function TrafficChart<K extends string>({
             ticks={data.length > 0 ? timeTicks(data[0].time, end) : []}
             tickFormatter={(v: number) => formatTick(v, rangeMs)}
           />
-          <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => formatBitsPerSecond(v)} />
+          <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => format(v)} />
           {end > shadeFrom && (
             <ReferenceArea x1={shadeFrom} x2={end} fill="var(--muted-foreground)" fillOpacity={0.08} ifOverflow="hidden" />
           )}
@@ -90,7 +96,7 @@ export function TrafficChart<K extends string>({
                 formatter={(value, name) => (
                   <div className="flex w-full items-center justify-between gap-4">
                     <span className="text-muted-foreground">{config[String(name)]?.label ?? name}</span>
-                    <span className="font-mono tabular-nums">{formatBitsPerSecond(Number(value))}</span>
+                    <span className="font-mono tabular-nums">{format(Number(value))}</span>
                   </div>
                 )}
               />
@@ -112,11 +118,11 @@ export function TrafficChart<K extends string>({
       </ChartContainer>
       {empty && (
         <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          No Flows in this time range yet.
+          No {noun} in this time range yet.
         </p>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: Flows for it may still arrive.
+        Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: {noun} for it may still arrive.
       </p>
       {changes.length > 0 && <ChangesNote changes={changes} />}
     </div>

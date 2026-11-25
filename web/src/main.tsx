@@ -18,6 +18,7 @@ import { ClassificationGuidePage } from "@/pages/classification-guide-page"
 import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
+import { DNSDomainPage, DNSPage } from "@/pages/dns-pages"
 import { SettingsPage } from "@/pages/settings-page"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
@@ -27,6 +28,7 @@ const screens: Record<string, React.ReactNode> = {
   "/hosts": <LocalHostsPage />,
   "/flows": <FlowExplorerPage />,
   "/remote": <RemoteIPsPage />,
+  "/dns": <DNSPage />,
   "/settings": <SettingsPage />,
 }
 
@@ -61,6 +63,7 @@ createRoot(document.getElementById("root")!).render(
                   ))}
                   <Route path="/hosts/*" element={<LocalHostPage />} />
                   <Route path="/remote/:ip" element={<RemoteIPPage />} />
+                  <Route path="/dns/:domain" element={<DNSDomainPage />} />
                   <Route path="/guide/mikrotik" element={<MikroTikGuidePage />} />
                   <Route path="/guide/classification" element={<ClassificationGuidePage />} />
                   <Route path="*" element={<NotFoundPage />} />

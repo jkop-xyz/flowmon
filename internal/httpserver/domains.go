@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/domains"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/hosts"
 )
@@ -17,6 +18,7 @@ type DomainOptions struct {
 		TopDomains(ctx context.Context, q flowstore.DomainQuery) (flowstore.DomainResult, error)
 		HostAddresses(ctx context.Context, q flowstore.HostQuery) ([]string, error)
 		RemoteNames(ctx context.Context, ip netip.Addr, from, to time.Time, limit int) ([]flowstore.RemoteName, error)
+		DNSSummary(ctx context.Context, f flowstore.DNSFilter) (flowstore.DNSSummary, error)
 	}
 	// DNSSources counts the configured DNS Data Sources, enabled or not.
 	DNSSources func() int
@@ -68,6 +70,44 @@ func registerDomains(mux *http.ServeMux, opts Options) {
 		}
 		res, err := do.Store.TopDomains(r.Context(), q)
 		if queryError(w, opts.Logger, "domains", err) {
+			return
+		}
+		sources := 0
+		if do.DNSSources != nil {
+			sources = do.DNSSources()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": res, "dnsSources": sources})
+	})
+	// The DNS views: the whole network, one Local Host (host=) or one domain (domain=).
+	mux.HandleFunc("GET /api/dns", func(w http.ResponseWriter, r *http.Request) {
+		if !available(w) {
+			return
+		}
+		bq, err := bandwidthQuery(r, opts.Now())
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		f := flowstore.DNSFilter{From: bq.From, To: bq.To, Domain: domains.Normalize(r.URL.Query().Get("domain"))}
+		if s := r.URL.Query().Get("host"); s != "" {
+			key, err := hosts.ParseKey(s)
+			if err != nil {
+				errorJSON(w, http.StatusBadRequest, "host must be an IP address or prefix")
+				return
+			}
+			if key.IsSingleIP() {
+				f.Clients = []string{key.Addr().String()}
+			} else {
+				addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, From: bq.From, To: bq.To,
+					Exporter: bq.Exporter, HostGroups: hostGroups(r.Context(), opts)})
+				if queryError(w, opts.Logger, "dns", err) {
+					return
+				}
+				f.Clients = append([]string{}, addrs...)
+			}
+		}
+		res, err := do.Store.DNSSummary(r.Context(), f)
+		if queryError(w, opts.Logger, "dns", err) {
 			return
 		}
 		sources := 0

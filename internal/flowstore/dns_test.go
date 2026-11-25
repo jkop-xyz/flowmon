@@ -107,3 +107,50 @@ func TestDNSRetentionAndCapGoFirst(t *testing.T) {
 		t.Errorf("DNS days left %v; want today's", got)
 	}
 }
+
+func TestDNSSummary(t *testing.T) {
+	s := open(t)
+	blocked := dnsQuery(t0.Add(2*time.Minute), "192.168.10.45", "ads.tracker.example")
+	blocked.Registrable, blocked.Blocked, blocked.Upstream = "tracker.example", true, ""
+	cached := dnsQuery(t0.Add(3*time.Minute), "192.168.10.44", "www.bbc.co.uk", "151.101.0.81")
+	cached.Registrable, cached.Cached = "bbc.co.uk", true
+	www := dnsQuery(t0, "192.168.10.44", "www.bbc.co.uk", "151.101.0.81")
+	www.Registrable = "bbc.co.uk"
+	news := dnsQuery(t0.Add(time.Minute), "192.168.10.45", "news.bbc.co.uk", "151.101.64.81")
+	news.Registrable, news.Elapsed = "bbc.co.uk", 40*time.Millisecond
+	if err := s.WriteDNS(ctx, []DNSQuery{www, news, blocked, cached}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.DNSSummary(ctx, DNSFilter{From: t0.Add(-time.Hour), To: t0.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Queries != 4 || all.Blocked != 1 || all.Clients != 2 || all.StepSeconds != 60 || len(all.Points) != 120 {
+		t.Errorf("totals %+v", all)
+	}
+	if len(all.TopNames) != 2 || all.TopNames[0].Name != "bbc.co.uk" || all.TopNames[0].Queries != 3 || all.TopNames[0].Clients != 2 {
+		t.Errorf("top names %+v", all.TopNames)
+	}
+	if len(all.TopBlocked) != 1 || all.TopBlocked[0].Name != "tracker.example" {
+		t.Errorf("top blocked %+v", all.TopBlocked)
+	}
+	if len(all.Upstreams) != 1 || all.Upstreams[0].Queries != 2 || all.Upstreams[0].AvgMs < 26 || all.Upstreams[0].AvgMs > 27 {
+		t.Errorf("upstreams %+v; want the 2 uncached, unblocked lookups averaging 26.25 ms", all.Upstreams)
+	}
+	if all.TopClients[0].Client != "192.168.10.44" || all.TopClients[0].Queries != 2 {
+		t.Errorf("top clients %+v", all.TopClients)
+	}
+	if all.Since == nil {
+		t.Error("no Since")
+	}
+
+	host, err := s.DNSSummary(ctx, DNSFilter{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Clients: []string{"192.168.10.45"}})
+	if err != nil || host.Queries != 2 || host.Blocked != 1 {
+		t.Errorf("one host: %+v %v", host, err)
+	}
+	dom, err := s.DNSSummary(ctx, DNSFilter{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Domain: "bbc.co.uk"})
+	if err != nil || dom.Queries != 3 || len(dom.TopNames) != 2 || dom.TopNames[0].Name != "www.bbc.co.uk" || len(dom.Answers) != 2 ||
+		dom.Answers[0].Address != "151.101.0.81" || dom.Answers[0].Queries != 2 {
+		t.Errorf("one domain: %+v %v", dom, err)
+	}
+}

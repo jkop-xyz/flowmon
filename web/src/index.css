@@ -123,6 +123,9 @@
     --area-settings: #475569;
     --area-settings-tint: #eceff3;
     --area-settings-ink: #334155;
+    --area-dns: #be185d;
+    --area-dns-tint: #fce7f1;
+    --area-dns-ink: #9d174d;
 }
 
 .dark {
@@ -167,6 +170,8 @@
     --area-exporters-ink: #3fd2bd;
     --area-settings-tint: #262a31;
     --area-settings-ink: #a9b3c4;
+    --area-dns-tint: #3a1a2a;
+    --area-dns-ink: #f58cbf;
 }
 
 /* The area in force: the page's (set on <html>), or a sidebar item's own. Overview's
@@ -196,6 +201,11 @@
     --area: var(--area-exporters);
     --area-tint: var(--area-exporters-tint);
     --area-ink: var(--area-exporters-ink);
+}
+[data-area="dns"] {
+    --area: var(--area-dns);
+    --area-tint: var(--area-dns-tint);
+    --area-ink: var(--area-dns-ink);
 }
 [data-area="settings"] {
     --area: var(--area-settings);

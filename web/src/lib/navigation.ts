@@ -1,7 +1,7 @@
-import { Activity, Cable, CircleHelp, Globe, LayoutDashboard, Monitor, Settings, type LucideIcon } from "lucide-react"
+import { Activity, Cable, CircleHelp, Globe, LayoutDashboard, Monitor, Settings, Signpost, type LucideIcon } from "lucide-react"
 
 /** Each area of the app has its own colour (index.css, [data-area]). */
-export type Area = "overview" | "hosts" | "remote" | "explorer" | "exporters" | "settings"
+export type Area = "overview" | "hosts" | "remote" | "dns" | "explorer" | "exporters" | "settings"
 
 export type NavItem = {
   title: string
@@ -49,6 +49,15 @@ export const navItems: NavItem[] = [
     summary: "Who is on the other end: country, ASN Owner, reverse DNS and registration details.",
   },
   {
+    title: "DNS",
+    path: "/dns",
+    area: "dns",
+    ready: true,
+    filters: { exporter: false, timeRange: true },
+    icon: Signpost,
+    summary: "The names looked up in DNS, blocked lookups and the DNS server's upstreams, from AdGuard Home.",
+  },
+  {
     title: "Flow Explorer",
     path: "/flows",
     area: "explorer",
@@ -92,6 +101,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (item) return { ...within(item.path), filters: item.ready ? item.filters : none }
   if (pathname.startsWith("/hosts/")) return { ...within("/hosts", "Local Host"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/remote/")) return { ...within("/remote", "Remote IP"), filters: { exporter: true, timeRange: true } }
+  if (pathname.startsWith("/dns/")) return { ...within("/dns", "Domain"), filters: { exporter: false, timeRange: true } }
   if (pathname === "/guide/mikrotik") return { ...within("/exporters", "MikroTik setup guide"), filters: none }
   if (pathname === "/guide/classification") return { ...within("/exporters", "Classification guide"), filters: none }
   return { title: "Page not found", area: "overview", icon: CircleHelp, activePath: "", filters: none }
