@@ -463,6 +463,7 @@ func serve(stderr io.Writer) int {
 		}},
 		Explorer:       store,
 		Settings:       collectionSettings,
+		Sources:        sources,
 		NoFlowsWarning: cfg.NoFlowsWarning,
 		Metrics:        &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline, Sources: sources},
 		FlowStore: &httpserver.FlowStoreOptions{Store: store, Path: flowStorePath,

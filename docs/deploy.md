@@ -113,7 +113,7 @@ A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts 
 
 Flowmon can read AdGuard Home's query log, to show which names each device looks up and, in later versions, which domains its traffic goes to. Nothing is collected until you add AdGuard Home as a Data Source, because DNS logs say much more about what people do than Flows. Flowmon polls `/control/querylog` every 15 seconds with AdGuard Home's own login, and keeps DNS Queries for the DNS retention on the Settings page (7 days unless changed). The first poll reaches back one day. If Flowmon is off longer than AdGuard Home keeps its log, that time has no DNS and the source shows a warning.
 
-Set it up on the Sources page (coming in a later v2 update) or with environment variables:
+Add it under Settings → Data Sources: its address, and a user AdGuard Home accepts. Test shows its version and how long it keeps its log. Or set it with environment variables, which lock it in the UI:
 
 ```sh
 FLOWMON_SOURCE_ADGUARD_KIND=adguard

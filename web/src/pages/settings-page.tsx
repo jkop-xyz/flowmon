@@ -5,6 +5,7 @@ import { AppStoreCard } from "@/components/app-store-card"
 import { FlowStoreCard } from "@/components/flow-store-card"
 import { DBIPAttribution } from "@/components/geoip"
 import { ServiceNamesCard } from "@/components/service-names-card"
+import { SourcesCard } from "@/components/sources-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +21,7 @@ export function SettingsPage() {
   return (
     <Page narrow>
       <LocalNetworksCard />
+      <SourcesCard />
       <RetentionCard />
       <AppStoreCard />
       <FlowStoreCard />

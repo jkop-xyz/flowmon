@@ -924,3 +924,64 @@ export const saveSettings = (change: {
   localNetworks?: string[]
   retentionDays?: Partial<Record<"raw" | "minute" | "hour" | "dns", number>>
 }) => putJSON<Settings>("/api/settings", change)
+
+/** How a Data Source setting is entered: secret ones are never sent back. */
+export type SourceFieldType = "text" | "url" | "secret" | "bool"
+
+export type SourceField = {
+  key: string
+  label: string
+  help?: string
+  type: SourceFieldType
+  required?: boolean
+  default?: string
+}
+
+/** A kind of Data Source, such as AdGuard Home. */
+export type SourceKind = { name: string; title: string; description: string; fields: SourceField[] }
+
+export type SourceState = "disabled" | "starting" | "ok" | "failing"
+
+export type SourceHealth = {
+  state: SourceState
+  since: string
+  lastSuccess?: string
+  detail?: string
+  lastError?: string
+  error?: string
+  warnings?: string[]
+}
+
+/** A configured Data Source: settings without their secrets, which secretsSet lists. */
+export type DataSource = {
+  id: string
+  kind: string
+  name: string
+  enabled: boolean
+  settings: Record<string, string>
+  created: string
+  secretsSet: string[]
+  /** Set by FLOWMON_SOURCE_* environment variables: not editable here. */
+  locked: boolean
+  health: SourceHealth
+}
+
+export type SourceInput = { kind: string; name: string; enabled: boolean; settings: Record<string, string> }
+
+export function fetchSources(signal?: AbortSignal) {
+  return getJSON<{ kinds: SourceKind[]; sources: DataSource[] }>("/api/sources", signal)
+}
+
+export const createSource = (s: SourceInput) => postJSON<DataSource>("/api/sources", s)
+
+export const updateSource = (id: string, s: SourceInput) => putJSON<DataSource>(`/api/sources/${encodeURIComponent(id)}`, s)
+
+export async function deleteSource(id: string) {
+  const path = `/api/sources/${encodeURIComponent(id)}`
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
+}
+
+/** Connects once with these settings; with an id, empty secrets mean the stored ones. */
+export const testSource = (s: SourceInput & { id?: string }) =>
+  postJSON<{ ok: boolean; message: string }>("/api/sources/test", s)
