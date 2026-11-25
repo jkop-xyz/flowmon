@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 
-import { GuideBackButton } from "@/components/guide-back-button"
 import { Page } from "@/components/page"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -49,12 +48,9 @@ const example: [string, InterfaceRole, string][] = [
 export function ClassificationGuidePage() {
   return (
     <Page narrow>
-      <div className="flex flex-col gap-2">
-        <GuideBackButton fallback="/exporters" fallbackLabel="Exporters" />
-        <p className="text-sm text-muted-foreground">
-          How Flowmon tells your traffic from the internet's, and what to set for each Exporter.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        How Flowmon tells your traffic from the internet's, and what to set for each Exporter.
+      </p>
 
       <Topic title="What classification is">
         {classificationIntro.map((p) => (
