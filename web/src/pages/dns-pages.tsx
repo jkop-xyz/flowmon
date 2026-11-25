@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { AlertTriangle } from "lucide-react"
 import type { ReactNode } from "react"
 import { Link, useLocation, useParams } from "react-router"
 
@@ -6,10 +7,12 @@ import { HostLink } from "@/components/host"
 import { Page, QueryError, SectionSkeleton, Stat, TimeAgo } from "@/components/page"
 import { RemoteIPLink } from "@/components/remote"
 import { TrafficChart, type TrafficSeries } from "@/components/traffic-chart"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { fetchDNS, type DNSClient, type DNSName, type DNSSummary } from "@/lib/api"
+import { fetchDNS, fetchDNSServers, type DNSClient, type DNSName, type DNSServer, type DNSSummary } from "@/lib/api"
 import { formatDateTime, formatNumber } from "@/lib/format"
 import { useHostNames } from "@/lib/hosts"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
@@ -379,6 +382,61 @@ export function DNSDomainPage() {
   )
 }
 
+const serverKinds: Record<DNSServer["kind"], string> = { source: "AdGuard Home", exporter: "Exporter", other: "Other" }
+
+/** The DNS servers a Local Host or Device sent to, from raw Flows; "other" ones bypass AdGuard Home. */
+function DNSServers({ host }: { host: string }) {
+  const { preset } = useTimeRange()
+  const query = useQuery({
+    queryKey: ["dns-servers", host, preset.value],
+    queryFn: ({ signal }) => fetchDNSServers(host, resolveRange(preset), signal),
+    refetchInterval: 60_000,
+  })
+  const servers = query.data?.servers ?? []
+  if (servers.length === 0) return null
+  const others = servers.filter((s) => s.kind === "other")
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium">DNS servers</h3>
+      {others.length > 0 && query.data!.dnsSources > 0 && (
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertDescription>
+            It also sent DNS to {others.length === 1 ? "a server" : `${others.length} servers`} other than AdGuard Home. Those
+            lookups aren't in AdGuard Home's log, so they're missing above and their traffic has no domain.
+          </AlertDescription>
+        </Alert>
+      )}
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Server</TableHead>
+              <TableHead>Protocol</TableHead>
+              <TableHead className="text-right">Flows</TableHead>
+              <TableHead>Is</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {servers.map((s) => (
+              <TableRow key={`${s.server}/${s.port}`}>
+                <TableCell className="font-mono text-ident" title={`Last ${formatDateTime(s.last)}`}>
+                  {s.server}
+                </TableCell>
+                <TableCell>{s.port === 853 ? "DNS over TLS" : "DNS"}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(s.flows)}</TableCell>
+                <TableCell>
+                  <Badge variant={s.kind === "other" ? "destructive" : "secondary"}>{serverKinds[s.kind]}</Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
 /** A Local Host's lookups, on its page. Hidden when DNS collection is off and it has none. */
 export function HostDNSCard({ host }: { host: string }) {
   const query = useDNS({ host })
@@ -413,6 +471,7 @@ export function HostDNSCard({ host }: { host: string }) {
             />
           </div>
         </div>
+        <DNSServers host={host} />
       </CardContent>
     </Card>
   )

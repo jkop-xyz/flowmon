@@ -26,13 +26,21 @@ func (f *fakeDomains) DNSSummary(_ context.Context, q flowstore.DNSFilter) (flow
 	return flowstore.DNSSummary{Queries: 7, TopNames: []flowstore.DNSName{{Name: q.Domain}}}, nil
 }
 
+func (f *fakeDomains) DNSServers(context.Context, []string, time.Time, time.Time) ([]flowstore.DNSServer, error) {
+	return []flowstore.DNSServer{{Server: "192.168.10.2", Port: 53}, {Server: "192.168.10.1", Port: 53}, {Server: "8.8.8.8", Port: 853}}, nil
+}
+
 func (f *fakeDomains) RemoteNames(_ context.Context, ip netip.Addr, _, _ time.Time, _ int) ([]flowstore.RemoteName, error) {
 	return []flowstore.RemoteName{{Name: "www.bbc.co.uk", Lookups: 3}}, nil
 }
 
 func TestDomainEndpoints(t *testing.T) {
 	fd := &fakeDomains{}
-	h := New(Options{UI: builtUI, Domains: &DomainOptions{Store: fd, DNSSources: func() int { return 2 }}})
+	h := New(Options{UI: builtUI, Domains: &DomainOptions{Store: fd, DNSSources: func() int { return 2 },
+		DNSServerAddrs: func(context.Context) map[netip.Addr]bool {
+			return map[netip.Addr]bool{netip.MustParseAddr("192.168.10.2"): true}
+		},
+		IsExporter: func(a netip.Addr) bool { return a == netip.MustParseAddr("192.168.10.1") }}})
 	rec := get(t, h, "/api/domains?preset=1h&host=192.168.10.44&limit=5")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"registrable":"bbc.co.uk"`) || !strings.Contains(rec.Body.String(), `"dnsSources":2`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
@@ -50,6 +58,12 @@ func TestDomainEndpoints(t *testing.T) {
 	}
 	if rec := get(t, h, "/api/dns?preset=1h&domain=WWW.BBC.co.uk."); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"www.bbc.co.uk"`) {
 		t.Errorf("dns for a domain: %d %s", rec.Code, rec.Body)
+	}
+	rec = get(t, h, "/api/dns-servers?preset=1h&host=device:3c:5a:b4:00:00:44")
+	for _, want := range []string{`"server":"192.168.10.2"`, `"kind":"source"`, `"kind":"exporter"`, `"server":"8.8.8.8"`, `"kind":"other"`, `"dnsSources":1`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("dns servers lack %s: %s", want, rec.Body)
+		}
 	}
 	if rec := get(t, h, "/api/remote-ips/151.101.0.81/names"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"www.bbc.co.uk"`) {
 		t.Errorf("names: %d %s", rec.Code, rec.Body)

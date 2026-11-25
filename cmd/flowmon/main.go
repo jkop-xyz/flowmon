@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -465,7 +466,9 @@ func serve(stderr io.Writer) int {
 		GeoIP:  geo,
 		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
-		Domains: &httpserver.DomainOptions{Store: store, DNSSources: func() int {
+		Domains: &httpserver.DomainOptions{Store: store, DNSServerAddrs: func(ctx context.Context) map[netip.Addr]bool {
+			return dnsSourceAddrs(ctx, sources.List())
+		}, IsExporter: func(a netip.Addr) bool { _, ok := registry.Config(a); return ok }, DNSSources: func() int {
 			n := 0
 			for _, src := range sources.List() {
 				if src.Kind == "adguard" {
@@ -728,6 +731,34 @@ func autoMergeDevices(ctx context.Context, logger *slog.Logger, store *flowstore
 			logger.Info("Private Address merged into the Device it came after, by its name", "mac", m.MAC.String(), "into", m.Into.String())
 		}
 	}
+}
+
+// dnsSourceAddrs resolves the AdGuard Home sources' addresses: where DNS is meant to go.
+func dnsSourceAddrs(ctx context.Context, sources []datasource.Status) map[netip.Addr]bool {
+	out := map[netip.Addr]bool{}
+	for _, src := range sources {
+		if src.Kind != "adguard" {
+			continue
+		}
+		u, err := url.Parse(src.Settings["url"])
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		if a, err := netip.ParseAddr(u.Hostname()); err == nil {
+			out[a.Unmap()] = true
+			continue
+		}
+		lctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		addrs, err := net.DefaultResolver.LookupNetIP(lctx, "ip", u.Hostname())
+		cancel()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			out[a.Unmap()] = true
+		}
+	}
+	return out
 }
 
 func routerMACsFrom(rs []flowstore.RouterMAC) []devices.Router {
