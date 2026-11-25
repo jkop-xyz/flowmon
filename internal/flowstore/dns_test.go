@@ -55,22 +55,35 @@ func TestDNSQueriesRoundTrip(t *testing.T) {
 
 func TestLatestDNSIsPerSourceWithTies(t *testing.T) {
 	s := open(t)
-	if at, qs, err := s.LatestDNS(ctx, "a1"); err != nil || !at.IsZero() || qs != nil {
+	if at, qs, err := s.LatestDNS(ctx, "a1", time.Minute); err != nil || !at.IsZero() || qs != nil {
 		t.Fatalf("empty store: %v %v %v", at, qs, err)
 	}
 	other := dnsQuery(t0.Add(time.Minute), "192.168.10.9", "other.example")
 	other.Source = "b2"
 	if err := s.WriteDNS(ctx, []DNSQuery{
 		dnsQuery(t0.Add(-time.Hour), "192.168.10.44", "old.example"),
+		// The day before, within the minute asked for.
+		dnsQuery(t0.Truncate(24*time.Hour).Add(-30*time.Second), "192.168.10.46", "late.example"),
 		dnsQuery(t0, "192.168.10.44", "a.example"),
 		dnsQuery(t0, "192.168.10.45", "b.example"),
 		other,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	at, qs, err := s.LatestDNS(ctx, "a1")
+	at, qs, err := s.LatestDNS(ctx, "a1", time.Minute)
 	if err != nil || !at.Equal(t0) || len(qs) != 2 {
 		t.Errorf("latest of a1: %v %+v %v; want both queries at t0, not b2's later one", at, qs, err)
+	}
+	// A minute before a newest query just after midnight reaches into the day before.
+	midnight := dnsQuery(t0.Truncate(24*time.Hour).Add(10*time.Second), "192.168.10.47", "midnight.example")
+	midnight.Source = "c3"
+	late := dnsQuery(t0.Truncate(24*time.Hour).Add(-30*time.Second), "192.168.10.46", "late.example")
+	late.Source = "c3"
+	if err := s.WriteDNS(ctx, []DNSQuery{midnight, late}); err != nil {
+		t.Fatal(err)
+	}
+	if _, qs, err := s.LatestDNS(ctx, "c3", time.Minute); err != nil || len(qs) != 2 {
+		t.Errorf("latest of c3: %+v %v; want both sides of midnight", qs, err)
 	}
 }
 

@@ -166,11 +166,12 @@ func (s *Store) dnsTablesNewestFirst() []string {
 	return out
 }
 
-// LatestDNS returns when source's newest stored DNS Query happened, and every query of
-// source at exactly that time, so a poller can resume without storing one twice. It
-// returns the zero time when source has none.
-func (s *Store) LatestDNS(ctx context.Context, source string) (time.Time, []DNSQuery, error) {
-	for _, t := range s.dnsTablesNewestFirst() {
+// LatestDNS returns when source's newest stored DNS Query happened, and source's
+// queries from within before it up to it, so a poller can resume without storing one
+// twice. It returns the zero time when source has none.
+func (s *Store) LatestDNS(ctx context.Context, source string, within time.Duration) (time.Time, []DNSQuery, error) {
+	tables := s.dnsTablesNewestFirst()
+	for _, t := range tables {
 		var latest *time.Time
 		if err := s.db.QueryRowContext(ctx, `SELECT max(time) FROM `+t+` WHERE source = ?`, source).Scan(&latest); err != nil {
 			return time.Time{}, nil, err
@@ -178,8 +179,17 @@ func (s *Store) LatestDNS(ctx context.Context, source string) (time.Time, []DNSQ
 		if latest == nil {
 			continue
 		}
-		qs, err := s.queryDNS(ctx, `SELECT `+dnsSelect+` FROM `+t+` WHERE source = ? AND time = ?`, source, *latest)
-		return latest.UTC(), qs, err
+		at, from := latest.UTC(), latest.UTC().Add(-within)
+		var parts []string
+		var args []any
+		for _, t := range tables {
+			if day, _ := dnsDay(t); !day.After(at) && day.Add(24*time.Hour).After(from) {
+				parts = append(parts, `SELECT `+dnsSelect+` FROM `+t+` WHERE source = ? AND time >= ? AND time <= ?`)
+				args = append(args, source, from, at)
+			}
+		}
+		qs, err := s.queryDNS(ctx, strings.Join(parts, ` UNION ALL `), args...)
+		return at, qs, err
 	}
 	return time.Time{}, nil, nil
 }
