@@ -495,7 +495,8 @@ function HostBody({ host }: { host: string }) {
       {summary.data && (host.includes("/") || host.startsWith("device:")) && (
         <AddressesCard addresses={summary.data.result.addresses} />
       )}
-      <div className="grid items-start gap-6 lg:grid-cols-2">
+      {/* Side by side only where a table of addresses, names and three byte columns fits in half. */}
+      <div className="grid items-start gap-6 2xl:grid-cols-2">
         <RemotePeersCard host={host} label={label} />
         <LocalPeersCard query={summary} peers={summary.data?.result.localPeers} label={label} />
       </div>
