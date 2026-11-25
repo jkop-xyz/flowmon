@@ -126,36 +126,6 @@ func containsColon(s string) bool {
 	return false
 }
 
-// Public is the config without secrets, plus which secrets are set.
-type Public struct {
-	Config
-	HasCommunity    bool `json:"hasCommunity"`
-	HasAuthPassword bool `json:"hasAuthPassword"`
-	HasPrivPassword bool `json:"hasPrivPassword"`
-}
-
-// Public strips the secrets.
-func (c Config) Public() Public {
-	p := Public{Config: c, HasCommunity: c.Community != "", HasAuthPassword: c.AuthPassword != "", HasPrivPassword: c.PrivPassword != ""}
-	p.Community, p.AuthPassword, p.PrivPassword = "", "", ""
-	return p
-}
-
-// Merge keeps existing secrets when an update leaves them empty, so the UI can save
-// other fields without re-entering passwords.
-func (c Config) Merge(prev Config) Config {
-	if c.Community == "" {
-		c.Community = prev.Community
-	}
-	if c.AuthPassword == "" {
-		c.AuthPassword = prev.AuthPassword
-	}
-	if c.PrivPassword == "" {
-		c.PrivPassword = prev.PrivPassword
-	}
-	return c
-}
-
 // Persister stores configs as strings. *flowstore.Store implements it.
 type Persister interface {
 	SNMPConfigs(ctx context.Context) (map[netip.Addr]string, error)

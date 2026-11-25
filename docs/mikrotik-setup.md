@@ -64,11 +64,12 @@ SNMP fills in interface names, and lets Flowmon check Flow totals against the ro
    - Passwords of at least 8 characters.
    - **Read Access** only.
 3. The default `public` community allows anyone to read without a password. Restrict its Addresses or disable it.
-4. In Flowmon, on the Exporter, open **SNMP**:
-   - Choose SNMPv3, with the community name as the user.
+4. In Flowmon, under **Settings → Data Sources**, add an **SNMP device**:
+   - Address: the router's address, the same as the Exporter's.
+   - Version SNMPv3, with the community name as the user.
    - Authentication: SHA. Privacy: AES.
-   - The overhead preset: Ethernet for a plain Ethernet WAN, PPPoE if you dial in with PPPoE.
-   - Test, then save.
+   - The layer-2 overhead: Ethernet for a plain Ethernet WAN, PPPoE if you dial in with PPPoE.
+   - Test, then add.
 
 ## 6. Traffic the router can't show
 

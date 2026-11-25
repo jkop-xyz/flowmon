@@ -11,19 +11,9 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
-// Counters are an interface's 64-bit IF-MIB counters.
-type Counters struct {
-	InOctets, OutOctets   uint64
-	InPackets, OutPackets uint64
-}
-
-// Agent is an SNMP agent on an Exporter.
+// Agent is a connection to a device's SNMP agent.
 type Agent interface {
-	// InterfaceNames walks ifName.
-	InterfaceNames(ctx context.Context) (map[uint32]string, error)
-	// Counters gets ifHC* counters for the given interface numbers.
-	Counters(ctx context.Context, indexes []uint32) (map[uint32]Counters, error)
-	Close() error
+	TableReader
 }
 
 // Dialer opens an Agent. Tests replace it.
@@ -95,58 +85,6 @@ func indexOf(oid, base string) (uint32, bool) {
 	}
 	n, err := strconv.ParseUint(rest, 10, 32)
 	return uint32(n), err == nil
-}
-
-func (a *gosnmpAgent) InterfaceNames(ctx context.Context) (map[uint32]string, error) {
-	a.g.Context = ctx
-	pdus, err := a.g.BulkWalkAll(oidIfName)
-	if err != nil {
-		return nil, fmt.Errorf("snmp: walking ifName: %w", err)
-	}
-	out := map[uint32]string{}
-	for _, p := range pdus {
-		idx, ok := indexOf(p.Name, oidIfName)
-		if b, isBytes := p.Value.([]byte); ok && isBytes && len(b) > 0 {
-			out[idx] = string(b)
-		}
-	}
-	return out, nil
-}
-
-func (a *gosnmpAgent) Counters(ctx context.Context, indexes []uint32) (map[uint32]Counters, error) {
-	a.g.Context = ctx
-	out := map[uint32]Counters{}
-	bases := []string{oidIfHCInOctets, oidIfHCOutOctets, oidIfHCInUcastPkts, oidIfHCInMcastPkts, oidIfHCInBcastPkts,
-		oidIfHCOutUcastPkts, oidIfHCOutMcastPkts, oidIfHCOutBcastPkts}
-	for _, idx := range indexes {
-		var oids []string
-		for _, b := range bases {
-			oids = append(oids, b+"."+strconv.FormatUint(uint64(idx), 10))
-		}
-		res, err := a.g.Get(oids)
-		if err != nil {
-			return nil, fmt.Errorf("snmp: getting counters of interface %d: %w", idx, err)
-		}
-		var c Counters
-		for _, p := range res.Variables {
-			if p.Type != gosnmp.Counter64 {
-				continue // only 64-bit counters are used (ADR 0003)
-			}
-			v := gosnmp.ToBigInt(p.Value).Uint64()
-			switch {
-			case strings.HasPrefix(p.Name, oidIfHCInOctets+"."):
-				c.InOctets = v
-			case strings.HasPrefix(p.Name, oidIfHCOutOctets+"."):
-				c.OutOctets = v
-			case strings.HasPrefix(p.Name, oidIfHCInUcastPkts+"."), strings.HasPrefix(p.Name, oidIfHCInMcastPkts+"."), strings.HasPrefix(p.Name, oidIfHCInBcastPkts+"."):
-				c.InPackets += v
-			default:
-				c.OutPackets += v
-			}
-		}
-		out[idx] = c
-	}
-	return out, nil
 }
 
 // IF-MIB and SNMPv2-MIB columns read for Interface Counters.

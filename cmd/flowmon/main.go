@@ -303,7 +303,20 @@ func serve(stderr io.Writer) int {
 		Logger:     logger,
 	})
 	go fillDomains(pipelineCtx, logger, store, attributor)
-	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind, snmp.NewSourceKind(snmp.SourceOptions{Writer: store, Logger: logger})}, Env: sourceEnv, Logger: logger})
+	// SNMP Data Sources feed an Exporter's interface names, as its own polling did.
+	snmpKind := snmp.NewSourceKind(snmp.SourceOptions{Writer: store, Logger: logger,
+		Names: func(src datasource.Source, names map[uint32]string, at time.Time) {
+			a, ok := snmp.ExporterOf(src.Settings)
+			if !ok || registry.Status(a) != exporters.StatusApproved {
+				return
+			}
+			for idx, name := range names {
+				if _, err := ifaceRegistry.SetName(context.Background(), a, idx, name, interfaces.SourceSNMP, at); err != nil {
+					logger.Warn("saving an interface name from SNMP", "exporter", a.String(), "err", err)
+				}
+			}
+		}})
+	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind, snmpKind}, Env: sourceEnv, Logger: logger})
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error:", err)
 		return 2
@@ -312,17 +325,9 @@ func serve(stderr io.Writer) int {
 		// Data Sources are optional; Flow collection starts regardless.
 		logger.Error("stored data sources unavailable", "err", err)
 	}
+	moveExporterSNMP(ctx, logger, store, snmp.NewSettings(store, box), sources, registry)
 	sources.Start(pipelineCtx)
 
-	snmpSettings := snmp.NewSettings(store, box)
-	snmpConfigs, unreadable, err := snmpSettings.All(ctx)
-	if err != nil {
-		// SNMP is optional; collection starts regardless.
-		logger.Error("snmp settings unavailable; SNMP polling is off", "err", err)
-	}
-	for _, a := range unreadable {
-		logger.Error("stored SNMP credentials can't be decrypted; SNMP is off for this Exporter until they are re-entered", "exporter", a.String())
-	}
 	wanInterfaces := func(a netip.Addr) map[string]uint32 {
 		out := map[string]uint32{}
 		for _, i := range ifaceRegistry.Current(a) {
@@ -332,11 +337,17 @@ func serve(stderr io.Writer) int {
 		}
 		return out
 	}
-	poller := snmp.NewPoller(nil, snmpSink{ifaces: ifaceRegistry, store: store, wan: wanInterfaces, logger: logger}, snmpConfigs, logger, nil)
-	for _, a := range unreadable {
-		poller.MarkUnreadable(a)
+	// The SNMP Data Source that polls an Exporter: an enabled one first.
+	snmpSourceFor := func(a netip.Addr) (datasource.Status, bool) {
+		var found datasource.Status
+		ok := false
+		for _, src := range sources.List() {
+			if e, is := snmp.ExporterOf(src.Settings); src.Kind == "snmp" && is && e == a && (!ok || src.Enabled && !found.Enabled) {
+				found, ok = src, true
+			}
+		}
+		return found, ok
 	}
-	go poller.Run(pipelineCtx)
 
 	gate := collector.GateFunc(func(a netip.Addr) collector.Admission {
 		switch registry.Status(a) {
@@ -462,7 +473,7 @@ func serve(stderr io.Writer) int {
 		Interfaces: &httpserver.InterfaceOptions{
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: func() time.Duration { return collectionSettings.Current().Retention.Raw },
 		},
-		SNMP:   &httpserver.SNMPOptions{Settings: snmpSettings, Poller: poller, Store: store, WAN: wanInterfaces},
+		SNMP:   &httpserver.SNMPOptions{SourceFor: snmpSourceFor, Store: store, WAN: wanInterfaces},
 		GeoIP:  geo,
 		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
@@ -540,26 +551,6 @@ func (i interfaceClassification) ByInterface(a netip.Addr) bool { return i.expor
 
 func (i interfaceClassification) Role(a netip.Addr, idx uint32, at time.Time) classify.InterfaceRole {
 	return i.interfaces.RoleAt(a, idx, at)
-}
-
-// snmpSink sends what SNMP polling learns to the interfaces registry and Flow Store.
-type snmpSink struct {
-	ifaces *interfaces.Registry
-	store  *flowstore.Store
-	wan    func(netip.Addr) map[string]uint32
-	logger *slog.Logger
-}
-
-func (s snmpSink) Name(a netip.Addr, idx uint32, name string, at time.Time) {
-	if _, err := s.ifaces.SetName(context.Background(), a, idx, name, interfaces.SourceSNMP, at); err != nil {
-		s.logger.Warn("saving an interface name from SNMP", "exporter", a.String(), "err", err)
-	}
-}
-
-func (s snmpSink) WANInterfaces(a netip.Addr) map[string]uint32 { return s.wan(a) }
-
-func (s snmpSink) AddSNMPDelta(ctx context.Context, a netip.Addr, name string, d flowstore.SNMPHour) error {
-	return s.store.AddSNMPDelta(ctx, a, name, d)
 }
 
 // expireSessions deletes expired sessions and cached IP Enrichment every hour.
@@ -759,6 +750,39 @@ func dnsSourceAddrs(ctx context.Context, sources []datasource.Status) map[netip.
 		}
 	}
 	return out
+}
+
+// moveExporterSNMP turns each Exporter's own SNMP settings into an SNMP Data Source,
+// once: SNMP moved onto Data Sources (ADR 0005). A setting records that it happened, so a
+// source deleted later isn't brought back.
+func moveExporterSNMP(ctx context.Context, logger *slog.Logger, store *flowstore.Store, old *snmp.Settings, sources *datasource.Manager, registry *exporters.Registry) {
+	const key = "snmp_moved_to_sources"
+	if _, done, err := store.Setting(ctx, key); err != nil || done {
+		return
+	}
+	configs, unreadable, err := old.All(ctx)
+	if err != nil {
+		logger.Error("reading Exporters' SNMP settings to move them", "err", err)
+		return
+	}
+	for _, a := range unreadable {
+		logger.Warn("an Exporter's SNMP credentials can't be decrypted, so its settings weren't moved: add it under Settings → Data Sources", "exporter", a.String())
+	}
+	for a, c := range configs {
+		name := "SNMP on " + a.String()
+		if cfg, ok := registry.Config(a); ok && cfg.Name != "" {
+			name = cfg.Name
+		}
+		st, err := sources.Create(ctx, datasource.Source{Kind: "snmp", Name: name, Enabled: c.Enabled, Settings: snmp.SettingsOf(c, a)})
+		if err != nil {
+			logger.Warn("an Exporter's SNMP settings couldn't be moved: add it under Settings → Data Sources", "exporter", a.String(), "err", err)
+			continue
+		}
+		logger.Info("an Exporter's SNMP settings moved to a Data Source", "exporter", a.String(), "source", st.ID, "enabled", st.Enabled)
+	}
+	if err := store.SetSettings(ctx, map[string]string{key: "1"}); err != nil {
+		logger.Error("recording that SNMP settings moved", "err", err)
+	}
 }
 
 func routerMACsFrom(rs []flowstore.RouterMAC) []devices.Router {

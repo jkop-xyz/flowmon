@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/datasource"
@@ -23,6 +25,9 @@ type SourceOptions struct {
 	Interval time.Duration
 	Now      func() time.Time
 	Logger   *slog.Logger
+	// Names, if set, is called after each poll with the interfaces' names, so an
+	// Exporter's Interfaces get them (see ExporterOf).
+	Names func(src datasource.Source, names map[uint32]string, at time.Time)
 }
 
 // SourceKind is the SNMP Data Source kind (ADR 0005): any device, polled every minute
@@ -46,18 +51,7 @@ func NewSourceKind(opts SourceOptions) *SourceKind {
 	return &SourceKind{opts: opts}
 }
 
-func dialTable(c Config) (TableReader, error) {
-	a, err := Dial(c, netip.Addr{})
-	if err != nil {
-		return nil, err
-	}
-	t, ok := a.(TableReader)
-	if !ok {
-		a.Close()
-		return nil, errors.New("snmp: this agent can't read interface tables")
-	}
-	return t, nil
-}
+func dialTable(c Config) (TableReader, error) { return Dial(c, netip.Addr{}) }
 
 var (
 	authOptions = []string{"", "MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512"}
@@ -82,19 +76,69 @@ func (k *SourceKind) Info() datasource.KindInfo {
 			{Key: "auth_password", Label: "Authentication password", Type: datasource.FieldSecret},
 			{Key: "priv_protocol", Label: "Privacy (encryption)", Type: datasource.FieldSelect, Options: privOptions},
 			{Key: "priv_password", Label: "Privacy password", Type: datasource.FieldSecret},
+			{Key: "exporter", Label: "Exporter", Type: datasource.FieldText,
+				Help: "The Exporter this device is, for its interface names and Reconciliation, when it isn't the address above."},
+			{Key: "overhead", Label: "Layer-2 overhead per packet", Type: datasource.FieldSelect, Options: overheadOptions(), Default: "ethernet",
+				Help: "What its interface counters count beyond the IP packet, for Reconciliation: Ethernet 14 B, with VLAN 18 B, PPPoE 22 B."},
+			{Key: "overhead_bytes", Label: "Custom overhead (bytes)", Type: datasource.FieldText, Help: "With a custom overhead: 0 to 64."},
 		},
 	}
 }
 
 // ConfigOf turns a source's settings into an agent Config.
 func ConfigOf(s datasource.Settings) Config {
+	bytes, _ := strconv.Atoi(s["overhead_bytes"])
 	return Config{Enabled: true, Version: s["version"], Target: s["address"], Community: s["community"], User: s["user"],
-		AuthProtocol: s["auth_protocol"], AuthPassword: s["auth_password"], PrivProtocol: s["priv_protocol"], PrivPassword: s["priv_password"]}
+		AuthProtocol: s["auth_protocol"], AuthPassword: s["auth_password"], PrivProtocol: s["priv_protocol"], PrivPassword: s["priv_password"],
+		Overhead: s["overhead"], OverheadBytes: bytes}
+}
+
+// SettingsOf turns an Exporter's SNMP Config into a source's settings, for moving them.
+func SettingsOf(c Config, exporter netip.Addr) datasource.Settings {
+	s := datasource.Settings{"address": c.Target, "version": c.Version, "community": c.Community, "user": c.User,
+		"auth_protocol": c.AuthProtocol, "auth_password": c.AuthPassword, "priv_protocol": c.PrivProtocol, "priv_password": c.PrivPassword,
+		"exporter": exporter.String(), "overhead": c.Overhead}
+	if s["address"] == "" {
+		s["address"] = exporter.String()
+	}
+	if c.Overhead == "custom" {
+		s["overhead_bytes"] = strconv.Itoa(c.OverheadBytes)
+	}
+	return s
+}
+
+// ExporterOf returns the Exporter an SNMP source is: its exporter setting, else its
+// address when that is an IP address.
+func ExporterOf(s datasource.Settings) (netip.Addr, bool) {
+	if e := s["exporter"]; e != "" {
+		a, err := netip.ParseAddr(e)
+		return a.Unmap(), err == nil
+	}
+	host, _, err := splitTarget(s["address"])
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	a, err := netip.ParseAddr(host)
+	return a.Unmap(), err == nil
+}
+
+func overheadOptions() []string {
+	out := make([]string, 0, len(OverheadPresets)+1)
+	for k := range OverheadPresets {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return append(out, "custom")
 }
 
 // Validate checks the SNMP settings.
 func (k *SourceKind) Validate(s datasource.Settings) error {
 	c := ConfigOf(s)
+	if e := s["exporter"]; e != "" {
+		if _, err := netip.ParseAddr(e); err != nil {
+			return &datasource.InvalidError{Field: "exporter", Msg: "The Exporter is its IP address, as the Exporters page lists it."}
+		}
+	}
 	if c.Version == "v2c" && c.Community == "" {
 		return &datasource.InvalidError{Field: "community", Msg: "SNMPv2c needs a community."}
 	}
@@ -105,6 +149,8 @@ func (k *SourceKind) Validate(s datasource.Settings) error {
 		return &datasource.InvalidError{Field: "priv_protocol", Msg: "Privacy needs authentication."}
 	case errors.Is(err, ErrTarget):
 		return &datasource.InvalidError{Field: "address", Msg: "The address must be host or host:port."}
+	case errors.Is(err, ErrOverhead):
+		return &datasource.InvalidError{Field: "overhead_bytes", Msg: "A custom overhead is 0 to 64 bytes."}
 	case err != nil:
 		return err
 	}
@@ -159,6 +205,15 @@ func (k *SourceKind) Run(ctx context.Context, src datasource.Source, r datasourc
 			var samples []series.InterfaceSample
 			if prev != nil {
 				samples = Deltas(src.ID, *prev, cur)
+			}
+			if k.opts.Names != nil {
+				names := make(map[uint32]string, len(cur.Table.Rows))
+				for idx, row := range cur.Table.Rows {
+					if row.Name != "" {
+						names[idx] = row.Name
+					}
+				}
+				k.opts.Names(src, names, cur.At)
 			}
 			if err := k.opts.Writer.WriteInterfaces(ctx, cur.At, Interfaces(src.ID, cur.Table), samples); err != nil {
 				r.Failed(fmt.Errorf("storing Interface Counters: %w", err))

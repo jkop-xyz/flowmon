@@ -204,8 +204,9 @@ export function MikroTikGuidePage() {
             restrict its Addresses or disable it.
           </li>
           <li>
-            In Flowmon, on the Exporter, open SNMP: SNMPv3, the community name as user, authentication SHA, privacy AES,
-            the overhead preset that matches your WAN (Ethernet, or PPPoE when you dial in with PPPoE). Test, then save.
+            In Flowmon, under Settings → Data Sources, add an SNMP device: the router's address, SNMPv3 with the
+            community name as user, authentication SHA, privacy AES, and the layer-2 overhead that matches your WAN
+            (Ethernet, or PPPoE when you dial in with PPPoE). Test, then add.
           </li>
         </ol>
       </Step>

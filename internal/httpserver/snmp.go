@@ -4,26 +4,31 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
-	"sort"
+	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/datasource"
+	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/snmp"
 )
 
-// SNMPOptions wire SNMP settings, polling and Reconciliation.
+// SNMPOptions wire an Exporter's SNMP: the SNMP Data Source that polls it, and
+// Reconciliation on that source's Interface Counters.
 type SNMPOptions struct {
-	Settings interface {
-		Save(ctx context.Context, exporter netip.Addr, c snmp.Config) error
+	// SourceFor returns the SNMP Data Source that polls an Exporter, if any.
+	SourceFor func(exporter netip.Addr) (datasource.Status, bool)
+	Store     interface {
+		ReconciliationHours(ctx context.Context, source string, exporter netip.Addr, ifName string, from, to time.Time) ([]flowstore.SNMPHour, error)
+		FlowBytesByInterface(ctx context.Context, exporter netip.Addr, index uint32, from, to time.Time) (map[time.Time]flowstore.InterfaceHour, error)
 	}
-	Poller *snmp.Poller
-	Store  snmp.Store
 	// WAN returns an Exporter's WAN Interfaces: name → current interface number.
 	WAN func(exporter netip.Addr) map[string]uint32
 }
 
-type snmpView struct {
-	Config  snmp.Public    `json:"config"`
-	Status  snmp.Status    `json:"status"`
-	Presets map[string]int `json:"overheadPresets"`
+type snmpSourceView struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Enabled bool              `json:"enabled"`
+	Health  datasource.Health `json:"health"`
 }
 
 type reconciliationView struct {
@@ -33,9 +38,23 @@ type reconciliationView struct {
 	Thresholds    map[string]float64     `json:"thresholds"`
 }
 
+// reconStore reads Reconciliation's hours from one SNMP source's Interface Counters.
+type reconStore struct {
+	so     *SNMPOptions
+	source string
+}
+
+func (r reconStore) SNMPHours(ctx context.Context, exporter netip.Addr, ifName string, from, to time.Time) ([]flowstore.SNMPHour, error) {
+	return r.so.Store.ReconciliationHours(ctx, r.source, exporter, ifName, from, to)
+}
+
+func (r reconStore) FlowBytesByInterface(ctx context.Context, exporter netip.Addr, index uint32, from, to time.Time) (map[time.Time]flowstore.InterfaceHour, error) {
+	return r.so.Store.FlowBytesByInterface(ctx, exporter, index, from, to)
+}
+
 func registerSNMP(mux *http.ServeMux, opts Options) {
 	so := opts.SNMP
-	if so == nil || so.Poller == nil {
+	if so == nil || so.SourceFor == nil {
 		return
 	}
 	address := func(w http.ResponseWriter, r *http.Request) (netip.Addr, bool) {
@@ -46,88 +65,32 @@ func registerSNMP(mux *http.ServeMux, opts Options) {
 		}
 		return a.Unmap(), true
 	}
-	current := func(a netip.Addr) snmp.Config {
-		c, ok := so.Poller.Config(a)
-		if !ok {
-			c = snmp.Config{Version: "v3", AuthProtocol: "SHA", PrivProtocol: "AES", Overhead: "ethernet"} // what RouterOS supports (SHA1, AES)
-		}
-		return c
-	}
-	view := func(a netip.Addr) snmpView {
-		return snmpView{Config: current(a).Public(), Status: so.Poller.Status(a), Presets: snmp.OverheadPresets}
-	}
-	readConfig := func(w http.ResponseWriter, r *http.Request, a netip.Addr) (snmp.Config, bool) {
-		var req struct {
-			Config snmp.Config `json:"config"`
-		}
-		if !readJSON(w, r, &req) {
-			return snmp.Config{}, false
-		}
-		c := req.Config.Merge(current(a))
-		if err := c.Validate(); err != nil {
-			errorJSON(w, http.StatusBadRequest, err.Error()[len("snmp: "):])
-			return snmp.Config{}, false
-		}
-		return c, true
-	}
 
+	// The SNMP Data Source polling an Exporter, or none.
 	mux.HandleFunc("GET /api/exporters/{address}/snmp", func(w http.ResponseWriter, r *http.Request) {
-		if a, ok := address(w, r); ok {
-			writeJSON(w, http.StatusOK, view(a))
-		}
-	})
-	mux.HandleFunc("PUT /api/exporters/{address}/snmp", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := address(w, r)
 		if !ok {
 			return
 		}
-		c, ok := readConfig(w, r, a)
-		if !ok {
-			return
+		out := map[string]any{"source": nil}
+		if src, ok := so.SourceFor(a); ok {
+			out["source"] = snmpSourceView{src.ID, src.Name, src.Enabled, src.Health}
 		}
-		if err := so.Settings.Save(r.Context(), a, c); err != nil {
-			opts.Logger.Error("saving SNMP settings", "err", err)
-			errorJSON(w, http.StatusInternalServerError, "couldn't save the SNMP settings")
-			return
-		}
-		so.Poller.Set(a, c)
-		opts.Logger.Info("snmp settings saved", "exporter", a.String(), "enabled", c.Enabled, "version", c.Version, "by", currentUser(r.Context()))
-		if c.Enabled {
-			go func() { _ = so.Poller.Poll(context.Background(), a) }()
-		}
-		writeJSON(w, http.StatusOK, view(a))
-	})
-	mux.HandleFunc("POST /api/exporters/{address}/snmp/test", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := address(w, r)
-		if !ok {
-			return
-		}
-		c, ok := readConfig(w, r, a)
-		if !ok {
-			return
-		}
-		names, err := so.Poller.Test(r.Context(), a, c)
-		if err != nil {
-			errorJSON(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		list := make([]string, 0, len(names))
-		for _, n := range names {
-			list = append(list, n)
-		}
-		sort.Strings(list)
-		writeJSON(w, http.StatusOK, map[string]any{"interfaces": list})
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("GET /api/exporters/{address}/reconciliation", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := address(w, r)
 		if !ok {
 			return
 		}
-		c := current(a)
-		res := reconciliationView{OverheadBytes: c.OverheadPerPacket(), Enabled: c.Enabled, Interfaces: []snmp.InterfaceReport{},
+		res := reconciliationView{Interfaces: []snmp.InterfaceReport{},
 			Thresholds: map[string]float64{"gap": snmp.GapThreshold, "sustainedHours": snmp.SustainedHours, "minBytesPerHour": snmp.MinBytesPerHour}}
-		if c.Enabled && so.Store != nil && so.WAN != nil {
-			reps, err := snmp.Reconcile(r.Context(), so.Store, a, so.WAN(a), c.OverheadPerPacket(), opts.Now())
+		src, ok := so.SourceFor(a)
+		if ok {
+			res.OverheadBytes, res.Enabled = snmp.ConfigOf(src.Settings).OverheadPerPacket(), src.Enabled
+		}
+		if res.Enabled && so.Store != nil && so.WAN != nil {
+			reps, err := snmp.Reconcile(r.Context(), reconStore{so, src.ID}, a, so.WAN(a), res.OverheadBytes, opts.Now())
 			if err != nil {
 				opts.Logger.Error("reconciliation", "err", err)
 				errorJSON(w, http.StatusInternalServerError, "reconciliation failed")
