@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/oui"
 )
@@ -35,9 +36,9 @@ m AS (SELECT r.* EXCLUDE (local_mac), CASE WHEN r.local_mac <> '' AND r.local_ma
 one AS (SELECT local_host, any_value(mac) AS only_mac FROM m WHERE mac <> '' GROUP BY local_host HAVING count(DISTINCT mac) = 1),
 k AS (SELECT m.*, CASE WHEN mac <> '' THEN mac ELSE coalesce(one.only_mac, '') END AS dev FROM m LEFT JOIN one USING (local_host)),
 g AS (SELECT dev, arg_max(local_host, bucket) AS host, count(DISTINCT local_host) AS addrs, bool_or(local_is_exporter_host) AS eh,
-		sum(bytes_rx) AS rx, sum(bytes_tx) AS tx, sum(estimated_rx + estimated_tx) AS est
+		sum(bytes_rx) AS rx, sum(bytes_tx) AS tx, sum(estimated_rx + estimated_tx) AS est, max(bucket) AS last
 	FROM k GROUP BY dev, CASE WHEN dev = '' THEN local_host ELSE '' END)
-SELECT dev, host, addrs, eh, rx, tx, est, rx + tx AS total, sum(rx + tx) OVER (), sum(est) OVER (), count(*) OVER ()
+SELECT dev, host, addrs, eh, rx, tx, est, last, rx + tx AS total, sum(rx + tx) OVER (), sum(est) OVER (), count(*) OVER ()
 FROM g ORDER BY total DESC, host LIMIT %d`, strings.Join(parts, "\nUNION ALL\n"), q.Limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -47,10 +48,13 @@ FROM g ORDER BY total DESC, host LIMIT %d`, strings.Join(parts, "\nUNION ALL\n")
 	for rows.Next() {
 		var it TopItem
 		var addrs int
+		var last time.Time
 		if err := rows.Scan(&it.Mac, &it.Host, &addrs, &it.LocalIsExporterHost, &it.ReceivedBytes, &it.SentBytes, &it.EstimatedBytes,
-			&it.TotalBytes, &res.TotalBytes, &res.EstimatedBytes, &res.Count); err != nil {
+			&last, &it.TotalBytes, &res.TotalBytes, &res.EstimatedBytes, &res.Count); err != nil {
 			return TopResult{}, err
 		}
+		last = last.UTC()
+		it.LastSeen = &last
 		if it.Mac != "" {
 			if addrs > 1 {
 				it.Addresses = addrs

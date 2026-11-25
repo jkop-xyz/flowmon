@@ -187,7 +187,7 @@ export function LocalHostsPage() {
           <CardDescription>
             The busiest Local Hosts by bytes sent and received, {preset.label.toLowerCase()}, including Internal traffic.{" "}
             {dimension === "devices"
-              ? "By Device: the addresses one MAC used count as one, named by the address it used last. Traffic without a known MAC counts by address."
+              ? "By Device: the addresses one MAC used count as one, named by the address it used last. Traffic without a known MAC counts by address, as does traffic from before Flowmon knew Devices."
               : "By address: each address on its own."}
           </CardDescription>
           <CardAction className="flex flex-wrap items-center justify-end gap-2">
@@ -228,8 +228,9 @@ export function LocalHostsPage() {
               head={
                 <>
                   <SortableHead column="host" sort={sort} onSort={onSort}>
-                    Local Host
+                    {dimension === "devices" ? "Device" : "Local Host"}
                   </SortableHead>
+                  {dimension === "devices" && <TableHead className="w-32">Last seen</TableHead>}
                   <BytesHeads sort={sort} onSort={onSort} />
                 </>
               }
@@ -247,6 +248,11 @@ export function LocalHostsPage() {
                       }
                     />
                   </TableCell>
+                  {dimension === "devices" && (
+                    <TableCell className="text-sm text-muted-foreground">
+                      {it.lastSeen ? <TimeAgo iso={it.lastSeen} now={query.dataUpdatedAt} /> : "–"}
+                    </TableCell>
+                  )}
                   <BytesCells item={it} />
                 </TableRow>
               ))}
@@ -259,8 +265,11 @@ export function LocalHostsPage() {
                       device={{ mac: d.mac, vendor: d.vendor, privateMac: d.privateMac, label: deviceLabels[d.mac] }}
                     />
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    <TimeAgo iso={d.lastSeen} now={quiet.dataUpdatedAt} />
+                  </TableCell>
                   <TableCell colSpan={3} className="text-right text-sm text-muted-foreground">
-                    No traffic seen · on the network <TimeAgo iso={d.lastSeen} now={quiet.dataUpdatedAt} />
+                    No traffic seen, only on the network
                   </TableCell>
                 </TableRow>
               ))}

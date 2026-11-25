@@ -541,21 +541,13 @@ function LoadFigure({ label, color, bps, line, lineSet }: { label: string; color
   const share = bps !== undefined ? lineShare(bps, line) : undefined
   return (
     <div className="flex flex-col gap-1 bg-card px-5 py-4">
-      <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         <Swatch color={color}>{label}</Swatch>
-        {share !== undefined && (
-          <span className={cn("tabular-nums", share > 0.8 && "font-medium text-warning-foreground")}>
-            {(share * 100).toFixed(0)} % of {lineSet ? "line" : "port"}
-          </span>
-        )}
       </span>
       {bps === undefined ? (
         <span className="text-sm text-muted-foreground">No recent counters</span>
       ) : (
-        <span className="text-2xl font-semibold tracking-tight tabular-nums">
-          {formatBitsPerSecond(bps)}
-          {line > 0 && <span className="text-sm font-normal text-muted-foreground"> / {formatBitsPerSecond(line)}</span>}
-        </span>
+        <span className="text-2xl font-semibold tracking-tight whitespace-nowrap tabular-nums">{formatBitsPerSecond(bps)}</span>
       )}
       {share !== undefined && (
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -564,6 +556,11 @@ function LoadFigure({ label, color, bps, line, lineSet }: { label: string; color
             style={{ width: `${Math.min(100, share * 100)}%`, background: share > 0.8 ? undefined : color }}
           />
         </div>
+      )}
+      {share !== undefined && (
+        <span className={cn("text-xs text-muted-foreground tabular-nums", share > 0.8 && "font-medium text-warning-foreground")}>
+          {(share * 100).toFixed(0)} % of the {formatBitsPerSecond(line)} {lineSet ? "line" : "port"}
+        </span>
       )}
     </div>
   )

@@ -72,6 +72,8 @@ type TopItem struct {
 	Mac        string `json:"mac,omitempty"`
 	Vendor     string `json:"vendor,omitempty"`
 	PrivateMac bool   `json:"privateMac,omitempty"`
+	// LastSeen is the start of the last minute or hour with traffic (TopDevices).
+	LastSeen *time.Time `json:"lastSeen,omitempty"`
 }
 
 // TopResult is a ranked list plus the total over every value, so the UI can show shares.
