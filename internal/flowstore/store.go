@@ -43,9 +43,11 @@ type Store struct {
 	dnsDays map[string]bool // DNS Query day tables that exist, by name
 	// domainRollups are the Domain Rollup tables that exist, by name.
 	domainRollups map[string]bool
-	rollups       map[string]bool   // Rollup tables that exist, by name
-	dirty         map[string]bool   // Rollup tables written since the last compaction
-	asns          map[uint32]string // ASN Owner names, as stored in asn_names
+	// ifaceTables are the Interface Counter tables that exist, by name.
+	ifaceTables map[string]bool
+	rollups     map[string]bool   // Rollup tables that exist, by name
+	dirty       map[string]bool   // Rollup tables written since the last compaction
+	asns        map[uint32]string // ASN Owner names, as stored in asn_names
 
 	topBuilt map[period]bool // Top Remote IPs periods built
 	topDirty map[period]bool // built periods that Flows were added to since
@@ -79,7 +81,7 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("opening flow store: %w", err)
 	}
 	s := &Store{path: path, db: sql.OpenDB(connector), connector: connector,
-		days: map[string]bool{}, dnsDays: map[string]bool{}, domainRollups: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
+		days: map[string]bool{}, dnsDays: map[string]bool{}, domainRollups: map[string]bool{}, ifaceTables: map[string]bool{}, rollups: map[string]bool{}, dirty: map[string]bool{}, asns: map[uint32]string{},
 		topBuilt: map[period]bool{}, topDirty: map[period]bool{}}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
@@ -308,6 +310,20 @@ var migrations = []migration{
 	// 19: Device merges (v2): a MAC counted as another Device (Private Addresses). Kept
 	// flat: into_mac is never itself merged.
 	stmt(`CREATE TABLE IF NOT EXISTS device_merges (mac VARCHAR PRIMARY KEY, into_mac VARCHAR NOT NULL, reason VARCHAR NOT NULL, merged_at TIMESTAMP NOT NULL)`),
+	// 20: Interface Counters (v2.1): SNMP interfaces and their counters per minute and
+	// hour, listed like Rollup tables (see ifcounters.go).
+	func(ctx context.Context, tx *sql.Tx) error {
+		for _, q := range []string{
+			`CREATE TABLE IF NOT EXISTS iface_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`,
+			`CREATE TABLE IF NOT EXISTS snmp_interfaces (source VARCHAR NOT NULL, if_index UINTEGER NOT NULL, name VARCHAR NOT NULL, alias VARCHAR NOT NULL,
+				speed UBIGINT NOT NULL, up BOOLEAN NOT NULL, last_seen TIMESTAMP NOT NULL, PRIMARY KEY (source, if_index))`,
+		} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -353,6 +369,7 @@ func (s *Store) loadDays(ctx context.Context) error {
 		`SELECT table_name FROM flow_days`:                s.days,
 		`SELECT table_name FROM dns_days`:                 s.dnsDays,
 		`SELECT table_name FROM domain_rollup_partitions`: s.domainRollups,
+		`SELECT table_name FROM iface_partitions`:         s.ifaceTables,
 		`SELECT table_name FROM rollup_partitions`:        s.rollups,
 	} {
 		rows, err := s.db.QueryContext(ctx, query)
@@ -381,6 +398,9 @@ func (s *Store) loadDays(ctx context.Context) error {
 		s.dirty[name] = true
 	}
 	for name := range s.domainRollups {
+		s.dirty[name] = true
+	}
+	for name := range s.ifaceTables {
 		s.dirty[name] = true
 	}
 	s.mu.Unlock()
