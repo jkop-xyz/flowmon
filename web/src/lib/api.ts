@@ -1104,11 +1104,32 @@ export type SNMPInterface = {
   now?: { at: string; inBps: number; outBps: number; hourErrors: number; hourDiscards: number }
 }
 
+/**
+ * Device Health readings by name: uptime (s), cpu (%), memory_used and memory_total (bytes), wifi_clients, and
+ * sensors as "<kind>:<name>" with kind temperature (°C), voltage (V), current (A), power (W) or fan (rpm).
+ */
+export type HealthMetrics = Record<string, number>
+
+export type WifiClient = {
+  mac: string
+  ifIndex: number
+  interface?: string
+  /** dBm. */
+  signal: number
+  txRate: number
+  rxRate: number
+  connectedSeconds: number
+  seen: string
+}
+
 export type SNMPDevice = {
   source: { id: string; name: string; enabled: boolean; health: SourceHealth }
   address: string
   exporter?: string
   interfaces: SNMPInterface[]
+  /** The latest minute of Device Health; absent before the first poll. */
+  health?: { at: string; metrics: HealthMetrics; boot?: string }
+  wifi: WifiClient[]
 }
 
 export function fetchSNMPDevice(id: string, signal?: AbortSignal) {
@@ -1118,8 +1139,18 @@ export function fetchSNMPDevice(id: string, signal?: AbortSignal) {
 export type InterfacePoint = { t: string; inBps: number; outBps: number; errors: number; discards: number; coverage: number }
 
 export function fetchInterfaceSeries(id: string, ifIndex: number, range: RangeParams, signal?: AbortSignal) {
-  return getJSON<{ points: InterfacePoint[]; stepSeconds: number }>(
+  return getJSON<{ points: InterfacePoint[]; stepSeconds: number; restarts: string[] }>(
     `/api/snmp-devices/${encodeURIComponent(id)}/interfaces/${ifIndex}?${rangeParams(range)}`,
+    signal,
+  )
+}
+
+export type HealthPoint = { t: string; metrics: HealthMetrics }
+
+/** A device's Device Health over a range, each reading's mean per bucket, and when it restarted. */
+export function fetchDeviceHealth(id: string, range: RangeParams, signal?: AbortSignal) {
+  return getJSON<{ points: HealthPoint[]; stepSeconds: number; restarts: string[] }>(
+    `/api/snmp-devices/${encodeURIComponent(id)}/health?${rangeParams(range)}`,
     signal,
   )
 }

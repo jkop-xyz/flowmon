@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/datasource"
@@ -20,6 +21,8 @@ const SourceInterval = time.Minute
 // SourceOptions configure the SNMP Data Source kind.
 type SourceOptions struct {
 	Writer series.Writer
+	// Health stores Device Health; nil skips reading it.
+	Health series.HealthWriter
 	// Dial opens a device's agent; Dial with gosnmp when nil. Tests replace it.
 	Dial     func(c Config) (TableReader, error)
 	Interval time.Duration
@@ -64,8 +67,9 @@ func (k *SourceKind) Info() datasource.KindInfo {
 		Name:  "snmp",
 		Title: "SNMP device",
 		Description: "Polls every interface of a router, switch, access point or NAS over SNMP each minute: traffic, " +
-			"errors, discards, speed and whether it is up. Kept as minute and hour Interface Counters for the Rollup " +
-			"retentions on the Settings page. Allow SNMP only from Flowmon's address on the device.",
+			"errors, discards, speed and whether it is up, and its health: uptime, CPU, memory, and on MikroTik its " +
+			"temperatures, voltage and Wi-Fi clients. Kept per minute and hour for the Rollup retentions on the Settings " +
+			"page. Allow SNMP only from Flowmon's address on the device.",
 		Fields: []datasource.Field{
 			{Key: "address", Label: "Address", Type: datasource.FieldText, Required: true,
 				Help: "The device's address or name, with :port if it isn't 161."},
@@ -174,7 +178,48 @@ func (k *SourceKind) Test(ctx context.Context, s datasource.Settings) (string, e
 			up++
 		}
 	}
-	return fmt.Sprintf("Connected: %d interfaces, %d up. The device has been running for %s.", len(t.Rows), up, roundUptime(t.Uptime)), nil
+	msg := fmt.Sprintf("Connected: %d interfaces, %d up.", len(t.Rows), up)
+	uptime := t.Uptime
+	if hr, ok := a.(HealthReader); ok {
+		if h, err := hr.Health(ctx); err != nil {
+			msg += " Device Health couldn't be read: " + err.Error() + "."
+		} else {
+			msg += " " + describeHealth(h)
+			if h.Uptime > 0 {
+				uptime = h.Uptime
+			}
+		}
+	}
+	return msg + fmt.Sprintf(" The device has been running for %s.", roundUptime(uptime)), nil
+}
+
+// describeHealth says which readings a device offers.
+func describeHealth(h Health) string {
+	var have []string
+	if _, ok := h.Metrics["cpu"]; ok {
+		have = append(have, "CPU")
+	}
+	if _, ok := h.Metrics["memory_total"]; ok {
+		have = append(have, "memory")
+	}
+	sensors := 0
+	for k := range h.Metrics {
+		if strings.Contains(k, ":") {
+			sensors++
+		}
+	}
+	if sensors == 1 {
+		have = append(have, "1 sensor")
+	} else if sensors > 1 {
+		have = append(have, fmt.Sprintf("%d sensors", sensors))
+	}
+	if h.Wifi != nil {
+		have = append(have, fmt.Sprintf("%d Wi-Fi clients", len(h.Wifi)))
+	}
+	if len(have) == 0 {
+		return "It reports no health readings (no HOST-RESOURCES-MIB)."
+	}
+	return "Health: " + strings.Join(have, ", ") + "."
 }
 
 func roundUptime(d time.Duration) string {
@@ -215,11 +260,21 @@ func (k *SourceKind) Run(ctx context.Context, src datasource.Source, r datasourc
 				}
 				k.opts.Names(src, names, cur.At)
 			}
-			if err := k.opts.Writer.WriteInterfaces(ctx, cur.At, Interfaces(src.ID, cur.Table), samples); err != nil {
+			err := k.opts.Writer.WriteInterfaces(ctx, cur.At, Interfaces(src.ID, cur.Table), samples)
+			restart, herr := k.writeHealth(ctx, src.ID, cur)
+			if ctx.Err() != nil {
+				return // stopping: a write cut short isn't the device's fault
+			}
+			if err != nil {
 				r.Failed(fmt.Errorf("storing Interface Counters: %w", err))
 			} else {
 				var warn []string
-				if prev != nil && cur.Table.Uptime < prev.Table.Uptime {
+				switch {
+				case herr != nil:
+					warn = append(warn, herr.Error())
+				case !restart.IsZero():
+					warn = append(warn, fmt.Sprintf("The device restarted at about %s.", restart.Format(time.RFC3339)))
+				case prev != nil && cur.Table.Uptime < prev.Table.Uptime:
 					warn = append(warn, fmt.Sprintf("The device restarted at about %s: that minute has no counters.", cur.At.Add(-cur.Table.Uptime).UTC().Format(time.RFC3339)))
 				}
 				r.Warn(warn)
@@ -235,6 +290,25 @@ func (k *SourceKind) Run(ctx context.Context, src datasource.Source, r datasourc
 	}
 }
 
+// writeHealth stores a poll's Device Health, and returns a restart it noticed.
+func (k *SourceKind) writeHealth(ctx context.Context, source string, p Poll) (time.Time, error) {
+	if k.opts.Health == nil || (p.Health == nil && p.HealthErr == nil) {
+		return time.Time{}, nil
+	}
+	if p.HealthErr != nil {
+		return time.Time{}, fmt.Errorf("Device Health couldn't be read: %w", p.HealthErr)
+	}
+	h := series.Health{Source: source, At: p.At, Metrics: p.Health.Metrics, Wifi: p.Health.Wifi}
+	if p.Health.Uptime > 0 {
+		h.Boot = p.At.Add(-p.Health.Uptime)
+	}
+	restart, err := k.opts.Health.WriteHealth(ctx, h)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("storing Device Health: %w", err)
+	}
+	return restart, nil
+}
+
 func (k *SourceKind) poll(ctx context.Context, c Config) (Poll, error) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -247,7 +321,16 @@ func (k *SourceKind) poll(ctx context.Context, c Config) (Poll, error) {
 	if err != nil {
 		return Poll{}, err
 	}
-	return Poll{At: k.opts.Now(), Table: t}, nil
+	p := Poll{At: k.opts.Now(), Table: t}
+	if hr, ok := a.(HealthReader); ok && k.opts.Health != nil {
+		h, err := hr.Health(ctx)
+		if err != nil {
+			p.HealthErr = err
+		} else {
+			p.Health = &h
+		}
+	}
+	return p, nil
 }
 
 var _ datasource.Kind = (*SourceKind)(nil)

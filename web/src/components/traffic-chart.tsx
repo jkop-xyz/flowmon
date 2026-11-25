@@ -29,6 +29,8 @@ export function TrafficChart<K extends string>({
   changes = [],
   format = formatBitsPerSecond,
   noun = "Flows",
+  restarts = [],
+  note = true,
 }: {
   points: ({ t: string } & Record<K, number>)[]
   series: TrafficSeries<K>[]
@@ -40,6 +42,10 @@ export function TrafficChart<K extends string>({
   format?: (v: number) => string
   /** What the chart counts, for its notes: "Flows" by default. */
   noun?: string
+  /** When the device restarted, marked as solid lines. */
+  restarts?: string[]
+  /** Whether to explain the points and the shaded end below the chart. */
+  note?: boolean
 }) {
   const config: ChartConfig = Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: s.color }]))
   const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
@@ -83,6 +89,15 @@ export function TrafficChart<K extends string>({
               strokeDasharray="4 4"
             />
           ))}
+          {restarts.map((t) => (
+            <ReferenceLine
+              key={t}
+              x={new Date(t).getTime()}
+              stroke="var(--warning)"
+              ifOverflow="hidden"
+              label={{ value: "Restart", position: "insideTopRight", fill: "var(--warning-foreground)", fontSize: 11 }}
+            />
+          ))}
           <ChartTooltip
             content={
               <ChartTooltipContent
@@ -121,9 +136,20 @@ export function TrafficChart<K extends string>({
           No {noun} in this time range yet.
         </p>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">
-        Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: {noun} for it may still arrive.
-      </p>
+      {note && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Each point averages {formatSeconds(stepSeconds)}. The shaded end is incomplete: {noun} for it may still
+          arrive.
+        </p>
+      )}
+      {restarts.length > 0 && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {restarts.length === 1
+            ? "The device restarted at the marked line"
+            : `The device restarted ${restarts.length} times, at the marked lines`}
+          .
+        </p>
+      )}
       {changes.length > 0 && <ChangesNote changes={changes} />}
     </div>
   )

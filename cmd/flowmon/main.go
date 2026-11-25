@@ -310,7 +310,7 @@ func serve(stderr io.Writer) int {
 	})
 	go fillDomains(pipelineCtx, logger, store, attributor)
 	// SNMP Data Sources feed an Exporter's interface names, as its own polling did.
-	snmpKind := snmp.NewSourceKind(snmp.SourceOptions{Writer: store, Logger: logger,
+	snmpKind := snmp.NewSourceKind(snmp.SourceOptions{Writer: store, Health: store, Logger: logger,
 		Names: func(src datasource.Source, names map[uint32]string, at time.Time) {
 			a, ok := snmp.ExporterOf(src.Settings)
 			if !ok || registry.Status(a) != exporters.StatusApproved {

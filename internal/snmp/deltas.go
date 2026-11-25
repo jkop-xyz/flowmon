@@ -10,6 +10,9 @@ import (
 type Poll struct {
 	At    time.Time
 	Table Table
+	// Health is the device's Device Health, when read; HealthErr why it wasn't.
+	Health    *Health
+	HealthErr error
 }
 
 // MaxGap is the longest time between two polls whose difference still counts: longer,

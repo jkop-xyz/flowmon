@@ -226,6 +226,7 @@ func writeMetrics(ctx context.Context, m *metrics.Writer, opts Options) {
 		writeSourceMetrics(m, opts.Metrics.Sources.List())
 	}
 	writeInterfaceMetrics(ctx, m, opts)
+	writeHealthMetrics(ctx, m, opts)
 	q := collectionHealth(opts)
 	m.Gauge("flowmon_collection_quiet", "1 when approved Exporters exist but no Flows arrived for FLOWMON_NO_FLOWS_WARNING.", boolFloat(q.Quiet))
 }
