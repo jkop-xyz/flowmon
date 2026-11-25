@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/oui"
@@ -75,6 +76,55 @@ func registerDevices(mux *http.ServeMux, opts Options) {
 			out.Addresses = append(out.Addresses, deviceAddressJSON{a.Address.String(), a.FirstSeen.UTC().Format(timeLayout), a.LastSeen.UTC().Format(timeLayout)})
 		}
 		writeJSON(w, http.StatusOK, out)
+	})
+	// Names given to Devices, by MAC. Kept in the App Store: when it is unavailable there
+	// are none, and they can't be changed.
+	mux.HandleFunc("GET /api/device-labels", func(w http.ResponseWriter, r *http.Request) {
+		labels := map[string]string{}
+		if opts.AppStore != nil {
+			if st := opts.AppStore.Get(); st != nil && opts.AppStore.Health().Available {
+				got, err := st.DeviceLabels(r.Context())
+				if err != nil {
+					opts.Logger.Warn("device labels", "err", err)
+				} else {
+					labels = got
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"labels": labels})
+	})
+	mux.HandleFunc("PUT /api/device-labels/{mac}", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name string `json:"name"`
+		}
+		if !readJSON(w, r, &req) {
+			return
+		}
+		m, err := flow.ParseMAC(strings.ToLower(r.PathValue("mac")))
+		if err != nil || m.IsZero() {
+			errorJSON(w, http.StatusBadRequest, "not a MAC address such as aa:bb:cc:dd:ee:ff")
+			return
+		}
+		name := strings.TrimSpace(req.Name)
+		if len(name) > 64 {
+			errorJSON(w, http.StatusBadRequest, "a name is at most 64 characters")
+			return
+		}
+		var st *appstore.Store
+		if opts.AppStore != nil && opts.AppStore.Health().Available {
+			st = opts.AppStore.Get()
+		}
+		if st == nil {
+			errorJSON(w, http.StatusServiceUnavailable, "the App Store is unavailable, so names can't be changed")
+			return
+		}
+		if err := st.SetDeviceLabel(r.Context(), m.String(), name, opts.Now()); err != nil {
+			opts.Logger.Error("device label", "err", err)
+			errorJSON(w, http.StatusInternalServerError, "saving the name failed")
+			return
+		}
+		opts.Logger.Info("device named", "mac", m.String(), "name", name, "by", currentUser(r.Context()))
+		writeJSON(w, http.StatusOK, map[string]string{"mac": m.String(), "name": name})
 	})
 	// The Devices that used an address, most recently first: a Local Host page's links.
 	mux.HandleFunc("GET /api/devices", func(w http.ResponseWriter, r *http.Request) {

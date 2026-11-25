@@ -23,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   fetchDevice,
   fetchDevicesAt,
+  setDeviceLabel,
   createHostLabel,
   deleteHostLabel,
   fetchHostRemoteIPs,
@@ -38,6 +39,7 @@ import { countryName } from "@/lib/countries"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { formatBytes, formatNumber } from "@/lib/format"
 import { hostPath, useHostLabels, useHostNames } from "@/lib/hosts"
+import { deviceLabelsKey, useDeviceLabels } from "@/lib/devices"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { serviceKey, useServiceNames } from "@/lib/services"
 import { sortRows, useSort, type Sort } from "@/lib/sort"
@@ -135,6 +137,7 @@ export function LocalHostsPage() {
   })
   const items = query.data?.result.items ?? []
   const names = useHostNames(items.map((i) => i.host ?? ""))
+  const deviceLabels = useDeviceLabels()
   const [sort, onSort] = useSort<"host" | BytesColumn>({ key: "total", asc: false }, ["host"])
   const needle = filter.trim().toLowerCase()
   const filtered = needle
@@ -142,13 +145,14 @@ export function LocalHostsPage() {
         (i) =>
           i.host?.toLowerCase().includes(needle) ||
           i.mac?.includes(needle) ||
+          (i.mac && deviceLabels[i.mac]?.toLowerCase().includes(needle)) ||
           i.vendor?.toLowerCase().includes(needle) ||
           names[i.host ?? ""]?.name?.toLowerCase().includes(needle),
       )
     : items
   const shown = sortRows(
     filtered,
-    (i) => (sort.key === "host" ? (names[i.host ?? ""]?.name ?? i.host) : bytesOf(i, sort.key)),
+    (i) => (sort.key === "host" ? ((i.mac && deviceLabels[i.mac]) || names[i.host ?? ""]?.name || i.host) : bytesOf(i, sort.key)),
     sort.asc,
   )
 
@@ -215,7 +219,9 @@ export function LocalHostsPage() {
                       name={names[it.host ?? ""]}
                       exporterHost={it.localIsExporterHost}
                       addresses={it.addresses}
-                      device={it.mac ? { mac: it.mac, vendor: it.vendor, privateMac: it.privateMac } : undefined}
+                      device={
+                        it.mac ? { mac: it.mac, vendor: it.vendor, privateMac: it.privateMac, label: deviceLabels[it.mac] } : undefined
+                      }
                     />
                   </TableCell>
                   <BytesCells item={it} />
@@ -847,8 +853,10 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
   const addresses = device.data?.addresses ?? []
   const names = useHostNames(addresses.map((a) => a.address))
   const current = addresses[0]?.address
+  const label = useDeviceLabels()[mac]
   const name = current ? names[current]?.name : undefined
-  const title = name ?? (device.data?.vendor ? `${device.data.vendor} device` : mac)
+  const title = label ?? name ?? (device.data?.vendor ? `${device.data.vendor} device` : mac)
+  const [editing, setEditing] = useState(false)
   return (
     <Card>
       <CardHeader>
@@ -865,8 +873,17 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
           {device.data?.vendor && <span>{device.data.vendor}</span>}
           {device.data?.privateMac && <span>No vendor: randomized MAC addresses carry none.</span>}
         </CardDescription>
+        {!editing && !device.data?.router && (
+          <CardAction>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)} aria-label={label ? "Rename" : "Name it"}>
+              {label ? <Pencil /> : <Plus />}
+              <span className="hidden sm:inline">{label ? "Rename" : "Name it"}</span>
+            </Button>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {editing && <DeviceLabelForm mac={mac} label={label} onDone={() => setEditing(false)} />}
         {device.isPending ? (
           <SectionSkeleton rows={2} />
         ) : device.isError ? (
@@ -902,7 +919,9 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
             ))}
           </DataTable>
         )}
-        {name && (
+        {label ? (
+          <p className="text-xs text-muted-foreground">Named by you; the name follows the Device to every address it uses.</p>
+        ) : name && (
           <p className="text-xs text-muted-foreground">
             Named after its current address,{" "}
             <Link to={{ pathname: hostPath(current!), search }} className="font-mono underline underline-offset-4">
@@ -933,5 +952,51 @@ function DeviceOfAddress({ address }: { address: string }) {
         <span className="text-muted-foreground"> · {query.data.devices.length - 1} more used it before</span>
       )}
     </span>
+  )
+}
+
+/** Names a Device, or removes its name. The name is kept in the App Store, by MAC. */
+function DeviceLabelForm({ mac, label, onDone }: { mac: string; label?: string; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(label ?? "")
+  const save = useMutation({
+    mutationFn: (next: string) => setDeviceLabel(mac, next),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: deviceLabelsKey })
+      onDone()
+    },
+  })
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    save.mutate(name.trim())
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-3 rounded-lg border p-4">
+      <Field id={`device-name-${mac}`} label="Name" hint="Shown instead of its address's name or vendor, at every address it uses.">
+        <Input
+          id={`device-name-${mac}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={64}
+          placeholder="e.g. Living room TV"
+          autoFocus
+        />
+      </Field>
+      <FormError error={save.error} />
+      <FormActions>
+        {label && (
+          <Button type="button" variant="ghost" className="mr-auto" disabled={save.isPending} onClick={() => save.mutate("")}>
+            <X />
+            Remove name
+          </Button>
+        )}
+        <Button type="button" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={save.isPending || !name.trim()}>
+          Save
+        </Button>
+      </FormActions>
+    </form>
   )
 }

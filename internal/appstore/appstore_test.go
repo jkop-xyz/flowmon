@@ -311,3 +311,27 @@ func TestHolderHealth(t *testing.T) {
 		t.Errorf("after closing: %+v %v", st, changed)
 	}
 }
+
+func TestDeviceLabels(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *Store) {
+		if err := s.SetDeviceLabel(ctx, "3c:5a:b4:00:00:44", "Jakob's phone", t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetDeviceLabel(ctx, "3c:5a:b4:00:00:44", "Phone", t0.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetDeviceLabel(ctx, "b8:27:eb:00:00:45", "NAS", t0); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.DeviceLabels(ctx)
+		if err != nil || len(got) != 2 || got["3c:5a:b4:00:00:44"] != "Phone" || got["b8:27:eb:00:00:45"] != "NAS" {
+			t.Errorf("labels %v %v; want the renamed phone and the NAS", got, err)
+		}
+		if err := s.SetDeviceLabel(ctx, "b8:27:eb:00:00:45", "", t0); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.DeviceLabels(ctx); len(got) != 1 {
+			t.Errorf("after removing the NAS's: %v", got)
+		}
+	})
+}
