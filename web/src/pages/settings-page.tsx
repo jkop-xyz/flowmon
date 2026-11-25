@@ -32,6 +32,7 @@ function useSettingsGroups(): { title: string; links: SettingsLink[] }[] {
       title: "Network",
       links: [
         { to: "local-networks", title: "Local Networks" },
+        { to: "internet-line", title: "Internet line" },
         { to: "service-names", title: "Service names" },
       ],
     },

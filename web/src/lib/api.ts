@@ -913,6 +913,8 @@ export const flowStoreBackupURL = "/api/flow-store/backup"
 export type RetentionSetting = { seconds: number; locked: boolean; env: string }
 
 export type Settings = {
+  /** The internet line's speed in bits per second; 0 when not set. */
+  line: { downBps: number; upBps: number }
   localNetworks: { value: string[]; defaults: string[]; locked: boolean; env: string }
   retention: Record<"raw" | "minute" | "hour" | "dns", RetentionSetting>
   minRetentionDays: number
@@ -926,6 +928,7 @@ export function fetchSettings(signal?: AbortSignal) {
 export const saveSettings = (change: {
   localNetworks?: string[]
   retentionDays?: Partial<Record<"raw" | "minute" | "hour" | "dns", number>>
+  line?: { downBps: number; upBps: number }
 }) => putJSON<Settings>("/api/settings", change)
 
 /** How a Data Source setting is entered: secret ones are never sent back. */
@@ -1170,4 +1173,57 @@ export function fetchDeviceHealth(id: string, range: RangeParams, signal?: Abort
     `/api/snmp-devices/${encodeURIComponent(id)}/health?${rangeParams(range)}`,
     signal,
   )
+}
+
+/** The WAN's load from Interface Counters: every Exporter's WAN Interfaces that an SNMP source polls, summed. */
+export type WANLoad = {
+  interfaces: { source: string; sourceName: string; ifIndex: number; name: string; speed: number }[]
+  /** inBps is download, outBps upload. */
+  points: { t: string; inBps: number; outBps: number }[]
+  stepSeconds: number
+  /** The latest minute, when recent. */
+  now?: { t: string; inBps: number; outBps: number }
+  /** What load is measured against: the line set in Settings, else the interfaces' speed. */
+  line: { downBps: number; upBps: number; fromSetting: boolean }
+}
+
+export type DeviceHealthSummary = {
+  source: string
+  name: string
+  state: SourceState
+  at?: string
+  metrics: HealthMetrics
+  /** In the last day, newest first. */
+  restarts: string[]
+}
+
+export type InterfaceProblem = {
+  source: string
+  sourceName: string
+  ifIndex: number
+  name: string
+  alias?: string
+  /** A named interface (one with a description) that is down. */
+  down: boolean
+  /** In the last hour, both directions. */
+  errors: number
+  discards: number
+}
+
+export type NetworkOverview = { wan: WANLoad | null; devices: DeviceHealthSummary[]; problems: InterfaceProblem[] }
+
+export function fetchNetworkOverview(range: RangeParams, signal?: AbortSignal) {
+  return getJSON<NetworkOverview>(`/api/overview/network?${rangeParams(range)}`, signal)
+}
+
+/** Who is using the internet now: the last few minutes' traffic with Remote IPs, by Device and by domain. */
+export type UsageNow = {
+  from: string
+  to: string
+  devices: { mac?: string; vendor?: string; privateMac?: boolean; host: string; inBps: number; outBps: number }[]
+  domains: { domain: string; inBps: number; outBps: number; topMac?: string; topHost: string }[]
+}
+
+export function fetchUsageNow(signal?: AbortSignal) {
+  return getJSON<UsageNow>("/api/overview/now", signal)
 }

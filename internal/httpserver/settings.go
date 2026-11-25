@@ -24,7 +24,13 @@ type retentionJSON struct {
 	Env     string  `json:"env"`
 }
 
+type lineJSON struct {
+	DownBps uint64 `json:"downBps"`
+	UpBps   uint64 `json:"upBps"`
+}
+
 type settingsJSON struct {
+	Line          lineJSON                 `json:"line"`
 	LocalNetworks localNetworksJSON        `json:"localNetworks"`
 	Retention     map[string]retentionJSON `json:"retention"`
 	MinDays       int                      `json:"minRetentionDays"`
@@ -42,6 +48,7 @@ func prefixStrings(ps []netip.Prefix) []string {
 func toSettingsJSON(m *settings.Manager) settingsJSON {
 	v, l := m.Current(), m.Locks()
 	return settingsJSON{
+		Line: lineJSON{v.Line.Down, v.Line.Up},
 		LocalNetworks: localNetworksJSON{Value: prefixStrings(v.LocalNetworks), Defaults: prefixStrings(m.DefaultLocalNetworks()),
 			Locked: l.LocalNetworks, Env: "FLOWMON_LOCAL_NETWORKS"},
 		Retention: map[string]retentionJSON{
@@ -96,11 +103,15 @@ func registerSettings(mux *http.ServeMux, opts Options) {
 		var req struct {
 			LocalNetworks []string           `json:"localNetworks"`
 			Retention     map[string]float64 `json:"retentionDays"`
+			Line          *lineJSON          `json:"line"`
 		}
 		if !readJSON(w, r, &req) {
 			return
 		}
 		var u settings.Update
+		if req.Line != nil {
+			u.Line = &settings.Line{Down: req.Line.DownBps, Up: req.Line.UpBps}
+		}
 		if req.LocalNetworks != nil {
 			u.LocalNetworks = []netip.Prefix{}
 			for _, s := range req.LocalNetworks {

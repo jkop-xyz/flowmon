@@ -502,6 +502,7 @@ func serve(stderr io.Writer) int {
 		Sources:           sources,
 		Devices:           store,
 		InterfaceCounters: store,
+		Usage:             store,
 		NoFlowsWarning:    cfg.NoFlowsWarning,
 		Metrics:           &httpserver.MetricsOptions{Token: cfg.MetricsToken, Pipeline: pipeline, Sources: sources},
 		FlowStore: &httpserver.FlowStoreOptions{Store: store, Path: flowStorePath,

@@ -58,6 +58,8 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 
 ### SNMP and Reconciliation
 
+With SNMP on the router and its WAN Interface marked, the Overview leads with the line's load now from the router's own counters (against the line speed set under Settings → Internet line), who is using it in the last 5 minutes by Device and domain, each SNMP device's health and interface problems, and DNS lookups and blocks. Without SNMP it charts bandwidth from Flows, as before.
+
 Any device can be polled over SNMP (v3 recommended, or v2c): add it under Settings → SNMP devices. Every minute Flowmon reads all its interfaces into Interface Counters: traffic, errors, discards, speed and status. It also reads the device's ARP and IPv6 neighbor tables: each address-to-MAC mapping in the Local Networks keeps that Device's address history current and gives Flows to the address their Device, so quiet devices with little or no traffic are listed under Devices too. When the device is an Exporter (its address, or the Exporter set on the source), SNMP fills in its interface names (`ifName`), and for every WAN Interface Flowmon compares the router's own 64-bit interface counters (minus layer-2 overhead per packet) with the bytes in Flows, per hour. A gap above 15% for 3 hours in a row is flagged: usually hardware offload that Traffic Flow can't see, a long active timeout, or the wrong overhead preset, which is set on the source. SNMP settings an Exporter had in earlier versions become an SNMP Data Source on the first start. SNMP credentials are stored encrypted with a key kept in `/data/secret.key`; back that file up with the rest of `/data`.
 
 ### Supported exports

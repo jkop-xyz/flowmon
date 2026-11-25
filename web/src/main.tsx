@@ -21,7 +21,7 @@ import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
 import { DNSDomainPage, DNSPage } from "@/pages/dns-pages"
 import { SNMPDevicePage } from "@/pages/snmp-pages"
 import { CollectorSettings, DatabasesSettings, GeoIPCard, SettingsLayout, SourcesSettings } from "@/pages/settings-page"
-import { LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
+import { InternetLineCard, LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
 import { ServiceNamesCard } from "@/components/service-names-card"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
@@ -68,6 +68,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/settings" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="local-networks" replace />} />
                     <Route path="local-networks" element={<LocalNetworksCard />} />
+                    <Route path="internet-line" element={<InternetLineCard />} />
                     <Route path="service-names" element={<ServiceNamesCard />} />
                     <Route path="collector" element={<CollectorSettings />} />
                     <Route path="sources/:kind" element={<SourcesSettings />} />

@@ -30,7 +30,9 @@ export function TrafficChart<K extends string>({
   format = formatBitsPerSecond,
   noun = "Flows",
   restarts = [],
+  limits = [],
   note = true,
+  compact = false,
 }: {
   points: ({ t: string } & Record<K, number>)[]
   series: TrafficSeries<K>[]
@@ -44,8 +46,12 @@ export function TrafficChart<K extends string>({
   noun?: string
   /** When the device restarted, marked as solid lines. */
   restarts?: string[]
+  /** Levels drawn as dashed lines across the chart, such as a line's speed. */
+  limits?: { value: number; label: string }[]
   /** Whether to explain the points and the shaded end below the chart. */
   note?: boolean
+  /** A shorter chart with fewer time ticks, for a narrow card. */
+  compact?: boolean
 }) {
   const config: ChartConfig = Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: s.color }]))
   const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
@@ -56,7 +62,10 @@ export function TrafficChart<K extends string>({
 
   return (
     <div className="relative w-full min-w-0">
-      <ChartContainer config={config} className="aspect-auto h-72 w-full min-w-0 [&_.recharts-responsive-container]:min-w-0">
+      <ChartContainer
+        config={config}
+        className={`aspect-auto ${compact ? "h-44" : "h-72"} w-full min-w-0 [&_.recharts-responsive-container]:min-w-0`}
+      >
         <AreaChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
           <defs>
             {series.map((s) => (
@@ -74,7 +83,7 @@ export function TrafficChart<K extends string>({
             domain={[data[0]?.time ?? 0, end]}
             tickLine={false}
             axisLine={false}
-            ticks={data.length > 0 ? timeTicks(data[0].time, end) : []}
+            ticks={data.length > 0 ? timeTicks(data[0].time, end, compact ? 4 : 7) : []}
             tickFormatter={(v: number) => formatTick(v, rangeMs)}
           />
           <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => format(v)} />
@@ -87,6 +96,16 @@ export function TrafficChart<K extends string>({
               x={new Date(c.t).getTime()}
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
+            />
+          ))}
+          {limits.map((l) => (
+            <ReferenceLine
+              key={l.label}
+              y={l.value}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="6 4"
+              ifOverflow="extendDomain"
+              label={{ value: l.label, position: "insideTopRight", fill: "var(--muted-foreground)", fontSize: 11 }}
             />
           ))}
           {restarts.map((t) => (
