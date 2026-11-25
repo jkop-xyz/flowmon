@@ -57,12 +57,15 @@ function useSettingsGroups(): { title: string; links: SettingsLink[] }[] {
   ]
 }
 
-/** Settings: a menu of its pages beside the one open. */
+/**
+ * Settings: a menu of its pages beside the one open. It sits against the app's sidebar,
+ * not centred, so the menu stays where it is and the open page has the room to its right.
+ */
 export function SettingsLayout() {
   const groups = useSettingsGroups()
   const { search } = useLocation()
   return (
-    <Page>
+    <Page className="mx-0">
       <div className="grid items-start gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
         <nav aria-label="Settings" className="flex flex-col gap-4 lg:sticky lg:top-4">
           {groups.map((g) => (
@@ -81,7 +84,11 @@ export function SettingsLayout() {
                     }
                   >
                     {l.title}
-                    {l.detail && <span className="text-xs text-muted-foreground tabular-nums">{l.detail}</span>}
+                    {l.detail && (
+                      <span className="min-w-5 rounded-full bg-foreground/10 px-1.5 text-center text-xs font-medium text-foreground tabular-nums">
+                        {l.detail}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </div>
