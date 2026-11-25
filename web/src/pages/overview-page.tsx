@@ -97,7 +97,7 @@ export function OverviewPage() {
       </div>
 
       {healthCards > 0 && (
-        <div className={cn("grid items-start gap-6", healthCards === 1 ? "" : healthCards === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
+        <div className={cn("grid gap-6", healthCards === 1 ? "" : healthCards === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
           {devices.length > 0 && <DeviceHealthCard devices={devices} fetched={network.dataUpdatedAt} />}
           {devices.length > 0 && <InterfaceProblemsCard problems={network.data?.problems ?? []} />}
           {dnsOn && <DNSOverviewCard />}
@@ -105,7 +105,7 @@ export function OverviewPage() {
       )}
 
       <div className="flex flex-col gap-2">
-        <div className={cn("grid items-start gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
+        <div className={cn("grid gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
           <TopCard
             dimension="devices"
             area="hosts"
@@ -134,7 +134,7 @@ export function OverviewPage() {
             }
           />
         </div>
-        <div className="grid items-start gap-6 lg:grid-cols-3 3xl:grid-cols-5">
+        <div className="grid gap-6 lg:grid-cols-3 3xl:grid-cols-5">
           <CountriesCard className="lg:col-span-3 3xl:col-span-2" />
           <TopCard
             dimension="asns"
