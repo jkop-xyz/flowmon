@@ -19,6 +19,7 @@ import {
   type DataSource,
   type SourceHealth,
   type SourceInput,
+  type SourceField,
   type SourceKind,
 } from "@/lib/api"
 import { kindPlural, sourcesKey, useSources } from "@/lib/sources"
@@ -240,6 +241,12 @@ function SourceForm({
     for (const f of kind.fields) out[f.key] = source?.settings[f.key] ?? (f.type === "secret" ? "" : (f.default ?? ""))
     return out
   })
+  // A stored secret is kept only while the source still connects to the same place.
+  const endpointText = (f: SourceField, v = "") => (f.type === "url" ? v.trim().replace(/\/+$/, "") : v.trim())
+  const moved = kind.fields.some(
+    (f) => f.endpoint && source && endpointText(f, settings[f.key]) !== endpointText(f, source.settings[f.key]),
+  )
+  const stored = (f: SourceField) => f.type === "secret" && !!source?.secretsSet.includes(f.key)
   const input = (): SourceInput => ({ kind: kind.name, name, enabled, settings })
   const refresh = () => void queryClient.invalidateQueries({ queryKey: sourcesKey })
   const save = useMutation({
@@ -308,9 +315,9 @@ function SourceForm({
                 type={f.type === "secret" ? "password" : f.type === "url" ? "url" : "text"}
                 autoComplete={f.type === "secret" ? "new-password" : "off"}
                 className={f.type === "url" ? "font-mono" : undefined}
-                required={f.required && !(f.type === "secret" && source?.secretsSet.includes(f.key))}
+                required={f.required && !(stored(f) && !moved)}
                 placeholder={
-                  f.type === "secret" && source?.secretsSet.includes(f.key) ? "Stored; leave empty to keep" : undefined
+                  stored(f) ? (moved ? "Enter again for the new address" : "Stored; leave empty to keep") : undefined
                 }
                 value={settings[f.key]}
                 onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })}

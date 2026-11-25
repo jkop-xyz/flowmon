@@ -73,7 +73,7 @@ func (k *SourceKind) Info() datasource.KindInfo {
 			"temperatures, voltage and Wi-Fi clients. Kept per minute and hour for the Rollup retentions under " +
 			"Settings › Retention. Allow SNMP only from Flowmon's address on the device.",
 		Fields: []datasource.Field{
-			{Key: "address", Label: "Address", Type: datasource.FieldText, Required: true,
+			{Key: "address", Label: "Address", Type: datasource.FieldText, Required: true, Endpoint: true,
 				Help: "The device's address or name, with :port if it isn't 161."},
 			{Key: "version", Label: "Version", Type: datasource.FieldSelect, Options: []string{"v3", "v2c"}, Default: "v3"},
 			{Key: "community", Label: "Community (SNMPv2c)", Type: datasource.FieldSecret},

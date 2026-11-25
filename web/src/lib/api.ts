@@ -945,6 +945,8 @@ export type SourceField = {
   default?: string
   /** A select's choices; "" means none. */
   options?: string[]
+  /** Where the source connects. Changing it means entering the secret fields again. */
+  endpoint?: boolean
 }
 
 /** A kind of Data Source, such as AdGuard Home. */
