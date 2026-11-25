@@ -271,7 +271,7 @@ var migrations = []string{
 		name TEXT NOT NULL,
 		updated_at BIGINT NOT NULL,
 		PRIMARY KEY (protocol, port)
-	)`,	// 5: names the user gave Devices (v2), by MAC address (aa:bb:cc:dd:ee:ff).
+	)`, // 5: names the user gave Devices (v2), by MAC address (aa:bb:cc:dd:ee:ff).
 	`CREATE TABLE device_labels (
 		mac TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
