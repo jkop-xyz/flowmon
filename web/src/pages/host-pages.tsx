@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Pencil, Plus, Tag, Trash2, X } from "lucide-react"
 import { useState, type FormEvent, type ReactNode } from "react"
-import { Link, useLocation, useParams } from "react-router"
+import { Link, useLocation, useParams, useSearchParams } from "react-router"
 
 import { BarList, BarRow } from "@/components/bar-list"
 import { DomainsCard } from "@/components/domains-card"
@@ -112,9 +112,22 @@ export function LocalHostsPage() {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const [filter, setFilter] = useState("")
+  // By Device unless the page asks for addresses (?by=address).
+  const [params, setParams] = useSearchParams()
+  const dimension = params.get("by") === "address" ? "hosts" : "devices"
+  const setBy = (by: "device" | "address") =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (by === "address") next.set("by", "address")
+        else next.delete("by")
+        return next
+      },
+      { replace: true },
+    )
   const query = useQuery({
-    queryKey: ["top", "hosts", preset.value, exporter, "all"],
-    queryFn: ({ signal }) => fetchTop("hosts", { ...resolveRange(preset), exporter }, signal, 300),
+    queryKey: ["top", dimension, preset.value, exporter, "all"],
+    queryFn: ({ signal }) => fetchTop(dimension, { ...resolveRange(preset), exporter }, signal, 300),
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
@@ -123,7 +136,13 @@ export function LocalHostsPage() {
   const [sort, onSort] = useSort<"host" | BytesColumn>({ key: "total", asc: false }, ["host"])
   const needle = filter.trim().toLowerCase()
   const filtered = needle
-    ? items.filter((i) => i.host?.toLowerCase().includes(needle) || names[i.host ?? ""]?.name?.toLowerCase().includes(needle))
+    ? items.filter(
+        (i) =>
+          i.host?.toLowerCase().includes(needle) ||
+          i.mac?.includes(needle) ||
+          i.vendor?.toLowerCase().includes(needle) ||
+          names[i.host ?? ""]?.name?.toLowerCase().includes(needle),
+      )
     : items
   const shown = sortRows(
     filtered,
@@ -137,13 +156,30 @@ export function LocalHostsPage() {
         <CardHeader>
           <CardTitle>Local Hosts</CardTitle>
           <CardDescription>
-            The busiest Local Hosts by bytes sent and received, {preset.label.toLowerCase()}, including Internal traffic.
+            The busiest Local Hosts by bytes sent and received, {preset.label.toLowerCase()}, including Internal traffic.{" "}
+            {dimension === "devices"
+              ? "By Device: the addresses one MAC used count as one, named by the address it used last. Traffic without a known MAC counts by address."
+              : "By address: each address on its own."}
           </CardDescription>
-          <CardAction>
+          <CardAction className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex rounded-md border p-0.5" role="group" aria-label="List by">
+              {(["device", "address"] as const).map((by) => (
+                <Button
+                  key={by}
+                  size="sm"
+                  variant={(by === "device") === (dimension === "devices") ? "secondary" : "ghost"}
+                  className="h-7"
+                  aria-pressed={(by === "device") === (dimension === "devices")}
+                  onClick={() => setBy(by)}
+                >
+                  {by === "device" ? "By Device" : "By address"}
+                </Button>
+              ))}
+            </div>
             <Input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name or address"
+              placeholder="Filter by name, address or MAC"
               aria-label="Filter Local Hosts"
               className="h-8 w-48 sm:w-64"
             />
@@ -170,9 +206,15 @@ export function LocalHostsPage() {
               }
             >
               {shown.map((it) => (
-                <TableRow key={it.host}>
+                <TableRow key={`${it.mac}/${it.host}`}>
                   <TableCell className="max-w-80">
-                    <HostLink host={it.host ?? ""} name={names[it.host ?? ""]} exporterHost={it.localIsExporterHost} addresses={it.addresses} />
+                    <HostLink
+                      host={it.host ?? ""}
+                      name={names[it.host ?? ""]}
+                      exporterHost={it.localIsExporterHost}
+                      addresses={it.addresses}
+                      device={it.mac ? { mac: it.mac, vendor: it.vendor, privateMac: it.privateMac } : undefined}
+                    />
                   </TableCell>
                   <BytesCells item={it} />
                 </TableRow>

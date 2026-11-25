@@ -186,8 +186,20 @@ func serve(stderr io.Writer) int {
 		logger.Error("router MACs", "err", err)
 		return 1
 	}
+	recent, err := store.DeviceAddresses(ctx)
+	if err != nil {
+		logger.Error("device addresses", "err", err)
+		return 1
+	}
+	var sightings []devices.Sighting
+	for _, d := range recent {
+		if time.Since(d.LastSeen) < devices.AddressTTL {
+			sightings = append(sightings, devices.Sighting{Address: d.Address, MAC: d.MAC, At: d.LastSeen})
+		}
+	}
 	assigner := devices.New(devices.Options{
-		Known: routerMACsFrom(knownRouters),
+		Known:  routerMACsFrom(knownRouters),
+		Recent: sightings,
 		Learned: func(r devices.Router) {
 			if err := store.AddRouterMAC(context.Background(), flowstore.RouterMAC(r)); err != nil {
 				logger.Error("saving a router MAC", "mac", r.MAC.String(), "err", err)

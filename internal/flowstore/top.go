@@ -24,6 +24,9 @@ const (
 	TopASNs      TopDimension = "asns"
 	// TopRemoteIPs comes from Top Remote IPs, not from Rollups (see TopRemoteIPs).
 	TopRemoteIPs TopDimension = "remotes"
+	// TopDevices ranks Local Hosts by Device: the addresses one MAC used are one row,
+	// named by its current address. Traffic without a known MAC stays by address.
+	TopDevices TopDimension = "devices"
 )
 
 // MaxTopLimit is the most items a top-N list returns (enough for every country).
@@ -63,6 +66,12 @@ type TopItem struct {
 	Flows               float64 `json:"flows,omitempty"`
 	// EstimatedBytes is the part of TotalBytes scaled up from sampled Flows.
 	EstimatedBytes float64 `json:"estimatedBytes,omitempty"`
+	// Mac is a Device's MAC address (TopDevices), Vendor its maker from the IEEE
+	// registry, and PrivateMac set when it is randomized (locally administered). Host is
+	// then the address it used last.
+	Mac        string `json:"mac,omitempty"`
+	Vendor     string `json:"vendor,omitempty"`
+	PrivateMac bool   `json:"privateMac,omitempty"`
 }
 
 // TopResult is a ranked list plus the total over every value, so the UI can show shares.
@@ -118,6 +127,9 @@ func (s *Store) Top(ctx context.Context, q TopQuery) (TopResult, error) {
 	}
 	from, to := q.From.UTC().Truncate(g.bucket()), q.To.UTC()
 	res := TopResult{From: from, To: to, Source: source, Items: []TopItem{}}
+	if q.Dimension == TopDevices {
+		return s.topDevices(ctx, q, g, res)
+	}
 
 	var group, selectKey, filter string
 	received := `sum(CASE WHEN peer_kind = 1 THEN bytes_rx ELSE 0 END)`

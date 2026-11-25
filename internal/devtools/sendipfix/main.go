@@ -28,6 +28,7 @@ func main() {
 	noTemplate := flag.Bool("no-template", false, "never send the Template")
 	version := flag.Int("version", 10, "10 for IPFIX, 9 for NetFlow v9, 5 for NetFlow v5")
 	biflow := flag.Bool("biflow", false, "IPFIX only: send biflow records (RFC 5103) with reverse counters")
+	macs := flag.Bool("macs", false, "add MAC addresses as RouterOS sends them: a fixed one per Local Host, the router's own on replies")
 	sampling := flag.Int("sampling", 0, "announce sampling 1 in N packets (an Options record, or the v5 header)")
 	source := flag.String("source", "", "local address to send from, e.g. 127.0.0.3:0, to simulate another Exporter")
 	flag.Parse()
@@ -36,6 +37,9 @@ func main() {
 	}
 	if *biflow && *version != 10 {
 		log.Fatal("-biflow needs IPFIX")
+	}
+	if *macs && *version == 5 {
+		log.Fatal("NetFlow v5 has no MAC addresses")
 	}
 	if *version == 5 && *perMessage > 30 {
 		log.Fatal("a NetFlow v5 packet holds at most 30 Flows")
@@ -56,9 +60,28 @@ func main() {
 	defer conn.Close()
 
 	tmpl := ipfixtest.MikroTikLikeTemplate(256)
+	// MAC addresses, as RouterOS fills them in (measured on a capture): the frame's
+	// source and destination before routing, then after. On a reply to a LAN host it
+	// names the router's own MAC as the destination even after routing.
+	routerLAN, routerWAN, isp := mac(0x48, 1), mac(0x48, 2), mac(0x00, 0x99)
+	hostMAC := func(local []byte) []byte { return mac(0x3c, local[3]) }
+	withMACs := func(rec [][]byte, src, dst, postSrc, postDst []byte) [][]byte {
+		if !*macs {
+			return rec
+		}
+		return append(rec, src, dst, postSrc, postDst)
+	}
+	if *macs {
+		tmpl.ID = 259
+		tmpl.Fields = append(tmpl.Fields,
+			ipfix.FieldSpec{ID: 56, Length: 6}, // sourceMacAddress
+			ipfix.FieldSpec{ID: 80, Length: 6}, // destinationMacAddress
+			ipfix.FieldSpec{ID: 81, Length: 6}, // postSourceMacAddress
+			ipfix.FieldSpec{ID: 57, Length: 6}) // postDestinationMacAddress
+	}
 	if *biflow {
 		// RFC 5103: the reverse direction's counters, as enterprise 29305 elements.
-		tmpl.ID = 258
+		tmpl.ID += 4 // 260, or 263 with MACs
 		tmpl.Fields = append(tmpl.Fields,
 			ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 1, Length: 4},
 			ipfix.FieldSpec{Enterprise: ipfix.EnterpriseReverse, ID: 2, Length: 4},
@@ -91,23 +114,23 @@ func main() {
 				if string(peer) == string(local) {
 					continue
 				}
-				records = append(records, append([][]byte{
+				records = append(records, withMACs(append([][]byte{
 					local, peer, localPort, ipfixtest.U16(445), ipfixtest.U8(6), ipfixtest.U32(1), ipfixtest.U32(1),
 					ipfixtest.U32(uint32(5_000 + rand.IntN(5_000_000))), ipfixtest.U32(uint32(1 + rand.IntN(3000))),
-				}, append(times, local, peer)...))
+				}, append(times, local, peer)...), hostMAC(local), routerLAN, routerLAN, hostMAC(peer)))
 			case rand.IntN(3) == 0:
 				// Outbound request: the LAN host is the pre-NAT source, the router's WAN address the post-NAT one.
-				records = append(records, append([][]byte{
+				records = append(records, withMACs(append([][]byte{
 					local, remote, localPort, service, proto, ipfixtest.U32(1), ipfixtest.U32(3),
 					ipfixtest.U32(uint32(500 + rand.IntN(200_000))), ipfixtest.U32(uint32(1 + rand.IntN(200))),
-				}, append(times, wan, remote)...))
+				}, append(times, wan, remote)...), hostMAC(local), routerLAN, routerWAN, isp))
 			default:
 				// Download reply, as MikroTik reports it: sent to the WAN address, with the LAN host
 				// only in the post-NAT destination.
-				records = append(records, append([][]byte{
+				records = append(records, withMACs(append([][]byte{
 					remote, wan, service, localPort, proto, ipfixtest.U32(3), ipfixtest.U32(1),
 					ipfixtest.U32(uint32(5_000 + rand.IntN(3_000_000))), ipfixtest.U32(uint32(1 + rand.IntN(2000))),
-				}, append(times, remote, local)...))
+				}, append(times, remote, local)...), isp, routerWAN, routerLAN, routerLAN))
 			}
 		}
 		// RouterOS resends Templates every 20 packets by default.
@@ -178,4 +201,16 @@ func netflowV5(records [][][]byte, boot time.Time, wan []byte, seq uint32, sampl
 		})
 	}
 	return m.Bytes()
+}
+
+// mac makes a sample MAC address: a vendor's first byte (0x3c, Google's 3c:5a:b4, for
+// hosts; 0x48, MikroTik's 48:a9:8a, for the router) and a last byte that tells them apart.
+func mac(vendor, last byte) []byte {
+	switch vendor {
+	case 0x3c:
+		return []byte{0x3c, 0x5a, 0xb4, 0x00, 0x00, last}
+	case 0x48:
+		return []byte{0x48, 0xa9, 0x8a, 0x00, 0x00, last}
+	}
+	return []byte{0x00, 0x00, 0x0c, 0x00, 0x00, last}
 }

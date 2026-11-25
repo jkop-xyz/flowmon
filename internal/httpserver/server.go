@@ -165,7 +165,7 @@ func New(opts Options) http.Handler {
 		}
 		res, err := opts.Flows.Top(r.Context(), q)
 		if errors.Is(err, flowstore.ErrUnknownDimension) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, remotes, protocols, ports, countries or asns"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dimension must be hosts, devices, remotes, protocols, ports, countries or asns"})
 			return
 		}
 		if queryError(w, opts.Logger, "top", err) {

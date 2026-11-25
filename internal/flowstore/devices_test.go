@@ -113,3 +113,50 @@ func TestRouterMACs(t *testing.T) {
 		t.Errorf("router MACs %+v %v; want the first record only", got, err)
 	}
 }
+
+func TestTopDevices(t *testing.T) {
+	s := open(t)
+	routerMAC := flow.MAC{0x48, 0xa9, 0x8a, 0, 0, 1}
+	if err := s.AddRouterMAC(ctx, RouterMAC{MAC: routerMAC, Exporter: exporter, Reason: "many addresses", Since: t0}); err != nil {
+		t.Fatal(err)
+	}
+	privateMAC := flow.MAC{0xda, 0xa1, 0x19, 0, 0, 7}
+	if err := s.Write(ctx, []flow.Flow{
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 100), "192.168.10.44", phoneMAC),
+		// The phone's next lease, later: its current address.
+		withDevice(mkFlow(flow.DirectionOutbound, t0.Add(2*time.Minute), t0.Add(2*time.Minute), 200), "192.168.10.77", phoneMAC),
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 50), "192.168.10.99", flow.MAC{}),
+		// A reply that arrived before the phone sent anything: no MAC, but its address had
+		// only the phone's.
+		withDevice(mkFlow(flow.DirectionInbound, t0, t0, 25), "192.168.10.77", flow.MAC{}),
+		// Assigned to a MAC before it was found to be a router's: counted by address.
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 70), "192.168.30.5", routerMAC),
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 30), "192.168.10.60", privateMAC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Top(ctx, TopQuery{Dimension: TopDevices, From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 4 || res.Count != 4 || res.TotalBytes != 475 {
+		t.Fatalf("items %+v, count %d, total %v", res.Items, res.Count, res.TotalBytes)
+	}
+	phone := res.Items[0]
+	if phone.Mac != phoneMAC.String() || phone.Host != "192.168.10.77" || phone.Addresses != 2 || phone.TotalBytes != 325 || phone.Vendor != "Google" {
+		t.Errorf("phone %+v; want both addresses under its MAC, named by the latest, vendor Google", phone)
+	}
+	byHost := map[string]TopItem{}
+	for _, it := range res.Items {
+		byHost[it.Host] = it
+	}
+	if it := byHost["192.168.30.5"]; it.Mac != "" || it.TotalBytes != 70 {
+		t.Errorf("router-hop MAC's traffic: %+v; want it by address", it)
+	}
+	if it := byHost["192.168.10.99"]; it.Mac != "" || it.TotalBytes != 50 {
+		t.Errorf("traffic without a MAC: %+v", it)
+	}
+	if it := byHost["192.168.10.60"]; !it.PrivateMac || it.Vendor != "" {
+		t.Errorf("private MAC: %+v", it)
+	}
+}

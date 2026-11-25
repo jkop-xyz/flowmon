@@ -237,7 +237,7 @@ export function fetchBandwidth(range: RangeParams, signal?: AbortSignal) {
   return getJSON<WithIncomplete<BandwidthResult>>(`/api/overview/bandwidth?${rangeParams(range)}`, signal)
 }
 
-export type TopDimension = "hosts" | "remotes" | "protocols" | "ports" | "countries" | "asns"
+export type TopDimension = "hosts" | "devices" | "remotes" | "protocols" | "ports" | "countries" | "asns"
 
 export type TopItem = {
   /** A Local Host's address, or a Host Label's prefix whose addresses count as one. */
@@ -260,6 +260,12 @@ export type TopItem = {
   flows?: number
   /** The part of the bytes scaled up from sampled Flows: an estimate. */
   estimatedBytes?: number
+  /** A Device's MAC address ("devices"); host is then the address it used last. */
+  mac?: string
+  /** The Device's maker, from the IEEE registry. */
+  vendor?: string
+  /** The MAC is randomized: it may change, and has no vendor. */
+  privateMac?: boolean
 }
 
 export type TopResult = {
