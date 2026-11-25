@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
+  fetchDevice,
+  fetchDevicesAt,
   createHostLabel,
   deleteHostLabel,
   fetchHostRemoteIPs,
@@ -154,7 +156,7 @@ export function LocalHostsPage() {
     <Page>
       <Card>
         <CardHeader>
-          <CardTitle>Local Hosts</CardTitle>
+          <CardTitle>{dimension === "devices" ? "Devices" : "Local Hosts"}</CardTitle>
           <CardDescription>
             The busiest Local Hosts by bytes sent and received, {preset.label.toLowerCase()}, including Internal traffic.{" "}
             {dimension === "devices"
@@ -400,6 +402,31 @@ function LabelForm({ label, prefix, onDone }: { label?: HostLabel; prefix?: stri
 
 export function LocalHostPage() {
   const host = useParams()["*"] ?? ""
+  const names = useHostNames([host])
+  return (
+    <Page>
+      <IdentityCard host={host} name={names[host]} />
+      <HostBody host={host} />
+    </Page>
+  )
+}
+
+/** A Device: everything its addresses did, together. */
+export function DevicePage() {
+  const { mac = "" } = useParams()
+  return (
+    <Page>
+      <DeviceIdentityCard mac={mac.toLowerCase()} />
+      <HostBody host={`device:${mac.toLowerCase()}`} />
+    </Page>
+  )
+}
+
+/**
+ * What a Local Host, or a Device ("device:<mac>"), did: its traffic, Peers, DNS, domains,
+ * ports and where its Remote IPs are.
+ */
+function HostBody({ host }: { host: string }) {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const range = () => ({ ...resolveRange(preset), exporter })
@@ -415,15 +442,13 @@ export function LocalHostPage() {
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
-  const names = useHostNames([host])
   const serviceNames = useServiceNames(
     (summary.data?.result.ports ?? []).map((p) => ({ protocol: p.protocol ?? 0, port: p.servicePort ?? 0 })),
   )
   const label = preset.label.toLowerCase()
 
   return (
-    <Page>
-      <IdentityCard host={host} name={names[host]} />
+    <>
       <Card>
         <CardHeader>
           <CardTitle>Traffic</CardTitle>
@@ -467,7 +492,9 @@ export function LocalHostPage() {
           )}
         </CardContent>
       </Card>
-      {summary.data && host.includes("/") && <AddressesCard addresses={summary.data.result.addresses} />}
+      {summary.data && (host.includes("/") || host.startsWith("device:")) && (
+        <AddressesCard addresses={summary.data.result.addresses} />
+      )}
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <RemotePeersCard host={host} label={label} />
         <LocalPeersCard query={summary} peers={summary.data?.result.localPeers} label={label} />
@@ -516,15 +543,16 @@ export function LocalHostPage() {
           rowKey={(it) => it.country ?? ""}
         />
       </div>
-    </Page>
+    </>
   )
 }
 
-/** Opens the Flow Explorer filtered to this Local Host, keeping the time range. */
+/** Opens the Flow Explorer filtered to this Local Host or Device, keeping the time range. */
 function ExplorerLink({ host }: { host: string }) {
   const { search } = useLocation()
   const params = new URLSearchParams(search)
-  params.set("host", host)
+  if (host.startsWith("device:")) params.set("device", host.slice("device:".length))
+  else params.set("host", host)
   return (
     <Link to={{ pathname: "/flows", search: params.toString() }} className="text-sm underline-offset-4 hover:underline">
       Open in Flow Explorer
@@ -583,6 +611,7 @@ function IdentityCard({ host, name }: { host: string; name?: HostName }) {
         <CardDescription className="flex flex-col gap-0.5">
           {name?.name && <span className="font-mono text-sm text-foreground">{host}</span>}
           {origin}
+          {!host.includes("/") && <DeviceOfAddress address={host} />}
         </CardDescription>
         {!editing && (
           <CardAction className="flex gap-1">
@@ -624,11 +653,11 @@ function AddressesCard({ addresses }: { addresses: { address: string; receivedBy
     <Card>
       <CardHeader>
         <CardTitle>Addresses</CardTitle>
-        <CardDescription>The addresses in this prefix that had traffic, counted as one Local Host.</CardDescription>
+        <CardDescription>The addresses that had traffic in this time range, counted together.</CardDescription>
       </CardHeader>
       <CardContent>
         {addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No address in this prefix had traffic in this time range.</p>
+          <p className="text-sm text-muted-foreground">No address had traffic in this time range.</p>
         ) : (
           <DataTable
             head={
@@ -807,5 +836,101 @@ function RemotePeersCard({ host, label }: { host: string; label: string }) {
         {query.data && <CoverageNote coverage={query.data.result} rangeFrom={resolveRange(preset).from} />}
       </CardContent>
     </Card>
+  )
+}
+
+/** A Device's identity: its name, MAC, maker, and every address it used. */
+function DeviceIdentityCard({ mac }: { mac: string }) {
+  const { search } = useLocation()
+  const device = useQuery({ queryKey: ["device", mac], queryFn: ({ signal }) => fetchDevice(mac, signal), refetchInterval: 60_000 })
+  const addresses = device.data?.addresses ?? []
+  const names = useHostNames(addresses.map((a) => a.address))
+  const current = addresses[0]?.address
+  const name = current ? names[current]?.name : undefined
+  const title = name ?? (device.data?.vendor ? `${device.data.vendor} device` : mac)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          {title}
+          {device.data?.privateMac && (
+            <Badge variant="outline" title="A randomized MAC address: it may change, so this Device may show up again under another one">
+              Private address
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription className="flex flex-wrap gap-x-3">
+          <span className="font-mono text-ident">{mac}</span>
+          {device.data?.vendor && <span>{device.data.vendor}</span>}
+          {device.data?.privateMac && <span>No vendor: randomized MAC addresses carry none.</span>}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {device.isPending ? (
+          <SectionSkeleton rows={2} />
+        ) : device.isError ? (
+          <QueryError title={`Couldn't load ${mac}`} error={device.error} />
+        ) : device.data.router ? (
+          <p className="text-sm text-muted-foreground">
+            This MAC address is a router's: Flows are never counted for it, but for the hosts behind it.
+          </p>
+        ) : addresses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No Flows from this Device have been stored.</p>
+        ) : (
+          <DataTable
+            head={
+              <>
+                <TableHead>Address</TableHead>
+                <TableHead>First seen</TableHead>
+                <TableHead>Last seen</TableHead>
+              </>
+            }
+          >
+            {addresses.map((a) => (
+              <TableRow key={a.address}>
+                <TableCell className="max-w-72">
+                  <HostLink host={a.address} name={names[a.address]} />
+                </TableCell>
+                <TableCell>
+                  <TimeAgo iso={a.firstSeen} now={device.dataUpdatedAt} />
+                </TableCell>
+                <TableCell>
+                  <TimeAgo iso={a.lastSeen} now={device.dataUpdatedAt} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </DataTable>
+        )}
+        {name && (
+          <p className="text-xs text-muted-foreground">
+            Named after its current address,{" "}
+            <Link to={{ pathname: hostPath(current!), search }} className="font-mono underline underline-offset-4">
+              {current}
+            </Link>
+            .
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** On a single address's page: the Device that uses it, if Flowmon knows one. */
+function DeviceOfAddress({ address }: { address: string }) {
+  const { search } = useLocation()
+  const query = useQuery({ queryKey: ["devices-at", address], queryFn: ({ signal }) => fetchDevicesAt(address, signal) })
+  const d = query.data?.devices[0]
+  if (!d) return null
+  return (
+    <span className="text-sm">
+      Device:{" "}
+      <Link to={{ pathname: `/devices/${d.mac}`, search }} className="font-mono text-ident underline underline-offset-4">
+        {d.mac}
+      </Link>
+      {d.vendor && <span className="text-muted-foreground"> · {d.vendor}</span>}
+      {query.data && query.data.devices.length > 1 && (
+        <span className="text-muted-foreground"> · {query.data.devices.length - 1} more used it before</span>
+      )}
+    </span>
   )
 }

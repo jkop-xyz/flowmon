@@ -169,6 +169,13 @@ func parseFlowQuery(r *http.Request, opts Options) (flowstore.FlowQuery, error) 
 			q.Domain = domains.Normalize(s)
 		}
 	}
+	if s := strings.TrimSpace(v.Get("device")); s != "" {
+		m, err := flow.ParseMAC(strings.ToLower(s))
+		if err != nil || m.IsZero() {
+			return q, errors.New("device must be a MAC address such as aa:bb:cc:dd:ee:ff")
+		}
+		q.Device = m.String()
+	}
 	if s := strings.TrimSpace(v.Get("country")); s != "" {
 		if len(s) != 2 {
 			return q, errors.New("country must be a two-letter code")

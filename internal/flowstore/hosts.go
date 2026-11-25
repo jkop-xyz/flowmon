@@ -84,7 +84,10 @@ func groupTopHosts(items []TopItem, groups []netip.Prefix, limit int) []TopItem 
 // HostQuery asks about one Local Host: an address, or a prefix whose addresses count as
 // one Local Host.
 type HostQuery struct {
-	Host     netip.Prefix
+	Host netip.Prefix
+	// MAC, when set, asks about a Device instead: the addresses it used in the range,
+	// with all their traffic. Host is then ignored.
+	MAC      string
 	From, To time.Time
 	Exporter netip.Addr
 	// HostGroups are Host Labels' prefixes, as in TopQuery. They group Local Peers, and
@@ -136,6 +139,9 @@ func (s *Store) hostRollups(ctx context.Context, a *sqlArgs, g Granularity, from
 // hostAddresses lists the addresses of q.Host that have traffic in the tables. When
 // q.Host is a host group, that is the addresses that count towards it, as in Top.
 func (s *Store) hostAddresses(ctx context.Context, tables []string, from, to time.Time, q HostQuery) ([]string, error) {
+	if q.MAC != "" {
+		return s.deviceAddresses(ctx, tables, from, to, q.MAC)
+	}
 	if q.Host.IsSingleIP() {
 		return []string{q.Host.Addr().String()}, nil
 	}
@@ -176,7 +182,7 @@ func (s *Store) HostAddresses(ctx context.Context, q HostQuery) ([]string, error
 	if err := q.valid(); err != nil {
 		return nil, err
 	}
-	if q.Host.IsSingleIP() {
+	if q.Host.IsSingleIP() && q.MAC == "" {
 		return []string{q.Host.Addr().String()}, nil
 	}
 	g, _ := q.granularity()

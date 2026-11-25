@@ -31,13 +31,13 @@ export const navItems: NavItem[] = [
     summary: "Bandwidth over time, top Local Hosts, Remote IPs, ASN Owners, countries and Service Ports.",
   },
   {
-    title: "Local Hosts",
+    title: "Devices",
     path: "/hosts",
     area: "hosts",
     ready: true,
     filters: { exporter: true, timeRange: true },
     icon: Monitor,
-    summary: "Each Local Host's traffic over time, its Peers and the Service Ports it uses.",
+    summary: "Each Device's, or Local Host's, traffic over time, its Peers, DNS and the Service Ports it uses.",
   },
   {
     title: "Remote IPs",
@@ -100,6 +100,7 @@ export function routeMeta(pathname: string): RouteMeta {
   const item = navItems.find((i) => i.path === pathname)
   if (item) return { ...within(item.path), filters: item.ready ? item.filters : none }
   if (pathname.startsWith("/hosts/")) return { ...within("/hosts", "Local Host"), filters: { exporter: true, timeRange: true } }
+  if (pathname.startsWith("/devices/")) return { ...within("/hosts", "Device"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/remote/")) return { ...within("/remote", "Remote IP"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/dns/")) return { ...within("/dns", "Domain"), filters: { exporter: false, timeRange: true } }
   if (pathname === "/guide/mikrotik") return { ...within("/exporters", "MikroTik setup guide"), filters: none }

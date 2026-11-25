@@ -30,7 +30,10 @@ export function HostLink({
   const named = name?.name ?? (device?.vendor && name?.status !== "pending" ? `${device.vendor} device` : undefined)
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
-      <Link to={{ pathname: hostPath(host), search }} className="flex min-w-0 flex-col underline-offset-4 hover:underline">
+      <Link
+        to={{ pathname: device?.mac ? `/devices/${device.mac}` : hostPath(host), search }}
+        className="flex min-w-0 flex-col underline-offset-4 hover:underline"
+      >
         {named ? (
           <>
             <span className="truncate text-sm" title={named}>

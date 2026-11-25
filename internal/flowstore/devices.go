@@ -123,3 +123,63 @@ func (s *Store) saveDeviceAddresses(ctx context.Context, flows []flow.Flow) erro
 	}
 	return nil
 }
+
+// deviceAddresses lists the addresses mac used in the Rollup tables' [from, to).
+func (s *Store) deviceAddresses(ctx context.Context, tables []string, from, to time.Time, mac string) ([]string, error) {
+	parts := make([]string, len(tables))
+	for i, t := range tables {
+		parts[i] = fmt.Sprintf(`SELECT DISTINCT local_host FROM %s WHERE bucket >= $1 AND bucket < $2 AND local_mac = $3`, t)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT local_host FROM (`+strings.Join(parts, "\nUNION ALL\n")+`) ORDER BY 1`, from, to, mac)
+	if err != nil {
+		return nil, fmt.Errorf("device addresses: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// DeviceAddressesOf returns the addresses mac used, most recently seen first.
+func (s *Store) DeviceAddressesOf(ctx context.Context, mac flow.MAC) ([]DeviceAddress, error) {
+	return s.queryDeviceAddresses(ctx, `WHERE mac = ? ORDER BY last_seen DESC, address`, mac.String())
+}
+
+// DevicesAt returns the Devices that used addr, most recently first.
+func (s *Store) DevicesAt(ctx context.Context, addr netip.Addr) ([]DeviceAddress, error) {
+	return s.queryDeviceAddresses(ctx, `WHERE address = ? ORDER BY last_seen DESC, mac`, addr.Unmap().String())
+}
+
+// IsRouterMAC reports whether mac is a known router hop.
+func (s *Store) IsRouterMAC(ctx context.Context, mac flow.MAC) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM router_macs WHERE mac = ?`, mac.String()).Scan(&n)
+	return n > 0, err
+}
+
+func (s *Store) queryDeviceAddresses(ctx context.Context, tail string, args ...any) ([]DeviceAddress, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT mac, address, first_seen, last_seen FROM device_addresses `+tail, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DeviceAddress{}
+	for rows.Next() {
+		var d DeviceAddress
+		var mac, addr string
+		if err := rows.Scan(&mac, &addr, &d.FirstSeen, &d.LastSeen); err != nil {
+			return nil, err
+		}
+		d.MAC, _ = flow.ParseMAC(mac)
+		d.Address, _ = netip.ParseAddr(addr)
+		d.FirstSeen, d.LastSeen = d.FirstSeen.UTC(), d.LastSeen.UTC()
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

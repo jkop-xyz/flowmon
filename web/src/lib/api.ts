@@ -646,6 +646,8 @@ export type FlowFilters = {
   port?: string
   /** A name, keeping Flows to it and its subdomains; "-" keeps Flows with no DNS lookup. */
   domain?: string
+  /** A Device's MAC: Flows of its Local Host, or Internal Peer. */
+  device?: string
   /** Comma-separated Directions. */
   direction?: string
 }
@@ -1022,4 +1024,27 @@ export function fetchDNS(range: RangeParams, opts: { host?: string; domain?: str
   if (opts.host) params.set("host", opts.host)
   if (opts.domain) params.set("domain", opts.domain)
   return getJSON<{ result: DNSSummary; dnsSources: number }>(`/api/dns?${params}`, signal)
+}
+
+export type DeviceAddress = { address: string; firstSeen: string; lastSeen: string }
+
+/** A Device: a MAC address and the addresses it used (ADR 0005). */
+export type Device = {
+  mac: string
+  vendor?: string
+  /** Randomized (locally administered): it may change, and has no vendor. */
+  privateMac?: boolean
+  /** A router hop's MAC, never a Device. */
+  router?: boolean
+  /** Most recently seen first. */
+  addresses: DeviceAddress[]
+}
+
+export function fetchDevice(mac: string, signal?: AbortSignal) {
+  return getJSON<Device>(`/api/devices/${encodeURIComponent(mac)}`, signal)
+}
+
+/** The Devices that used an address, most recently first. */
+export function fetchDevicesAt(address: string, signal?: AbortSignal) {
+  return getJSON<{ devices: Device[] }>(`/api/devices?address=${encodeURIComponent(address)}`, signal)
 }

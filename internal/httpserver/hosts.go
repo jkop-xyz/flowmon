@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
+	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 	"github.com/jkop-xyz/flowmon/internal/hosts"
 )
@@ -150,9 +152,9 @@ func registerHosts(mux *http.ServeMux, opts Options) {
 			errorJSON(w, http.StatusServiceUnavailable, "flow store not available")
 			return flowstore.HostQuery{}, false
 		}
-		key, err := hosts.ParseKey(r.URL.Query().Get("host"))
+		key, mac, err := parseSubject(r.URL.Query().Get("host"))
 		if err != nil {
-			errorJSON(w, http.StatusBadRequest, "host must be an IP address or prefix")
+			errorJSON(w, http.StatusBadRequest, err.Error())
 			return flowstore.HostQuery{}, false
 		}
 		bq, err := bandwidthQuery(r, opts.Now())
@@ -160,7 +162,7 @@ func registerHosts(mux *http.ServeMux, opts Options) {
 			errorJSON(w, http.StatusBadRequest, err.Error())
 			return flowstore.HostQuery{}, false
 		}
-		return flowstore.HostQuery{Host: key, From: bq.From, To: bq.To, Exporter: bq.Exporter,
+		return flowstore.HostQuery{Host: key, MAC: mac, From: bq.From, To: bq.To, Exporter: bq.Exporter,
 			HostGroups: hostGroups(r.Context(), opts)}, true
 	}
 	mux.HandleFunc("GET /api/local-hosts/summary", func(w http.ResponseWriter, r *http.Request) {
@@ -213,4 +215,23 @@ func registerHosts(mux *http.ServeMux, opts Options) {
 		}
 		writeJSON(w, http.StatusOK, withIncomplete{Result: res, IncompleteFrom: incompleteFrom(opts)})
 	})
+}
+
+// devicePrefix marks a host parameter that names a Device: "device:aa:bb:cc:dd:ee:ff".
+const devicePrefix = "device:"
+
+// parseSubject reads a host parameter: a Local Host (an address or prefix), or a Device.
+func parseSubject(s string) (netip.Prefix, string, error) {
+	if rest, ok := strings.CutPrefix(s, devicePrefix); ok {
+		m, err := flow.ParseMAC(strings.ToLower(rest))
+		if err != nil || m.IsZero() {
+			return netip.Prefix{}, "", errors.New("host must be an IP address, a prefix or device:<MAC>")
+		}
+		return netip.Prefix{}, m.String(), nil
+	}
+	key, err := hosts.ParseKey(s)
+	if err != nil {
+		return netip.Prefix{}, "", errors.New("host must be an IP address, a prefix or device:<MAC>")
+	}
+	return key, "", nil
 }

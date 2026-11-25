@@ -9,7 +9,6 @@ import (
 
 	"github.com/jkop-xyz/flowmon/internal/domains"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
-	"github.com/jkop-xyz/flowmon/internal/hosts"
 )
 
 // DomainOptions wires the domain views (ADR 0005).
@@ -56,12 +55,12 @@ func registerDomains(mux *http.ServeMux, opts Options) {
 			q.Limit = n
 		}
 		if s := r.URL.Query().Get("host"); s != "" {
-			key, err := hosts.ParseKey(s)
+			key, mac, err := parseSubject(s)
 			if err != nil {
-				errorJSON(w, http.StatusBadRequest, "host must be an IP address or prefix")
+				errorJSON(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, From: bq.From, To: bq.To,
+			addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, MAC: mac, From: bq.From, To: bq.To,
 				Exporter: bq.Exporter, HostGroups: hostGroups(r.Context(), opts)})
 			if queryError(w, opts.Logger, "domains", err) {
 				return
@@ -90,15 +89,15 @@ func registerDomains(mux *http.ServeMux, opts Options) {
 		}
 		f := flowstore.DNSFilter{From: bq.From, To: bq.To, Domain: domains.Normalize(r.URL.Query().Get("domain"))}
 		if s := r.URL.Query().Get("host"); s != "" {
-			key, err := hosts.ParseKey(s)
+			key, mac, err := parseSubject(s)
 			if err != nil {
-				errorJSON(w, http.StatusBadRequest, "host must be an IP address or prefix")
+				errorJSON(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			if key.IsSingleIP() {
 				f.Clients = []string{key.Addr().String()}
 			} else {
-				addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, From: bq.From, To: bq.To,
+				addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, MAC: mac, From: bq.From, To: bq.To,
 					Exporter: bq.Exporter, HostGroups: hostGroups(r.Context(), opts)})
 				if queryError(w, opts.Logger, "dns", err) {
 					return

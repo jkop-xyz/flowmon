@@ -160,3 +160,35 @@ func TestTopDevices(t *testing.T) {
 		t.Errorf("private MAC: %+v", it)
 	}
 }
+
+func TestHostQueriesByDevice(t *testing.T) {
+	s := open(t)
+	if err := s.Write(ctx, []flow.Flow{
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 100), "192.168.10.44", phoneMAC),
+		withDevice(mkFlow(flow.DirectionOutbound, t0.Add(time.Minute), t0.Add(time.Minute), 200), "192.168.10.77", phoneMAC),
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 50), "192.168.10.99", laptopMAC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	q := HostQuery{MAC: phoneMAC.String(), From: t0.Add(-time.Hour), To: t0.Add(time.Hour)}
+	addrs, err := s.HostAddresses(ctx, q)
+	if err != nil || len(addrs) != 2 || addrs[0] != "192.168.10.44" || addrs[1] != "192.168.10.77" {
+		t.Errorf("addresses %v %v", addrs, err)
+	}
+	sum, err := s.HostDetail(ctx, q)
+	if err != nil || sum.SentBytes != 300 {
+		t.Errorf("the phone's traffic %+v %v; want both addresses' 300 bytes", sum, err)
+	}
+	page, err := s.Flows(ctx, FlowQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Device: phoneMAC.String(), Limit: 10})
+	if err != nil || page.Total != 2 {
+		t.Errorf("Flows of the phone: %d %v", page.Total, err)
+	}
+	of, err := s.DeviceAddressesOf(ctx, phoneMAC)
+	if err != nil || len(of) != 2 || of[0].Address != netip.MustParseAddr("192.168.10.77") {
+		t.Errorf("addresses of the phone, latest first: %+v %v", of, err)
+	}
+	at, err := s.DevicesAt(ctx, netip.MustParseAddr("192.168.10.99"))
+	if err != nil || len(at) != 1 || at[0].MAC != laptopMAC {
+		t.Errorf("devices at .99: %+v %v", at, err)
+	}
+}
