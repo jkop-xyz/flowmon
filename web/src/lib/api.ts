@@ -985,3 +985,35 @@ export async function deleteSource(id: string) {
 /** Connects once with these settings; with an id, empty secrets mean the stored ones. */
 export const testSource = (s: SourceInput & { id?: string }) =>
   postJSON<{ ok: boolean; message: string }>("/api/sources/test", s)
+
+export type DNSPoint = { t: string; queries: number; blocked: number }
+export type DNSName = { name: string; queries: number; blocked: number; clients: number; last: string }
+export type DNSClient = { client: string; clientName?: string; queries: number; blocked: number; last: string }
+export type DNSUpstream = { upstream: string; queries: number; avgMs: number; p95Ms: number }
+export type DNSAnswer = { address: string; queries: number; last: string }
+
+/** Lookups in a range: the network's, one Local Host's or one domain's (then topNames are full names). */
+export type DNSSummary = {
+  from: string
+  to: string
+  stepSeconds: number
+  queries: number
+  blocked: number
+  clients: number
+  /** Lookups per minute. */
+  points: DNSPoint[]
+  topNames: DNSName[]
+  topBlocked: DNSName[]
+  topClients: DNSClient[]
+  upstreams: DNSUpstream[]
+  answers?: DNSAnswer[]
+  /** The oldest day of DNS Queries kept. */
+  since?: string
+}
+
+export function fetchDNS(range: RangeParams, opts: { host?: string; domain?: string }, signal?: AbortSignal) {
+  const params = rangeParams(range)
+  if (opts.host) params.set("host", opts.host)
+  if (opts.domain) params.set("domain", opts.domain)
+  return getJSON<{ result: DNSSummary; dnsSources: number }>(`/api/dns?${params}`, signal)
+}

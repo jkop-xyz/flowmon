@@ -22,6 +22,10 @@ func (f *fakeDomains) HostAddresses(context.Context, flowstore.HostQuery) ([]str
 	return []string{"192.168.10.44", "192.168.10.77"}, nil
 }
 
+func (f *fakeDomains) DNSSummary(_ context.Context, q flowstore.DNSFilter) (flowstore.DNSSummary, error) {
+	return flowstore.DNSSummary{Queries: 7, TopNames: []flowstore.DNSName{{Name: q.Domain}}}, nil
+}
+
 func (f *fakeDomains) RemoteNames(_ context.Context, ip netip.Addr, _, _ time.Time, _ int) ([]flowstore.RemoteName, error) {
 	return []flowstore.RemoteName{{Name: "www.bbc.co.uk", Lookups: 3}}, nil
 }
@@ -43,6 +47,9 @@ func TestDomainEndpoints(t *testing.T) {
 		if rec := get(t, h, bad); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}
+	}
+	if rec := get(t, h, "/api/dns?preset=1h&domain=WWW.BBC.co.uk."); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"www.bbc.co.uk"`) {
+		t.Errorf("dns for a domain: %d %s", rec.Code, rec.Body)
 	}
 	if rec := get(t, h, "/api/remote-ips/151.101.0.81/names"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"www.bbc.co.uk"`) {
 		t.Errorf("names: %d %s", rec.Code, rec.Body)
