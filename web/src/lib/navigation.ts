@@ -93,6 +93,8 @@ export type RouteMeta = {
   /** The sidebar item to highlight. */
   activePath: string
   filters: Filters
+  /** For a page inside a sidebar item's area, such as a Device: that item, to go back to. */
+  parent?: { path: string; title: string }
 }
 
 /** Title, active sidebar item and filters for any path, including ones not in the sidebar. */
@@ -110,8 +112,12 @@ export function routeMeta(pathname: string): RouteMeta {
   return { title: "Page not found", area: "overview", icon: CircleHelp, activePath: "", filters: none }
 }
 
-/** A page inside a sidebar item's area: its colour, icon and highlight, and its own title. */
+/**
+ * A page inside a sidebar item's area: its colour, icon and highlight. With a title of
+ * its own, it is a page below the item, such as a Device, and goes back to it.
+ */
 function within(path: string, title?: string) {
   const item = navItems.find((i) => i.path === path)!
-  return { title: title ?? item.title, area: item.area, icon: item.icon, activePath: item.path }
+  const meta = { title: title ?? item.title, area: item.area, icon: item.icon, activePath: item.path }
+  return title ? { ...meta, parent: { path: item.path, title: item.title } } : meta
 }

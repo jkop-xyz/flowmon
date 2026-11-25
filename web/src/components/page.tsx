@@ -1,9 +1,10 @@
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, ArrowLeft } from "lucide-react"
 import type React from "react"
 import type { ReactNode } from "react"
-import { useLocation } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatAgo, formatDateTime } from "@/lib/format"
@@ -41,11 +42,28 @@ export function Page({ children, className, narrow }: { children: ReactNode; cla
   )
 }
 
-/** The page's name beside a tile in its area's colour. */
+/** The page's name beside a tile in its area's colour, after a way back for a page below another. */
 function PageTitle() {
-  const { title, icon: Icon } = routeMeta(useLocation().pathname)
+  const { pathname, search, key } = useLocation()
+  const navigate = useNavigate()
+  const { title, icon: Icon, parent } = routeMeta(pathname)
+  // "default" is the first page of the session (a bookmark or a reload): nothing to go
+  // back to, so back is the page above it, with the same time range and Exporter.
+  const first = key === "default"
   return (
     <div className="flex items-center gap-3">
+      {parent && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="-ml-2 shrink-0"
+          aria-label={first ? `To ${parent.title}` : "Back"}
+          title={first ? `To ${parent.title}` : "Back"}
+          onClick={() => (first ? navigate({ pathname: parent.path, search }) : navigate(-1))}
+        >
+          <ArrowLeft />
+        </Button>
+      )}
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-area text-white">
         <Icon className="size-5" />
       </span>

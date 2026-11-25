@@ -2,7 +2,6 @@ import { AlertTriangle, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
 import { Link } from "react-router"
 
-import { GuideBackButton } from "@/components/guide-back-button"
 import { Page } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -106,15 +105,12 @@ const ipfixFields: [string, string][] = [
 export function MikroTikGuidePage() {
   return (
     <Page narrow>
-      <div className="flex flex-col gap-2">
-        <GuideBackButton fallback="/exporters" fallbackLabel="Exporters" />
-        <p className="text-sm text-muted-foreground">
-          What to set on a router running RouterOS 7, and where to find it. There are no copy-paste scripts on purpose:
-          the settings are few, and setting them in WinBox or WebFig shows what each one does. MikroTik's documentation
-          is the reference: <DocsLink href={TRAFFIC_FLOW_DOCS}>Traffic Flow</DocsLink> and{" "}
-          <DocsLink href={SNMP_DOCS}>SNMP</DocsLink>.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        What to set on a router running RouterOS 7, and where to find it. There are no copy-paste scripts on purpose:
+        the settings are few, and setting them in WinBox or WebFig shows what each one does. MikroTik's documentation is
+        the reference: <DocsLink href={TRAFFIC_FLOW_DOCS}>Traffic Flow</DocsLink> and{" "}
+        <DocsLink href={SNMP_DOCS}>SNMP</DocsLink>.
+      </p>
 
       <Step n={1} title="Traffic Flow settings">
         <Where menu="IP → Traffic Flow" cli="/ip traffic-flow" />
