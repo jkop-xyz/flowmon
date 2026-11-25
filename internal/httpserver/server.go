@@ -71,6 +71,8 @@ type Options struct {
 	Sources Sources
 	// Devices answers about Devices.
 	Devices DeviceStore
+	// InterfaceCounters reads SNMP devices' Interface Counters.
+	InterfaceCounters InterfaceStore
 	// Settings holds Local Networks and retention.
 	Settings *settings.Manager
 	// AppStore reports App Store health for the outage banner.
@@ -122,6 +124,7 @@ func New(opts Options) http.Handler {
 	registerHosts(mux, opts)
 	registerDomains(mux, opts)
 	registerDevices(mux, opts)
+	registerSNMPDevices(mux, opts)
 	registerServices(mux, opts)
 	registerFlows(mux, opts)
 	registerSettings(mux, opts)

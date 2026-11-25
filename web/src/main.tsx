@@ -19,6 +19,7 @@ import { OverviewPage } from "@/pages/overview-page"
 import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
 import { DNSDomainPage, DNSPage } from "@/pages/dns-pages"
+import { SNMPDevicePage } from "@/pages/snmp-pages"
 import { SettingsPage } from "@/pages/settings-page"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
@@ -65,6 +66,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/devices/:mac" element={<DevicePage />} />
                   <Route path="/remote/:ip" element={<RemoteIPPage />} />
                   <Route path="/dns/:domain" element={<DNSDomainPage />} />
+                  <Route path="/snmp/:id" element={<SNMPDevicePage />} />
                   <Route path="/guide/mikrotik" element={<MikroTikGuidePage />} />
                   <Route path="/guide/classification" element={<ClassificationGuidePage />} />
                   <Route path="*" element={<NotFoundPage />} />

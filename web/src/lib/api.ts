@@ -1074,3 +1074,36 @@ export function fetchDNSServers(host: string, range: RangeParams, signal?: Abort
   params.set("host", host)
   return getJSON<{ servers: DNSServer[]; dnsSources: number }>(`/api/dns-servers?${params}`, signal)
 }
+
+export type SNMPInterface = {
+  source: string
+  ifIndex: number
+  name: string
+  alias?: string
+  /** Bits per second; 0 when unknown. */
+  speed: number
+  up: boolean
+  lastSeen: string
+  /** The latest minute's rates and the last hour's errors; absent without recent counters. */
+  now?: { at: string; inBps: number; outBps: number; hourErrors: number; hourDiscards: number }
+}
+
+export type SNMPDevice = {
+  source: { id: string; name: string; enabled: boolean; health: SourceHealth }
+  address: string
+  exporter?: string
+  interfaces: SNMPInterface[]
+}
+
+export function fetchSNMPDevice(id: string, signal?: AbortSignal) {
+  return getJSON<SNMPDevice>(`/api/snmp-devices/${encodeURIComponent(id)}`, signal)
+}
+
+export type InterfacePoint = { t: string; inBps: number; outBps: number; errors: number; discards: number; coverage: number }
+
+export function fetchInterfaceSeries(id: string, ifIndex: number, range: RangeParams, signal?: AbortSignal) {
+  return getJSON<{ points: InterfacePoint[]; stepSeconds: number }>(
+    `/api/snmp-devices/${encodeURIComponent(id)}/interfaces/${ifIndex}?${rangeParams(range)}`,
+    signal,
+  )
+}

@@ -87,3 +87,23 @@ func TestReconciliationHours(t *testing.T) {
 		t.Errorf("hours %+v; want the old hour, a complete hour of 6000 bytes, and a barely begun one", got)
 	}
 }
+
+func TestInterfacesNow(t *testing.T) {
+	s := open(t)
+	if err := s.WriteInterfaces(ctx, t0, nil, []series.InterfaceSample{
+		{Source: "sw1", IfIndex: 1, At: t0.Add(-2 * time.Minute), Seconds: 60, InOctets: 7_500_000, InErrors: 2},
+		{Source: "sw1", IfIndex: 1, At: t0.Add(-time.Minute), Seconds: 60, InOctets: 15_000_000, OutDiscards: 3},
+		{Source: "sw1", IfIndex: 1, At: t0.Add(-2 * time.Hour), Seconds: 60, InErrors: 100}, // outside the hour
+		{Source: "sw2", IfIndex: 1, At: t0.Add(-time.Minute), Seconds: 60, InOctets: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.InterfacesNow(ctx, "sw1", t0)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	n := got[1]
+	if !n.At.Equal(t0.Add(-time.Minute)) || n.InBps != 2_000_000 || n.HourErrors != 2 || n.HourDiscards != 3 {
+		t.Errorf("now %+v; want the latest minute's 2 Mbit/s and the hour's 2 errors and 3 discards", n)
+	}
+}
