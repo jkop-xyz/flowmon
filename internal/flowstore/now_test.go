@@ -1,6 +1,7 @@
 package flowstore
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestUsageNow(t *testing.T) {
 		laptop, noMAC, internal, old}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := s.UsageNow(ctx, t0, t0.Add(5*time.Minute), 10)
+	res, err := s.UsageNow(ctx, t0, t0.Add(5*time.Minute), nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,32 @@ func TestUsageNow(t *testing.T) {
 		res.Domains[0].TopMAC != phoneMAC.String() || res.Domains[1].Domain != "microsoft.com" {
 		t.Errorf("domains %+v", res.Domains)
 	}
-	if _, err := s.UsageNow(ctx, t0, t0.Add(48*time.Hour), 10); err == nil {
+	if _, err := s.UsageNow(ctx, t0, t0.Add(48*time.Hour), nil, 10); err == nil {
 		t.Error("a two-day window accepted")
+	}
+}
+
+// Traffic without a MAC counts towards its Host Label prefix, as in Top.
+func TestUsageNowGroupsMACLessTrafficByHostLabelPrefix(t *testing.T) {
+	s := open(t)
+	at := t0.Add(2 * time.Minute)
+	a := withDevice(mkFlow(flow.DirectionInbound, at, at, 30_000_000), "2001:db8::a", flow.MAC{})
+	a.Domain = "www.example.com"
+	b := withDevice(mkFlow(flow.DirectionInbound, at, at, 15_000_000), "2001:db8::b", flow.MAC{})
+	b.Domain = "www.example.com"
+	if err := s.Write(ctx, []flow.Flow{a, b,
+		withDevice(mkFlow(flow.DirectionInbound, at, at, 7_500_000), "192.168.10.44", phoneMAC)}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.UsageNow(ctx, t0, t0.Add(5*time.Minute), []netip.Prefix{netip.MustParsePrefix("2001:db8::/64")}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Devices) != 2 || res.Devices[0].Host != "2001:db8::/64" || res.Devices[0].MAC != "" || res.Devices[0].InBps != 1_200_000 ||
+		res.Devices[1].MAC != phoneMAC.String() {
+		t.Errorf("devices %+v; want the /64 as one, then the phone", res.Devices)
+	}
+	if len(res.Domains) != 1 || res.Domains[0].TopHost != "2001:db8::/64" {
+		t.Errorf("domains %+v; want the /64 as example.com's top user", res.Domains)
 	}
 }
