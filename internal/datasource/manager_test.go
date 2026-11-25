@@ -21,6 +21,9 @@ type fakeKind struct {
 	runs []*fakeRun
 	// exitEarly makes Run return at once, panicIn makes it panic.
 	exitEarly, panicIn bool
+	// hold, when set as a run starts, keeps that run from returning after it is
+	// cancelled until hold is closed.
+	hold chan struct{}
 }
 
 type fakeRun struct {
@@ -53,9 +56,12 @@ func (k *fakeKind) Run(ctx context.Context, src datasource.Source, r datasource.
 	run := &fakeRun{src: src, results: make(chan error), stopped: make(chan struct{})}
 	k.mu.Lock()
 	k.runs = append(k.runs, run)
-	exit, panicking := k.exitEarly, k.panicIn
+	exit, panicking, hold := k.exitEarly, k.panicIn, k.hold
 	k.mu.Unlock()
 	defer close(run.stopped)
+	if hold != nil {
+		defer func() { <-hold }()
+	}
 	if panicking {
 		panic("boom")
 	}
@@ -95,6 +101,21 @@ func (k *fakeKind) runCount() int {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	return len(k.runs)
+}
+
+// running counts the runs that haven't returned.
+func (k *fakeKind) running() int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	n := 0
+	for _, r := range k.runs {
+		select {
+		case <-r.stopped:
+		default:
+			n++
+		}
+	}
+	return n
 }
 
 func eventually(t *testing.T, ok func() bool) {
@@ -324,6 +345,65 @@ func TestDelete(t *testing.T) {
 	}
 	if stored, _ := e.store.DataSources(context.Background()); len(stored) != 0 {
 		t.Errorf("still stored: %v", stored)
+	}
+}
+
+// Edits that overlap, as from a double-click or a second tab, while the old run takes a
+// while to stop, leave one run; a Delete among them leaves none, and nothing stored.
+func TestOverlappingEditsLeaveNoStrayRun(t *testing.T) {
+	for _, second := range []string{"update", "delete"} {
+		t.Run(second, func(t *testing.T) {
+			e := newEnv(t)
+			hold := make(chan struct{})
+			k := &fakeKind{hold: hold}
+			m := e.manager(t, k, nil)
+			st, err := m.Create(context.Background(), fakeSource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			k.run(t, 0)
+			k.mu.Lock()
+			k.hold = nil
+			k.mu.Unlock()
+
+			upd := fakeSource
+			upd.Settings = datasource.Settings{"url": "https://dns2.example", "user": "admin"}
+			var wg sync.WaitGroup
+			wg.Go(func() {
+				if _, err := m.Update(context.Background(), st.ID, upd); err != nil {
+					t.Error(err)
+				}
+			})
+			// The first Update is waiting for the old run to stop.
+			time.Sleep(50 * time.Millisecond)
+			wg.Go(func() {
+				var err error
+				if second == "update" {
+					_, err = m.Update(context.Background(), st.ID, upd)
+				} else {
+					err = m.Delete(context.Background(), st.ID)
+				}
+				if err != nil {
+					t.Error(err)
+				}
+			})
+			time.Sleep(50 * time.Millisecond)
+			close(hold)
+			wg.Wait()
+
+			want := 1
+			if second == "delete" {
+				want = 0
+				if stored, _ := e.store.DataSources(context.Background()); len(stored) != 0 {
+					t.Errorf("deleted source is stored again: %v", stored)
+				}
+			}
+			eventually(t, func() bool { return k.running() <= want })
+			time.Sleep(50 * time.Millisecond)
+			if n := k.running(); n != want {
+				t.Errorf("%d runs going, want %d", n, want)
+			}
+		})
 	}
 }
 
