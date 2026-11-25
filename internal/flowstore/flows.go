@@ -220,7 +220,8 @@ func (q FlowQuery) where(a *sqlArgs) string {
 		w += fmt.Sprintf(` AND (domain = %[1]s OR ends_with(domain, '.' || %[1]s))`, a.add(q.Domain))
 	}
 	if q.Device != "" {
-		w += fmt.Sprintf(` AND (local_mac = %[1]s OR (direction = 3 AND peer_mac = %[1]s))`, a.add(q.Device))
+		w += fmt.Sprintf(` AND (local_mac IN (SELECT %[1]s UNION SELECT mac FROM device_merges WHERE into_mac = %[1]s)
+			OR (direction = 3 AND peer_mac IN (SELECT %[1]s UNION SELECT mac FROM device_merges WHERE into_mac = %[1]s)))`, a.add(q.Device))
 	}
 	if q.NoDomain {
 		w += ` AND direction IN (1, 2) AND coalesce(domain, '') = ''`

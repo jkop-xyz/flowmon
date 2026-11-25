@@ -445,6 +445,7 @@ func serve(stderr io.Writer) int {
 		}
 		return nil
 	}, localDNS)
+	go autoMergeDevices(pipelineCtx, logger, store, hostDirectory)
 
 	srv := httpserver.NewServer(cfg.HTTPAddr, httpserver.New(httpserver.Options{
 		Version:   version,
@@ -676,6 +677,55 @@ func fillDomains(ctx context.Context, logger *slog.Logger, store *flowstore.Stor
 		a.Prune(now)
 		if _, err := store.BuildDomainRollups(ctx, now); err != nil && ctx.Err() == nil {
 			logger.Error("building Domain Rollups", "err", err)
+		}
+	}
+}
+
+// autoMergeDevices merges Private Addresses that are an earlier Device under a new
+// randomized MAC (devices.AutoMerges), every ten minutes. Names come from Host Labels and
+// reverse DNS, which may take a round to resolve.
+func autoMergeDevices(ctx context.Context, logger *slog.Logger, store *flowstore.Store, dir *hosts.Directory) {
+	t := time.NewTicker(10 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		spans, err := store.MACSpans(ctx)
+		if err != nil {
+			logger.Error("device spans", "err", err)
+			continue
+		}
+		merges, err := store.DeviceMerges(ctx)
+		if err != nil {
+			logger.Error("device merges", "err", err)
+			continue
+		}
+		merged := map[flow.MAC]flow.MAC{}
+		for _, m := range merges {
+			merged[m.MAC] = m.Into
+		}
+		var seen []devices.Seen
+		var keys []netip.Prefix
+		for _, s := range spans {
+			if s.MAC[0]&0x02 == 0 || !s.Latest.IsValid() {
+				continue
+			}
+			seen = append(seen, devices.Seen{MAC: s.MAC, FirstSeen: s.FirstSeen, LastSeen: s.LastSeen, Latest: s.Latest})
+			keys = append(keys, netip.PrefixFrom(s.Latest, s.Latest.BitLen()))
+		}
+		names := map[netip.Addr]string{}
+		for k, n := range dir.Names(ctx, keys) {
+			names[k.Addr()] = n.Name
+		}
+		for _, m := range devices.AutoMerges(seen, names, merged) {
+			if err := store.MergeDevice(ctx, m.MAC, m.Into, "auto", time.Now()); err != nil {
+				logger.Error("merging a Private Address", "mac", m.MAC.String(), "err", err)
+				continue
+			}
+			logger.Info("Private Address merged into the Device it came after, by its name", "mac", m.MAC.String(), "into", m.Into.String())
 		}
 	}
 }

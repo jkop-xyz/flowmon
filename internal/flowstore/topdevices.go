@@ -30,7 +30,8 @@ func (s *Store) topDevices(ctx context.Context, q TopQuery, g Granularity, res T
 	}
 	query := fmt.Sprintf(`
 WITH r AS (%s),
-m AS (SELECT *, CASE WHEN local_mac <> '' AND local_mac NOT IN (SELECT mac FROM router_macs) THEN local_mac ELSE '' END AS mac FROM r),
+m AS (SELECT r.* EXCLUDE (local_mac), CASE WHEN r.local_mac <> '' AND r.local_mac NOT IN (SELECT mac FROM router_macs)
+	THEN coalesce(dm.into_mac, r.local_mac) ELSE '' END AS mac FROM r LEFT JOIN device_merges dm ON dm.mac = r.local_mac),
 one AS (SELECT local_host, any_value(mac) AS only_mac FROM m WHERE mac <> '' GROUP BY local_host HAVING count(DISTINCT mac) = 1),
 k AS (SELECT m.*, CASE WHEN mac <> '' THEN mac ELSE coalesce(one.only_mac, '') END AS dev FROM m LEFT JOIN one USING (local_host)),
 g AS (SELECT dev, arg_max(local_host, bucket) AS host, count(DISTINCT local_host) AS addrs, bool_or(local_is_exporter_host) AS eh,
