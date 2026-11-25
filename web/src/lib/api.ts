@@ -1048,3 +1048,12 @@ export function fetchDevice(mac: string, signal?: AbortSignal) {
 export function fetchDevicesAt(address: string, signal?: AbortSignal) {
   return getJSON<{ devices: Device[] }>(`/api/devices?address=${encodeURIComponent(address)}`, signal)
 }
+
+/** Names given to Devices, by MAC. Empty when the App Store is unavailable. */
+export function fetchDeviceLabels(signal?: AbortSignal) {
+  return getJSON<{ labels: Record<string, string> }>("/api/device-labels", signal)
+}
+
+/** Names a Device; an empty name removes its label. */
+export const setDeviceLabel = (mac: string, name: string) =>
+  putJSON<{ mac: string; name: string }>(`/api/device-labels/${encodeURIComponent(mac)}`, { name })

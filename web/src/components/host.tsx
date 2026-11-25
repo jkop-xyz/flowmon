@@ -23,11 +23,12 @@ export function HostLink({
   /** How many addresses a Host Label's prefix, or a Device, merges. */
   addresses?: number
   /** The Device behind it, when listed by Device: named by its vendor when nothing better exists. */
-  device?: { vendor?: string; privateMac?: boolean; mac?: string }
+  device?: { vendor?: string; privateMac?: boolean; mac?: string; label?: string }
   className?: string
 }) {
   const { search } = useLocation()
-  const named = name?.name ?? (device?.vendor && name?.status !== "pending" ? `${device.vendor} device` : undefined)
+  const named =
+    device?.label ?? name?.name ?? (device?.vendor && name?.status !== "pending" ? `${device.vendor} device` : undefined)
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
       <Link

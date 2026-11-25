@@ -34,6 +34,7 @@ import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-range"
 import type { Area } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
+import { useDeviceLabels } from "@/lib/devices"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
@@ -293,6 +294,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
   const { search } = useLocation()
   const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
   const hostNames = useHostNames(dimension === "hosts" || dimension === "devices" ? items.map((i) => i.host ?? "") : [])
+  const deviceLabels = useDeviceLabels()
   const serviceNames = useServiceNames(
     dimension === "ports" ? items.map((i) => ({ protocol: i.protocol, port: i.servicePort })) : [],
   )
@@ -308,7 +310,7 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
             name={hostNames[item.host ?? ""]}
             exporterHost={item.localIsExporterHost}
             addresses={item.addresses}
-            device={item.mac ? { mac: item.mac, vendor: item.vendor, privateMac: item.privateMac } : undefined}
+            device={item.mac ? { mac: item.mac, vendor: item.vendor, privateMac: item.privateMac, label: deviceLabels[item.mac] } : undefined}
           />
         )
       case "remotes":

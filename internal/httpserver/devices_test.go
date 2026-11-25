@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
@@ -49,5 +51,41 @@ func TestDeviceEndpoints(t *testing.T) {
 	}
 	if _, _, err := parseSubject("device:nope"); err == nil {
 		t.Error("parseSubject took device:nope")
+	}
+}
+
+func TestDeviceLabelEndpoints(t *testing.T) {
+	var holder appstore.Holder
+	h := New(Options{UI: builtUI, AppStore: &holder})
+	if rec := get(t, h, "/api/device-labels"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"labels":{}`) {
+		t.Errorf("without an App Store: %d %s", rec.Code, rec.Body)
+	}
+	c := &client{t: t, h: h}
+	if rec := c.do("PUT", "/api/device-labels/3c:5a:b4:00:00:44", `{"name":"Phone"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("naming without an App Store: %d", rec.Code)
+	}
+
+	s, err := appstore.Open(context.Background(), appstore.Config{Driver: appstore.SQLite, Path: filepath.Join(t.TempDir(), "flowmon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	holder.Set(s)
+	if rec := c.do("PUT", "/api/device-labels/3C:5A:B4:00:00:44", `{"name":" Phone "}`); rec.Code != http.StatusOK {
+		t.Fatalf("naming: %d %s", rec.Code, rec.Body)
+	}
+	if rec := get(t, h, "/api/device-labels"); !strings.Contains(rec.Body.String(), `"3c:5a:b4:00:00:44":"Phone"`) {
+		t.Errorf("labels: %s", rec.Body)
+	}
+	for body, path := range map[string]string{`{"name":"x"}`: "/api/device-labels/nope", `{"name":"` + strings.Repeat("x", 65) + `"}`: "/api/device-labels/3c:5a:b4:00:00:44"} {
+		if rec := c.do("PUT", path, body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s %s: %d", path, body, rec.Code)
+		}
+	}
+	if rec := c.do("PUT", "/api/device-labels/3c:5a:b4:00:00:44", `{"name":""}`); rec.Code != http.StatusOK {
+		t.Errorf("removing: %d", rec.Code)
+	}
+	if rec := get(t, h, "/api/device-labels"); !strings.Contains(rec.Body.String(), `"labels":{}`) {
+		t.Errorf("after removing: %s", rec.Body)
 	}
 }
