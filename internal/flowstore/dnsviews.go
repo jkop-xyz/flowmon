@@ -142,11 +142,11 @@ func (s *Store) DNSSummary(ctx context.Context, f DNSFilter) (DNSSummary, error)
 		return res, err
 	}
 	perMinute := step.Minutes()
-	// Each lookup's point is counted from from itself, so that the points can't fall
-	// out of step with it.
+	// Each lookup's point is counted from from itself, in whole microseconds, so that
+	// the points can't fall out of step with it.
 	counts := map[int64][2]int{}
-	if err := query(fmt.Sprintf(`SELECT (epoch(time)::BIGINT - %d) // %d AS i, count(*), count(*) FILTER (WHERE blocked)
-		FROM q GROUP BY i`, from.Unix(), int64(step.Seconds())), func(scan func(...any) error) error {
+	if err := query(fmt.Sprintf(`SELECT (epoch_us(time) - %d) // %d AS i, count(*), count(*) FILTER (WHERE blocked)
+		FROM q GROUP BY i`, from.UnixMicro(), step.Microseconds()), func(scan func(...any) error) error {
 		var i int64
 		var n, blocked int
 		if err := scan(&i, &n, &blocked); err != nil {

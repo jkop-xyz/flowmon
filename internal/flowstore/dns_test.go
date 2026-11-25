@@ -180,3 +180,18 @@ func TestDNSSummaryChartCountsEveryQuery(t *testing.T) {
 		}
 	}
 }
+
+// A lookup late in a point's step counts in that point, not the next.
+func TestDNSSummaryChartKeepsLateLookupsInTheirPoint(t *testing.T) {
+	s := open(t)
+	if err := s.WriteDNS(ctx, []DNSQuery{dnsQuery(t0.Add(-300*time.Millisecond), "192.168.10.44", "www.bbc.co.uk")}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.DNSSummary(ctx, DNSFilter{From: t0.Add(-time.Hour), To: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := res.Points[len(res.Points)-1]; res.StepSeconds != 60 || last.Queries != 1 {
+		t.Errorf("last point %+v (step %ds); want the lookup at 11:59:59.7 in the 11:59 point", last, res.StepSeconds)
+	}
+}
