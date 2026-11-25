@@ -20,7 +20,7 @@ import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
 import { DNSDomainPage, DNSPage } from "@/pages/dns-pages"
 import { SNMPDevicePage } from "@/pages/snmp-pages"
-import { CollectorSettings, DatabasesSettings, GeoIPCard, SettingsLayout, SourcesSettings } from "@/pages/settings-page"
+import { DatabasesSettings, GeoIPCard, SettingsLayout, SourcesSettings } from "@/pages/settings-page"
 import { InternetLineCard, LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
 import { ServiceNamesCard } from "@/components/service-names-card"
 
@@ -70,7 +70,7 @@ createRoot(document.getElementById("root")!).render(
                     <Route path="local-networks" element={<LocalNetworksCard />} />
                     <Route path="internet-line" element={<InternetLineCard />} />
                     <Route path="service-names" element={<ServiceNamesCard />} />
-                    <Route path="collector" element={<CollectorSettings />} />
+                    <Route path="collector" element={<Navigate to="/exporters" replace />} />
                     <Route path="sources/:kind" element={<SourcesSettings />} />
                     <Route path="retention" element={<RetentionCard />} />
                     <Route path="databases" element={<DatabasesSettings />} />

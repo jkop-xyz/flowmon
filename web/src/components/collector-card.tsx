@@ -139,6 +139,13 @@ export function CollectorCard({ status, now }: { status: CollectorStatus; now: n
         {flowmonDrops === 0 && kernelDrops === 0 && pipeline && pipeline.late === 0 && (
           <p className="text-xs text-muted-foreground">Nothing has been lost since Flowmon started.</p>
         )}
+        <p className="text-xs text-muted-foreground">
+          The collector starts with Flowmon, so it is set with environment variables:{" "}
+          <code className="font-mono text-ident">FLOWMON_FLOW_UDP_ADDRS</code> (the addresses it listens on),{" "}
+          <code className="font-mono text-ident">FLOWMON_UDP_RECEIVE_BUFFER_MB</code>, and which Exporters it accepts,{" "}
+          <code className="font-mono text-ident">FLOWMON_EXPORTER_AUTO_ACCEPT</code> and{" "}
+          <code className="font-mono text-ident">FLOWMON_EXPORTER_ALLOWLIST</code>.
+        </p>
       </CardContent>
     </Card>
   )
