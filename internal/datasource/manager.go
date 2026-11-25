@@ -623,8 +623,18 @@ func keepSecrets(k Kind, next, prev Settings) (Settings, error) {
 // endpointText is an Endpoint setting as normalize stores it, for comparison.
 func endpointText(f Field, v string) string {
 	v = strings.TrimSpace(v)
-	if f.Type == FieldURL {
+	switch f.Type {
+	case FieldURL:
 		v = strings.TrimRight(v, "/")
+	case FieldBool:
+		if v == "" {
+			v = f.Default
+		}
+		switch strings.ToLower(v) {
+		case "true", "1", "yes", "on":
+			return "true"
+		}
+		return "false"
 	}
 	return v
 }
