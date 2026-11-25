@@ -23,6 +23,15 @@ type DeviceStore interface {
 	DeviceMerges(ctx context.Context) ([]flowstore.DeviceMerge, error)
 	MergeDevice(ctx context.Context, mac, into flow.MAC, reason string, at time.Time) error
 	SplitDevice(ctx context.Context, mac flow.MAC) error
+	NeighborsOf(ctx context.Context, mac flow.MAC) ([]flowstore.Neighbor, error)
+	QuietDevices(ctx context.Context, from, to time.Time) ([]flowstore.QuietDevice, error)
+}
+
+// neighborJSON is where a Device was seen in an SNMP source's neighbor table.
+type neighborJSON struct {
+	flowstore.Neighbor
+	// SourceName is the source's name, when it still exists.
+	SourceName string `json:"sourceName,omitempty"`
 }
 
 type mergeJSON struct {
@@ -51,6 +60,8 @@ type deviceJSON struct {
 	// Merged are the MACs counted as this Device; MergedInto the Device this MAC counts as.
 	Merged     []mergeJSON `json:"merged,omitempty"`
 	MergedInto string      `json:"mergedInto,omitempty"`
+	// Neighbors are where neighbor tables saw it.
+	Neighbors []neighborJSON `json:"neighbors,omitempty"`
 }
 
 func describeMAC(m flow.MAC) deviceJSON {
@@ -102,7 +113,32 @@ func registerDevices(mux *http.ServeMux, opts Options) {
 		for _, a := range addrs {
 			out.Addresses = append(out.Addresses, deviceAddressJSON{a.Address.String(), a.FirstSeen.UTC().Format(timeLayout), a.LastSeen.UTC().Format(timeLayout)})
 		}
+		ns, err := ds.NeighborsOf(r.Context(), m)
+		if queryError(w, opts.Logger, "device", err) {
+			return
+		}
+		names := sourceNames(opts)
+		for _, n := range ns {
+			out.Neighbors = append(out.Neighbors, neighborJSON{Neighbor: n, SourceName: names[n.Source]})
+		}
 		writeJSON(w, http.StatusOK, out)
+	})
+	// Devices neighbor tables saw in a range that no Flow had: quiet ones, for the
+	// Devices list.
+	mux.HandleFunc("GET /api/devices/quiet", func(w http.ResponseWriter, r *http.Request) {
+		if !available(w) {
+			return
+		}
+		bq, err := bandwidthQuery(r, opts.Now())
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		quiet, err := ds.QuietDevices(r.Context(), bq.From, bq.To)
+		if queryError(w, opts.Logger, "quiet devices", err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"devices": quiet})
 	})
 	// Names given to Devices, by MAC. Kept in the App Store: when it is unavailable there
 	// are none, and they can't be changed.
@@ -227,4 +263,15 @@ func registerDevices(mux *http.ServeMux, opts Options) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"devices": out})
 	})
+}
+
+// sourceNames maps Data Source ids to their names.
+func sourceNames(opts Options) map[string]string {
+	out := map[string]string{}
+	if opts.Sources != nil {
+		for _, s := range opts.Sources.List() {
+			out[s.ID] = s.Name
+		}
+	}
+	return out
 }

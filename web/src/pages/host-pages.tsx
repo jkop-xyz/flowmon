@@ -23,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   fetchDevice,
   fetchDevicesAt,
+  fetchQuietDevices,
   setDeviceLabel,
   mergeDevice,
   splitDevice,
@@ -138,8 +139,15 @@ export function LocalHostsPage() {
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
+  const quiet = useQuery({
+    queryKey: ["quiet-devices", preset.value],
+    queryFn: ({ signal }) => fetchQuietDevices(resolveRange(preset), signal),
+    enabled: dimension === "devices" && !exporter,
+    refetchInterval: 60_000,
+    placeholderData: (previous) => previous,
+  })
   const items = query.data?.result.items ?? []
-  const names = useHostNames(items.map((i) => i.host ?? ""))
+  const names = useHostNames([...items.map((i) => i.host ?? ""), ...(quiet.data?.devices ?? []).map((d) => d.address)])
   const deviceLabels = useDeviceLabels()
   const [sort, onSort] = useSort<"host" | BytesColumn>({ key: "total", asc: false }, ["host"])
   const needle = filter.trim().toLowerCase()
@@ -153,6 +161,18 @@ export function LocalHostsPage() {
           names[i.host ?? ""]?.name?.toLowerCase().includes(needle),
       )
     : items
+  const quietShown =
+    dimension === "devices" && !exporter
+      ? (quiet.data?.devices ?? []).filter(
+          (d) =>
+            !items.some((i) => i.mac === d.mac) &&
+            (!needle ||
+              d.address.includes(needle) ||
+              d.mac.includes(needle) ||
+              deviceLabels[d.mac]?.toLowerCase().includes(needle) ||
+              d.vendor?.toLowerCase().includes(needle)),
+        )
+      : []
   const shown = sortRows(
     filtered,
     (i) => (sort.key === "host" ? ((i.mac && deviceLabels[i.mac]) || names[i.host ?? ""]?.name || i.host) : bytesOf(i, sort.key)),
@@ -199,9 +219,9 @@ export function LocalHostsPage() {
             <SectionSkeleton rows={8} />
           ) : query.isError ? (
             <QueryError title="Couldn't load Local Hosts" error={query.error} />
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && quietShown.length === 0 ? (
             <p className="text-sm text-muted-foreground">No Flows in this time range yet.</p>
-          ) : shown.length === 0 ? (
+          ) : shown.length === 0 && quietShown.length === 0 ? (
             <p className="text-sm text-muted-foreground">No Local Host matches “{filter.trim()}”.</p>
           ) : (
             <DataTable
@@ -228,6 +248,20 @@ export function LocalHostsPage() {
                     />
                   </TableCell>
                   <BytesCells item={it} />
+                </TableRow>
+              ))}
+              {quietShown.map((d) => (
+                <TableRow key={`quiet/${d.mac}`}>
+                  <TableCell className="max-w-80">
+                    <HostLink
+                      host={d.address}
+                      name={names[d.address]}
+                      device={{ mac: d.mac, vendor: d.vendor, privateMac: d.privateMac, label: deviceLabels[d.mac] }}
+                    />
+                  </TableCell>
+                  <TableCell colSpan={3} className="text-right text-sm text-muted-foreground">
+                    No traffic seen · on the network <TimeAgo iso={d.lastSeen} now={quiet.dataUpdatedAt} />
+                  </TableCell>
                 </TableRow>
               ))}
             </DataTable>
@@ -896,7 +930,7 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
             This MAC address is a router's: Flows are never counted for it, but for the hosts behind it.
           </p>
         ) : addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No Flows from this Device have been stored.</p>
+          <p className="text-sm text-muted-foreground">No addresses known for this Device yet.</p>
         ) : (
           <DataTable
             head={
@@ -921,6 +955,26 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
               </TableRow>
             ))}
           </DataTable>
+        )}
+        {device.data?.neighbors && device.data.neighbors.length > 0 && (
+          <div className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Seen on the network</span>
+            {device.data.neighbors.map((n) => (
+              <span key={`${n.source}/${n.address}`} className="text-muted-foreground">
+                In the neighbor table of{" "}
+                <Link to={{ pathname: `/snmp/${encodeURIComponent(n.source)}`, search }} className="text-foreground underline underline-offset-4">
+                  {n.sourceName ?? n.source}
+                </Link>
+                {n.interface && (
+                  <>
+                    {" "}on <span className="font-mono text-ident text-foreground">{n.interface}</span>
+                  </>
+                )}{" "}
+                as <span className="font-mono text-ident text-foreground">{n.address}</span>, last{" "}
+                <TimeAgo iso={n.lastSeen} now={device.dataUpdatedAt} />.
+              </span>
+            ))}
+          </div>
         )}
         {device.data?.mergedInto && (
           <p className="text-sm">

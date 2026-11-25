@@ -344,6 +344,10 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 22: Neighbors (v2.1): the address-to-MAC mappings in SNMP sources' neighbor tables,
+	// where each was seen (see neighbors.go).
+	stmt(`CREATE TABLE IF NOT EXISTS neighbors (source VARCHAR NOT NULL, mac VARCHAR NOT NULL, address VARCHAR NOT NULL,
+		if_index UINTEGER NOT NULL, first_seen TIMESTAMP NOT NULL, last_seen TIMESTAMP NOT NULL, PRIMARY KEY (source, mac, address))`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {

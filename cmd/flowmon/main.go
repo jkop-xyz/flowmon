@@ -321,6 +321,9 @@ func serve(stderr io.Writer) int {
 					logger.Warn("saving an interface name from SNMP", "exporter", a.String(), "err", err)
 				}
 			}
+		},
+		Neighbors: func(ctx context.Context, src datasource.Source, at time.Time, ns []snmp.Neighbor) error {
+			return store.SaveNeighbors(ctx, src.ID, at, deviceNeighbors(ns, classifier.LocalNetworks(), assigner, at))
 		}})
 	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind, snmpKind}, Env: sourceEnv, Logger: logger})
 	if err != nil {
@@ -796,6 +799,24 @@ func routerMACsFrom(rs []flowstore.RouterMAC) []devices.Router {
 	out := make([]devices.Router, len(rs))
 	for i, r := range rs {
 		out[i] = devices.Router(r)
+	}
+	return out
+}
+
+// deviceNeighbors keeps the neighbor-table mappings that are Devices: addresses in the
+// Local Networks (not IPv6 link-local ones, which every device has besides its real
+// address), and MACs that aren't router hops. Each teaches the Assigner the address's
+// MAC, for Flows the address receives.
+func deviceNeighbors(ns []snmp.Neighbor, local []netip.Prefix, a *devices.Assigner, at time.Time) []flowstore.NeighborEntry {
+	out := make([]flowstore.NeighborEntry, 0, len(ns))
+	for _, n := range ns {
+		addr := n.Address.Unmap()
+		if addr.IsLinkLocalUnicast() || !slices.ContainsFunc(local, func(p netip.Prefix) bool { return p.Contains(addr) }) {
+			continue
+		}
+		if a.Observe(addr, n.MAC, at) {
+			out = append(out, flowstore.NeighborEntry{MAC: n.MAC, Address: addr, IfIndex: n.IfIndex})
+		}
 	}
 	return out
 }

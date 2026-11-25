@@ -13,6 +13,9 @@ type Poll struct {
 	// Health is the device's Device Health, when read; HealthErr why it wasn't.
 	Health    *Health
 	HealthErr error
+	// Neighbors are its neighbor tables, when read; NeighborsErr why they weren't.
+	Neighbors    []Neighbor
+	NeighborsErr error
 }
 
 // MaxGap is the longest time between two polls whose difference still counts: longer,

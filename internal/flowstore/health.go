@@ -250,7 +250,7 @@ func (s *Store) WifiClients(ctx context.Context, source string) ([]WifiClient, e
 }
 
 // applyHealthRetention drops readings older than the minute and hour retentions, and
-// restarts older than the hour retention.
+// restarts and neighbor mappings older than the hour retention.
 func (s *Store) applyHealthRetention(ctx context.Context, now time.Time, r Retention) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -261,6 +261,7 @@ func (s *Store) applyHealthRetention(ctx context.Context, now time.Time, r Reten
 		{`DELETE FROM health_minute WHERE bucket < ?`, r.Minute},
 		{`DELETE FROM health_hour WHERE bucket < ?`, r.Hour},
 		{`DELETE FROM snmp_restarts WHERE restarted_at < ?`, r.Hour},
+		{`DELETE FROM neighbors WHERE last_seen < ?`, r.Hour},
 	} {
 		if _, err := s.db.ExecContext(ctx, d.q, now.Add(-d.keep).UTC()); err != nil {
 			return fmt.Errorf("health retention: %w", err)

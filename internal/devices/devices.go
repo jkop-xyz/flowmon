@@ -171,3 +171,19 @@ func (a *Assigner) learnLocked(r Router) {
 		a.learned(r)
 	}
 }
+
+// Observe records a neighbor table's mapping of addr to mac (ADR 0005): Flows to addr
+// get mac as their Device, as if addr had sent from it, until AddressTTL passes without
+// either. It reports whether the mapping is a Device's: false for a router hop's MAC.
+func (a *Assigner) Observe(addr netip.Addr, mac flow.MAC, at time.Time) bool {
+	addr = addr.Unmap()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.usableLocked(mac) {
+		return false
+	}
+	if s, ok := a.sent[addr]; !ok || !s.at.After(at) {
+		a.sent[addr] = sighting{mac, at}
+	}
+	return true
+}

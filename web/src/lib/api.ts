@@ -1039,6 +1039,23 @@ export type Device = {
   merged?: { mac: string; vendor?: string; reason: "auto" | "manual"; mergedAt: string }[]
   /** The Device this MAC now counts as. */
   mergedInto?: string
+  /** Where SNMP sources' neighbor tables saw it, most recently first. */
+  neighbors?: {
+    source: string
+    sourceName?: string
+    address: string
+    ifIndex: number
+    interface?: string
+    firstSeen: string
+    lastSeen: string
+  }[]
+}
+
+/** A Device neighbor tables saw in a range that no Flow had. */
+export type QuietDevice = { mac: string; vendor?: string; privateMac?: boolean; address: string; lastSeen: string }
+
+export function fetchQuietDevices(range: RangeParams, signal?: AbortSignal) {
+  return getJSON<{ devices: QuietDevice[] }>(`/api/devices/quiet?${rangeParams(range)}`, signal)
 }
 
 /** Counts mac as the Device into, with everything merged into mac. */
