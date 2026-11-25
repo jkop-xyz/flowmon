@@ -67,8 +67,10 @@ type Config struct {
 	// GeoIPDir holds MMDB files the user provides; they win over downloads.
 	GeoIPDir string
 	// GeoIPDownload enables downloading GeoIP databases (MaxMind with an account, else DB-IP Lite).
-	GeoIPDownload bool
-	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads.
+	// GeoIPDownloadFromEnv says FLOWMON_GEOIP_DOWNLOAD set it, so Settings can't change it.
+	GeoIPDownload, GeoIPDownloadFromEnv bool
+	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads. Set here, they
+	// can't be changed in Settings.
 	MaxMindAccountID, MaxMindLicenseKey string
 	// UDPReceiveBuffer is the socket receive buffer the collector asks for, in bytes.
 	UDPReceiveBuffer int
@@ -192,6 +194,7 @@ func fromLookup(lookup func(string) (string, bool)) (Config, error) {
 	if cfg.GeoIPDownload, err = strconv.ParseBool(get("FLOWMON_GEOIP_DOWNLOAD", "true")); err != nil {
 		return Config{}, fmt.Errorf("FLOWMON_GEOIP_DOWNLOAD: must be true or false")
 	}
+	cfg.GeoIPDownloadFromEnv = get("FLOWMON_GEOIP_DOWNLOAD", "") != ""
 	cfg.MaxMindAccountID = get("FLOWMON_MAXMIND_ACCOUNT_ID", "")
 	cfg.MaxMindLicenseKey = get("FLOWMON_MAXMIND_LICENSE_KEY", "")
 	if f := get("FLOWMON_MAXMIND_LICENSE_KEY_FILE", ""); f != "" {

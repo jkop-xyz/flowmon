@@ -231,7 +231,9 @@ func TestDownloadsDBIPFallingBackToLastMonth(t *testing.T) {
 	}
 }
 
-func TestMaxMindPreferredAndBadKeyFallsBackToDBIP(t *testing.T) {
+// downloadServer serves MaxMind downloads for account 12345 with key "good" under
+// /maxmind, and DB-IP Lite for November 2026 under /dbip.
+func downloadServer(t *testing.T) *httptest.Server {
 	country := tarGz(t, "GeoLite2-Country_20261103/GeoLite2-Country.mmdb", countryDB(t, "GeoLite2-Country"))
 	asn := tarGz(t, "GeoLite2-ASN_20261103/GeoLite2-ASN.mmdb", asnDB(t, "GeoLite2-ASN"))
 	dbipCountry, dbipASN := gz(t, countryDB(t, "DBIP-Country-Lite")), gz(t, asnDB(t, "DBIP-ASN-Lite"))
@@ -259,7 +261,12 @@ func TestMaxMindPreferredAndBadKeyFallsBackToDBIP(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestMaxMindPreferredAndBadKeyFallsBackToDBIP(t *testing.T) {
+	srv := downloadServer(t)
 	now := func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) }
 
 	t.Run("good key", func(t *testing.T) {
@@ -280,7 +287,7 @@ func TestMaxMindPreferredAndBadKeyFallsBackToDBIP(t *testing.T) {
 			MaxMindURL: srv.URL + "/maxmind", DBIPURL: srv.URL + "/dbip", Now: now}, &r)
 		m.Refresh(context.Background())
 		for _, d := range m.Status().Databases {
-			if d.Source != SourceDBIP || !strings.Contains(d.Error, "MaxMind refused") {
+			if d.Source != SourceDBIP || !strings.Contains(d.Error, "MaxMind: refused") {
 				t.Errorf("status %+v", d)
 			}
 		}

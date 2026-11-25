@@ -163,12 +163,23 @@ func serve(stderr io.Writer) int {
 		logger.Error("interfaces", "err", err)
 		return 1
 	}
+	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
+	if err != nil {
+		logger.Error("secret key", "err", err)
+		return 1
+	}
 	resolver := &geoip.Resolver{}
 	geo := geoip.NewManager(geoip.Options{
 		Dir: cfg.GeoIPDir, DownloadDir: filepath.Join(cfg.DataDir, "geoip-downloads"), Download: cfg.GeoIPDownload,
 		MaxMindAccountID: cfg.MaxMindAccountID, MaxMindLicenseKey: cfg.MaxMindLicenseKey,
+		Locks:     geoip.Locks{Download: cfg.GeoIPDownloadFromEnv, MaxMind: cfg.MaxMindAccountID != ""},
 		UserAgent: "flowmon/" + version, Logger: logger,
 	}, resolver)
+	geoSettings, err := geoip.LoadSettings(ctx, store, box, geo)
+	if err != nil {
+		logger.Error("GeoIP settings", "err", err)
+		return 1
+	}
 	geo.Load() // what is already on disk, so the first Flows are enriched
 
 	allowlist, err := classify.ParseLocalNetworks(cfg.ExporterAllowlist)
@@ -285,11 +296,6 @@ func serve(stderr io.Writer) int {
 		attribute(f)
 	}, logger)
 
-	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
-	if err != nil {
-		logger.Error("secret key", "err", err)
-		return 1
-	}
 	sourceEnv, err := datasource.FromEnviron(os.Environ())
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error:", err)
@@ -474,7 +480,7 @@ func serve(stderr io.Writer) int {
 			Registry: ifaceRegistry, Stats: pipeline, Changes: store, Reprocess: reprocessor, RawRetention: func() time.Duration { return collectionSettings.Current().Retention.Raw },
 		},
 		SNMP:   &httpserver.SNMPOptions{SourceFor: snmpSourceFor, Store: store, WAN: wanInterfaces},
-		GeoIP:  geo,
+		GeoIP:  geoSettings,
 		Remote: &httpserver.RemoteOptions{Store: store, Lookup: resolver, Names: reverseDNS, RDAP: rdap},
 		Hosts:  &httpserver.HostOptions{Store: store, Directory: hostDirectory},
 		Domains: &httpserver.DomainOptions{Store: store, DNSServerAddrs: func(ctx context.Context) map[netip.Addr]bool {

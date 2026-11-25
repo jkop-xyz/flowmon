@@ -22,7 +22,7 @@ function useSave() {
   })
 }
 
-function EnvLock({ env }: { env: string }) {
+export function EnvLock({ env }: { env: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Lock className="size-3.5 shrink-0" />

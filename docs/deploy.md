@@ -89,10 +89,10 @@ Useful alerts are `flowmon_collection_quiet == 1`, `increase(flowmon_collector_s
 Flowmon looks up each Remote IP's country and ASN Owner when its Flow is stored. It picks a database for each, in this order:
 
 1. **Your own files.** Put MMDB files (MaxMind GeoLite2/GeoIP2 Country, City or ASN, or DB-IP Lite) in `/data/geoip`, or mount a directory there and set `FLOWMON_GEOIP_DIR`. Flowmon checks for new or changed files every hour and never replaces them.
-2. **MaxMind GeoLite2**, if you set `FLOWMON_MAXMIND_ACCOUNT_ID` and `FLOWMON_MAXMIND_LICENSE_KEY` (or `FLOWMON_MAXMIND_LICENSE_KEY_FILE`). A [free account](https://www.maxmind.com/en/geolite2/signup) gives you both. Downloaded weekly.
+2. **MaxMind GeoLite2**, once you enter your account ID and license key in Settings, under GeoIP databases. A [free account](https://www.maxmind.com/en/geolite2/signup) gives you both. The key is stored encrypted with `secret.key`, and the download starts at once, then weekly. `FLOWMON_MAXMIND_ACCOUNT_ID` and `FLOWMON_MAXMIND_LICENSE_KEY` (or `FLOWMON_MAXMIND_LICENSE_KEY_FILE`) still work and lock the setting.
 3. **DB-IP Lite**, downloaded weekly without an account. It is licensed under CC BY 4.0, so the UI credits DB-IP wherever its data shows.
 
-Downloads go to `/data/geoip-downloads`. With `FLOWMON_GEOIP_DOWNLOAD=false`, nothing is downloaded and only your own files are used. Settings shows which database is in use, how old it is, and why a download failed.
+Downloads go to `/data/geoip-downloads`. With downloads switched off in Settings (or `FLOWMON_GEOIP_DOWNLOAD=false`, which locks it), nothing is downloaded and only your own files are used. Settings shows which database is in use, how old it is, and why a download failed.
 
 A Flow keeps the country and ASN Owner it was stored with. A newer database applies to Flows from then on; it doesn't rewrite history.
 
