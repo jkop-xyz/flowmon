@@ -9,6 +9,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { cn } from "@/lib/utils"
 import { classificationHistoryId } from "@/lib/anchors"
 import type { ClassificationChange } from "@/lib/api"
 import { formatBitsPerSecond, formatDateTime, formatSeconds, formatTick, timeTicks } from "@/lib/format"
@@ -33,6 +34,7 @@ export function TrafficChart<K extends string>({
   limits = [],
   note = true,
   compact = false,
+  fill = false,
 }: {
   points: ({ t: string } & Record<K, number>)[]
   series: TrafficSeries<K>[]
@@ -52,6 +54,9 @@ export function TrafficChart<K extends string>({
   note?: boolean
   /** A shorter chart with fewer time ticks, for a narrow card. */
   compact?: boolean
+  /** Grow from the usual height to fill its parent, a flex column: for a card that a
+   * taller one beside it stretches. */
+  fill?: boolean
 }) {
   const config: ChartConfig = Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: s.color }]))
   const data = points.map((p) => ({ ...p, time: new Date(p.t).getTime() }))
@@ -61,10 +66,13 @@ export function TrafficChart<K extends string>({
   const shadeFrom = Math.max(incompleteFrom - stepSeconds * 1000, data[0]?.time ?? 0)
 
   return (
-    <div className="relative w-full min-w-0">
+    <div className={cn("relative w-full min-w-0", fill && "flex flex-1 flex-col")}>
       <ChartContainer
         config={config}
-        className={`aspect-auto ${compact ? "h-44" : "h-72"} w-full min-w-0 [&_.recharts-responsive-container]:min-w-0`}
+        className={cn(
+          "aspect-auto w-full min-w-0 [&_.recharts-responsive-container]:min-w-0",
+          compact ? "h-44" : fill ? "min-h-72 flex-1" : "h-72",
+        )}
       >
         <AreaChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
           <defs>
