@@ -178,10 +178,10 @@ Back up the `/data` volume as a whole. It holds:
 
 | File | What it is |
 |---|---|
-| `flows.duckdb` | the Flow Store: raw Flows, Rollups, Exporter approvals, Interfaces, SNMP settings, Local Networks and retention |
+| `flows.duckdb` | the Flow Store: raw Flows, Rollups, DNS Queries, Exporter approvals, Interfaces, Data Sources, Local Networks and retention |
 | `flowmon.db` | the App Store, when you chose the built-in SQLite |
 | `bootstrap.json` | where the App Store lives (mode 0600; it can contain the Postgres password) |
-| `secret.key` | the key that encrypts stored SNMP credentials. Without it, they have to be entered again |
+| `secret.key` | the key that encrypts Data Sources' stored passwords, such as AdGuard Home's and SNMP's. Without it, they have to be entered again |
 | `geoip-downloads/` | downloaded GeoIP databases. No need to back them up; they are downloaded again |
 
 If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels and Service Names live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
@@ -211,4 +211,15 @@ A snapshot from an older Flowmon version is upgraded when it opens, like the Flo
 - **Docker:** `docker compose pull && docker compose up -d`.
 - **Podman:** `podman auto-update`, or `systemctl restart flowmon` after a pull.
 
-Flowmon migrates its stores on start. It refuses to start on a store written by a newer version.
+Flowmon migrates its stores on start, and it refuses to start on a store written by a newer version. So an update can't be undone by starting the older image again: once a newer version has started on `/data`, the older one won't open it.
+
+Before you update:
+
+1. Back up `/data` as described above, and the PostgreSQL database if the App Store is there.
+2. Check which tag you run. `latest` moves to each new release, so `docker compose pull` and `podman auto-update` take you to it. To stay on a version, use its tag instead, for example `ghcr.io/jkop-xyz/flowmon:0.2`.
+
+To go back to the older version after an update:
+
+1. Stop Flowmon.
+2. Restore the backup of `/data`, and of PostgreSQL if you use it.
+3. Set the older version's tag and start Flowmon. What was collected after the backup is lost.
