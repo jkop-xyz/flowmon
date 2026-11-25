@@ -16,7 +16,7 @@ import { directionInfo } from "@/lib/flows"
 import { formatDateTime, formatNumber } from "@/lib/format"
 import { resolveRange, useTimeRange } from "@/lib/time-range"
 
-const filterKeys = ["host", "remote", "domain", "asn", "country", "protocol", "port", "direction"] as const satisfies (keyof FlowFilters)[]
+const filterKeys = ["host", "device", "remote", "domain", "asn", "country", "protocol", "port", "direction"] as const satisfies (keyof FlowFilters)[]
 const sorts: FlowSort[] = ["end", "start", "bytes", "packets", "duration"]
 const pageSizes = [50, 100, 200, 500]
 const directions: Direction[] = ["inbound", "outbound", "internal", "transit", "uncounted"]
@@ -115,6 +115,11 @@ export function FlowExplorerPage() {
             })}
           </div>
           {query.data?.hostMatch && <HostMatchNote match={query.data.hostMatch} />}
+          {filters.device && (
+            <p className="text-sm text-muted-foreground">
+              Flows of the Device <span className="font-mono text-ident">{filters.device}</span>, at every address it used.
+            </p>
+          )}
           {query.isPending ? (
             <SectionSkeleton rows={10} />
           ) : query.isError ? (
@@ -252,7 +257,7 @@ function FilterForm({ filters, onApply }: { filters: FlowFilters; onApply: (f: F
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => onApply({ host: "", remote: "", domain: "", asn: "", country: "", protocol: "", port: "" })}
+            onClick={() => onApply({ host: "", device: "", remote: "", domain: "", asn: "", country: "", protocol: "", port: "" })}
           >
             <X />
             Clear

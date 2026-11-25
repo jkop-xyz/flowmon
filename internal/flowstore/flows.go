@@ -66,6 +66,8 @@ type FlowQuery struct {
 	// "www.bbc.co.uk"); NoDomain keeps Inbound and Outbound Flows without one.
 	Domain   string
 	NoDomain bool
+	// Device keeps Flows whose Local Host, or Internal Peer, was this MAC.
+	Device string
 	// Directions keeps these Directions; empty keeps all.
 	Directions []flow.Direction
 	Sort       FlowSort
@@ -216,6 +218,9 @@ func (q FlowQuery) where(a *sqlArgs) string {
 	}
 	if q.Domain != "" {
 		w += fmt.Sprintf(` AND (domain = %[1]s OR ends_with(domain, '.' || %[1]s))`, a.add(q.Domain))
+	}
+	if q.Device != "" {
+		w += fmt.Sprintf(` AND (local_mac = %[1]s OR (direction = 3 AND peer_mac = %[1]s))`, a.add(q.Device))
 	}
 	if q.NoDomain {
 		w += ` AND direction IN (1, 2) AND coalesce(domain, '') = ''`
