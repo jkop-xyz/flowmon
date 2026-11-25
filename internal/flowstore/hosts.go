@@ -45,11 +45,16 @@ func longestGroup(a netip.Addr, groups []netip.Prefix) (netip.Prefix, bool) {
 }
 
 // groupTopHosts merges Local Hosts in the same group, sums them, ranks them by total
-// and keeps limit.
+// and keeps limit. A Device (an item with a MAC) is already one Local Host and is kept
+// as it is.
 func groupTopHosts(items []TopItem, groups []netip.Prefix, limit int) []TopItem {
 	byKey := map[string]int{}
 	out := []TopItem{}
 	for _, it := range items {
+		if it.Mac != "" {
+			out = append(out, it)
+			continue
+		}
 		key, grouped := hostKey(it.Host, groups)
 		i, ok := byKey[key]
 		if !ok {
@@ -68,6 +73,9 @@ func groupTopHosts(items []TopItem, groups []netip.Prefix, limit int) []TopItem 
 		g.TotalBytes += it.TotalBytes
 		g.Flows += it.Flows
 		g.EstimatedBytes += it.EstimatedBytes
+		if it.LastSeen != nil && (g.LastSeen == nil || it.LastSeen.After(*g.LastSeen)) {
+			g.LastSeen = it.LastSeen
+		}
 	}
 	slices.SortStableFunc(out, func(a, b TopItem) int {
 		switch {

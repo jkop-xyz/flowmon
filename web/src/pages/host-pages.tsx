@@ -187,8 +187,8 @@ export function LocalHostsPage() {
           <CardDescription>
             The busiest Local Hosts by bytes sent and received, {preset.label.toLowerCase()}, including Internal traffic.{" "}
             {dimension === "devices"
-              ? "By Device: the addresses one MAC used count as one, named by the address it used last. Traffic without a known MAC counts by address, as does traffic from before Flowmon knew Devices."
-              : "By address: each address on its own."}
+              ? "By Device: the addresses one MAC used count as one, named by the address it used last. Traffic without a known MAC, such as traffic from before Flowmon knew Devices, counts by address, or by Host Label prefix."
+              : "By address: each address on its own, except that the addresses in a Host Label's prefix count as one."}
           </CardDescription>
           <CardAction className="flex flex-wrap items-center justify-end gap-2">
             <div className="flex rounded-md border p-0.5" role="group" aria-label="List by">

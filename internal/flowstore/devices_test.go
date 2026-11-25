@@ -280,3 +280,34 @@ func TestDNSServers(t *testing.T) {
 		t.Errorf("another host's servers: %+v", other)
 	}
 }
+
+func TestTopDevicesGroupsMACLessTrafficByHostLabelPrefix(t *testing.T) {
+	s := open(t)
+	if err := s.Write(ctx, []flow.Flow{
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 100), "192.168.10.44", phoneMAC),
+		// No MACs, as from a router that sends none: one Local Host by their Host Label's prefix.
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 40), "192.168.20.5", flow.MAC{}),
+		withDevice(mkFlow(flow.DirectionOutbound, t0.Add(time.Minute), t0.Add(time.Minute), 30), "192.168.20.6", flow.MAC{}),
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 20), "192.168.30.9", flow.MAC{}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Top(ctx, TopQuery{Dimension: TopDevices, From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Limit: 2,
+		HostGroups: []netip.Prefix{prefix("192.168.20.0/24")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 2 || res.Count != 3 || res.TotalBytes != 190 {
+		t.Fatalf("items %+v, count %d, total %v; want the top 2 of 3", res.Items, res.Count, res.TotalBytes)
+	}
+	if it := res.Items[0]; it.Mac != phoneMAC.String() || it.TotalBytes != 100 || it.Vendor != "Google" {
+		t.Errorf("Device %+v", it)
+	}
+	g := res.Items[1]
+	if g.Host != "192.168.20.0/24" || g.Mac != "" || g.Addresses != 2 || g.TotalBytes != 70 {
+		t.Errorf("prefix %+v; want both addresses as one", g)
+	}
+	if g.LastSeen == nil || !g.LastSeen.Equal(t0.Add(time.Minute)) {
+		t.Errorf("prefix last seen %v, want its latest minute", g.LastSeen)
+	}
+}

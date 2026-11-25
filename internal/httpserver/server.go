@@ -168,7 +168,7 @@ func New(opts Options) http.Handler {
 			}
 			q.Limit = n
 		}
-		if q.Dimension == flowstore.TopLocalHosts {
+		if q.Dimension == flowstore.TopLocalHosts || q.Dimension == flowstore.TopDevices {
 			q.HostGroups = hostGroups(r.Context(), opts)
 		}
 		res, err := opts.Flows.Top(r.Context(), q)
