@@ -82,7 +82,7 @@ func (k *Kind) Info() datasource.KindInfo {
 				Help: "AdGuard Home's web address, such as http://192.168.10.2:3000."},
 			{Key: "username", Label: "User name", Type: datasource.FieldText},
 			{Key: "password", Label: "Password", Type: datasource.FieldSecret},
-			{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: datasource.FieldBool, Default: "false",
+			{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: datasource.FieldBool, Default: "false", Endpoint: true,
 				Help: "For an https address with a self-signed certificate."},
 		},
 	}

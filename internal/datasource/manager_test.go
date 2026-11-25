@@ -37,7 +37,7 @@ func (k *fakeKind) Info() datasource.KindInfo {
 		{Key: "url", Label: "URL", Type: datasource.FieldURL, Required: true, Endpoint: true},
 		{Key: "user", Label: "User", Type: datasource.FieldText},
 		{Key: "password", Label: "Password", Type: datasource.FieldSecret},
-		{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: datasource.FieldBool, Default: "false"},
+		{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: datasource.FieldBool, Default: "false", Endpoint: true},
 	}}
 }
 
@@ -543,6 +543,17 @@ func TestStoredSecretsStayWithTheirEndpoint(t *testing.T) {
 	}
 	if cur, _ := m.Get(st.ID); cur.Settings["url"] != "https://dns.example" {
 		t.Errorf("after the refused Update: %v", cur.Settings)
+	}
+
+	// Turning off certificate checks would let whoever answers on the way see it.
+	insecure := datasource.Source{Name: "Home", Enabled: true, Settings: datasource.Settings{"url": "https://dns.example/", "user": "admin", "skip_tls_verify": "on"}}
+	if _, err := m.Test(context.Background(), st.ID, insecure); !errors.As(err, &inv) || inv.Field != "password" {
+		t.Errorf("Test with TLS checks turned off: %v; want the password asked for again", err)
+	}
+	// Leaving the switch unset is its default, no change.
+	unset := datasource.Source{Name: "Home", Enabled: true, Settings: datasource.Settings{"url": "https://dns.example/", "user": "admin"}}
+	if _, err := m.Test(context.Background(), st.ID, unset); err != nil {
+		t.Errorf("Test with TLS checks left unset: %v", err)
 	}
 
 	moved.Settings["password"] = "new"

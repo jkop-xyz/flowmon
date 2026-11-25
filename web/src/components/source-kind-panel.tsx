@@ -242,7 +242,12 @@ function SourceForm({
     return out
   })
   // A stored secret is kept only while the source still connects to the same place.
-  const endpointText = (f: SourceField, v = "") => (f.type === "url" ? v.trim().replace(/\/+$/, "") : v.trim())
+  const endpointText = (f: SourceField, v = "") =>
+    f.type === "url"
+      ? v.trim().replace(/\/+$/, "")
+      : f.type === "bool"
+        ? String(["true", "1", "yes", "on"].includes((v.trim() || f.default || "").toLowerCase()))
+        : v.trim()
   const moved = kind.fields.some(
     (f) => f.endpoint && source && endpointText(f, settings[f.key]) !== endpointText(f, source.settings[f.key]),
   )
@@ -317,7 +322,11 @@ function SourceForm({
                 className={f.type === "url" ? "font-mono" : undefined}
                 required={f.required && !(stored(f) && !moved)}
                 placeholder={
-                  stored(f) ? (moved ? "Enter again for the new address" : "Stored; leave empty to keep") : undefined
+                  stored(f)
+                    ? moved
+                      ? "Enter again for the changed connection"
+                      : "Stored; leave empty to keep"
+                    : undefined
                 }
                 value={settings[f.key]}
                 onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })}
