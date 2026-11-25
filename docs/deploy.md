@@ -184,7 +184,7 @@ Back up the `/data` volume as a whole. It holds:
 | `secret.key` | the key that encrypts Data Sources' stored passwords, such as AdGuard Home's and SNMP's. Without it, they have to be entered again |
 | `geoip-downloads/` | downloaded GeoIP databases. No need to back them up; they are downloaded again |
 
-If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels and Service Names live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
+If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels, Device names and Service Names live there. Back them up with your Postgres backups. The two stores are backed up separately; restoring one without the other is safe, but accounts or Flows from after the older backup are missing.
 
 Copying `flows.duckdb` while Flowmon runs can give a broken copy. Either stop Flowmon first (`docker compose stop`, or `systemctl stop flowmon`), or download a snapshot while it runs:
 
