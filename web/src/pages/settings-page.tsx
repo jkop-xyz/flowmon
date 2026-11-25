@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle } from "lucide-react"
-import { Link, NavLink, Outlet, useLocation, useParams } from "react-router"
+import { NavLink, Outlet, useLocation, useParams } from "react-router"
 
 import { AppStoreCard } from "@/components/app-store-card"
 import { FlowStoreCard } from "@/components/flow-store-card"
@@ -8,13 +7,12 @@ import { DBIPAttribution } from "@/components/geoip"
 import { GeoIPSettings } from "@/components/geoip-settings"
 import { SourceKindPanel } from "@/components/source-kind-panel"
 import { kindPlural, useSources } from "@/lib/sources"
-import { CollectorCard } from "@/components/collector-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { fetchExporters, type GeoIPDatabase, type GeoIPStatus } from "@/lib/api"
+import { type GeoIPDatabase, type GeoIPStatus } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
 import { sourceLabels, useGeoIP, usesDBIP } from "@/lib/geoip"
@@ -39,7 +37,6 @@ function useSettingsGroups(): { title: string; links: SettingsLink[] }[] {
     {
       title: "Collection",
       links: [
-        { to: "collector", title: "Flow collector" },
         ...kinds.map((k) => {
           const n = sources.data?.sources.filter((s) => s.kind === k.name).length ?? 0
           return { to: `sources/${k.name}`, title: kindPlural(k), detail: n > 0 ? String(n) : undefined }
@@ -115,43 +112,6 @@ export function DatabasesSettings() {
 export function SourcesSettings() {
   const { kind = "" } = useParams()
   return <SourceKindPanel key={kind} kindName={kind} />
-}
-
-/** The Flow collector: what it listens on and whether it is losing data. Its addresses are set by environment variable. */
-export function CollectorSettings() {
-  const query = useQuery({
-    queryKey: ["exporters"],
-    queryFn: ({ signal }) => fetchExporters(signal),
-    refetchInterval: 15_000,
-  })
-  return (
-    <>
-      {query.isPending ? (
-        <SectionSkeleton rows={3} />
-      ) : query.isError ? (
-        <QueryError title="Couldn't load the collector" error={query.error} />
-      ) : (
-        <CollectorCard status={query.data} now={query.dataUpdatedAt} />
-      )}
-      <Card>
-        <CardHeader>
-          <CardTitle>Where these come from</CardTitle>
-          <CardDescription>
-            The collector starts with Flowmon, so its settings are environment variables:{" "}
-            <code className="font-mono text-ident">FLOWMON_FLOW_UDP_ADDRS</code> (the addresses it listens on),{" "}
-            <code className="font-mono text-ident">FLOWMON_UDP_RECEIVE_BUFFER_MB</code>,{" "}
-            <code className="font-mono text-ident">FLOWMON_EXPORTER_AUTO_ACCEPT</code> and{" "}
-            <code className="font-mono text-ident">FLOWMON_EXPORTER_ALLOWLIST</code>. Each Exporter is approved, and its
-            Interfaces and classification set, on the{" "}
-            <Link to="/exporters" className="underline underline-offset-4">
-              Exporters
-            </Link>{" "}
-            page.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    </>
-  )
 }
 
 export function GeoIPCard() {
