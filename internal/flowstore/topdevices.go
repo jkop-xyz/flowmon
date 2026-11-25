@@ -3,6 +3,7 @@ package flowstore
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 // topDevices ranks Local Hosts by Device (TopDevices). A MAC later found to be a router
 // hop (router_macs) counts as no MAC. Traffic without a MAC counts toward the Device its
 // address had in the range, when it had exactly one (replies that arrived before the
-// address sent anything); otherwise by address.
+// address sent anything); otherwise by address, merged into host groups as in Top.
 func (s *Store) topDevices(ctx context.Context, q TopQuery, g Granularity, res TopResult) (TopResult, error) {
 	tables := s.rollupTablesFor(g, res.From, res.To)
 	if len(tables) == 0 {
@@ -29,6 +30,11 @@ func (s *Store) topDevices(ctx context.Context, q TopQuery, g Granularity, res T
 	for _, t := range tables {
 		parts = append(parts, fmt.Sprintf(`SELECT bucket, local_host, local_is_exporter_host, local_mac, bytes_rx, bytes_tx, estimated_rx, estimated_tx FROM %s WHERE %s`, t, where))
 	}
+	// Host groups are merged below, so every row is read.
+	limit := fmt.Sprintf("LIMIT %d", q.Limit)
+	if len(q.HostGroups) > 0 {
+		limit = ""
+	}
 	query := fmt.Sprintf(`
 WITH r AS (%s),
 m AS (SELECT r.* EXCLUDE (local_mac), CASE WHEN r.local_mac <> '' AND r.local_mac NOT IN (SELECT mac FROM router_macs)
@@ -39,7 +45,7 @@ g AS (SELECT dev, arg_max(local_host, bucket) AS host, count(DISTINCT local_host
 		sum(bytes_rx) AS rx, sum(bytes_tx) AS tx, sum(estimated_rx + estimated_tx) AS est, max(bucket) AS last
 	FROM k GROUP BY dev, CASE WHEN dev = '' THEN local_host ELSE '' END)
 SELECT dev, host, addrs, eh, rx, tx, est, last, rx + tx AS total, sum(rx + tx) OVER (), sum(est) OVER (), count(*) OVER ()
-FROM g ORDER BY total DESC, host LIMIT %d`, strings.Join(parts, "\nUNION ALL\n"), q.Limit)
+FROM g ORDER BY total DESC, host %s`, strings.Join(parts, "\nUNION ALL\n"), limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return TopResult{}, fmt.Errorf("top devices query: %w", err)
@@ -65,5 +71,13 @@ FROM g ORDER BY total DESC, host LIMIT %d`, strings.Join(parts, "\nUNION ALL\n")
 		}
 		res.Items = append(res.Items, it)
 	}
-	return res, rows.Err()
+	if err := rows.Err(); err != nil {
+		return TopResult{}, err
+	}
+	if len(q.HostGroups) > 0 {
+		all := groupTopHosts(res.Items, q.HostGroups, math.MaxInt)
+		res.Count = len(all)
+		res.Items = all[:min(q.Limit, len(all))]
+	}
+	return res, nil
 }

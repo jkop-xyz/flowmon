@@ -39,7 +39,7 @@ type TopQuery struct {
 	Exporter  netip.Addr
 	Limit     int
 	// HostGroups are Host Labels' prefixes: the addresses that count towards a wider one
-	// (see hostKey) are one Local Host, ranked under the prefix. Only for TopLocalHosts.
+	// (see hostKey) are one Local Host, ranked under the prefix. For TopLocalHosts, and for TopDevices traffic without a MAC.
 	HostGroups []netip.Prefix
 }
 
