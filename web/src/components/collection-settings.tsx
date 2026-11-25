@@ -237,3 +237,81 @@ function RetentionForm({ settings }: { settings: Settings }) {
     </form>
   )
 }
+
+/** The internet line's speed, which the Overview measures WAN load against. */
+export function InternetLineCard() {
+  const query = useSettings()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Internet line</CardTitle>
+        <CardDescription>
+          Your line's download and upload speed, as your provider sells it. The Overview shows how full the line is
+          against these, from the router's WAN Interface counters. Empty, it uses the interface's own speed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {query.isPending ? (
+          <SectionSkeleton rows={1} />
+        ) : query.isError ? (
+          <QueryError title="Couldn't load the settings" error={query.error} />
+        ) : (
+          <InternetLineForm key={`${query.data.line.downBps}/${query.data.line.upBps}`} settings={query.data} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const mbps = (bps: number) => (bps > 0 ? String(bps / 1_000_000) : "")
+
+function InternetLineForm({ settings }: { settings: Settings }) {
+  const initial = { down: mbps(settings.line.downBps), up: mbps(settings.line.upBps) }
+  const [values, setValues] = useState(initial)
+  const save = useSave()
+  const changed = values.down !== initial.down || values.up !== initial.up
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const bps = (v: string) => Math.round((Number(v) || 0) * 1_000_000)
+    save.mutate({ line: { downBps: bps(values.down), upBps: bps(values.up) } })
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field id="line-down" label="Download (Mbit/s)">
+          <Input
+            id="line-down"
+            type="number"
+            min={0}
+            step="any"
+            placeholder="500"
+            value={values.down}
+            onChange={(e) => setValues({ ...values, down: e.target.value })}
+          />
+        </Field>
+        <Field id="line-up" label="Upload (Mbit/s)">
+          <Input
+            id="line-up"
+            type="number"
+            min={0}
+            step="any"
+            placeholder="100"
+            value={values.up}
+            onChange={(e) => setValues({ ...values, up: e.target.value })}
+          />
+        </Field>
+      </div>
+      <FormError error={save.error} />
+      <FormActions>
+        {changed && (
+          <Button type="button" size="sm" variant="ghost" onClick={() => setValues(initial)}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" size="sm" disabled={!changed || save.isPending}>
+          Save
+        </Button>
+      </FormActions>
+    </form>
+  )
+}

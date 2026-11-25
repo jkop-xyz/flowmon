@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,13 +33,20 @@ const (
 	keyRetentionMinute = "retention_minute"
 	keyRetentionHour   = "retention_hour"
 	keyRetentionDNS    = "retention_dns"
+	keyLineDown        = "line_down_bps"
+	keyLineUp          = "line_up_bps"
 )
 
 // Values are the settings in effect.
 type Values struct {
 	LocalNetworks []netip.Prefix
 	Retention     flowstore.Retention
+	// Line is the internet line's speed, which the Overview measures WAN load against.
+	Line Line
 }
+
+// Line is an internet line's speed in bits per second; 0 is unknown.
+type Line struct{ Down, Up uint64 }
 
 // Locks say which settings are set by environment variable.
 type Locks struct {
@@ -91,6 +99,17 @@ func Load(ctx context.Context, store Store, env Env) (*Manager, error) {
 				return nil, fmt.Errorf("stored Local Networks: %w", err)
 			}
 			m.current.LocalNetworks = nets
+		}
+	}
+	for key, into := range map[string]*uint64{keyLineDown: &m.current.Line.Down, keyLineUp: &m.current.Line.Up} {
+		v, ok, err := store.Setting(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if *into, err = strconv.ParseUint(v, 10, 64); err != nil {
+				return nil, fmt.Errorf("stored %s: %w", key, err)
+			}
 		}
 	}
 	for _, r := range m.retentionFields(&m.current.Retention) {
@@ -159,7 +178,11 @@ var (
 type Update struct {
 	LocalNetworks          []netip.Prefix
 	Raw, Minute, Hour, DNS *time.Duration
+	Line                   *Line
 }
+
+// MaxLine bounds a line's speed: 100 Gbit/s.
+const MaxLine = 100_000_000_000
 
 // MinRetention and MaxRetention bound retention: a day, so the newest data is always
 // rolled up and listed before it can go, and the longest range a query accepts.
@@ -211,6 +234,13 @@ func (m *Manager) Update(ctx context.Context, u Update) (Values, error) {
 		}
 		*f.field.into = *f.value
 		save[f.field.key] = f.value.String()
+	}
+	if u.Line != nil {
+		if u.Line.Down > MaxLine || u.Line.Up > MaxLine {
+			return Values{}, fmt.Errorf("%w: a line is at most 100 Gbit/s", ErrInvalid)
+		}
+		next.Line = *u.Line
+		save[keyLineDown], save[keyLineUp] = strconv.FormatUint(u.Line.Down, 10), strconv.FormatUint(u.Line.Up, 10)
 	}
 	r := next.Retention
 	if r.Raw > r.Minute || r.Minute > r.Hour {

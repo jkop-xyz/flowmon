@@ -152,3 +152,23 @@ func TestDNSRetention(t *testing.T) {
 		t.Errorf("changing locked DNS retention: %v", err)
 	}
 }
+
+// The internet line's speed is kept across restarts; 0 means unknown.
+func TestLine(t *testing.T) {
+	ctx := context.Background()
+	store := memStore{}
+	m, _ := Load(ctx, store, env())
+	if m.Current().Line != (Line{}) {
+		t.Errorf("a line before one is set: %+v", m.Current().Line)
+	}
+	if _, err := m.Update(ctx, Update{Line: &Line{Down: 500_000_000, Up: 100_000_000}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Update(ctx, Update{Line: &Line{Down: 200_000_000_000}}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("200 Gbit/s: %v", err)
+	}
+	again, err := Load(ctx, store, env())
+	if err != nil || again.Current().Line != (Line{500_000_000, 100_000_000}) {
+		t.Errorf("after a restart: %+v %v", again.Current().Line, err)
+	}
+}

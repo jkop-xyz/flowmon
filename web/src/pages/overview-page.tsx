@@ -14,7 +14,16 @@ import {
   type BandwidthResult,
   type TopDimension,
   type TopItem,
+  type WANLoad,
 } from "@/lib/api"
+import {
+  DeviceHealthCard,
+  DNSOverviewCard,
+  InterfaceProblemsCard,
+  UsageNowCard,
+  WANLoadCard,
+} from "@/components/overview-network"
+import { dnsQuery, lineShare, useNetworkOverview } from "@/lib/overview"
 import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
 import { Page, QueryError, SectionSkeleton } from "@/components/page"
@@ -29,7 +38,7 @@ import { useHostNames } from "@/lib/hosts"
 import { ReverseDNS } from "@/components/reverse-dns"
 import { useReverseDNS } from "@/lib/reverse-dns"
 import { countryName } from "@/lib/countries"
-import { formatBytes, formatNumber, protocolName } from "@/lib/format"
+import { formatBitsPerSecond, formatBytes, formatNumber, protocolName } from "@/lib/format"
 import { useExporterFilter } from "@/lib/exporter-filter"
 import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-range"
 import type { Area } from "@/lib/navigation"
@@ -69,69 +78,49 @@ export function OverviewPage() {
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const query = useQuery(bandwidthQuery({ preset, exporter }))
-
+  const network = useNetworkOverview()
+  const dns = useQuery(dnsQuery(preset))
   const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
   const showDomains = useDomainsShown()
+  const wan = network.data?.wan
+  const devices = network.data?.devices ?? []
+  const dnsOn = (dns.data?.dnsSources ?? 0) > 0
+  const healthCards = (devices.length > 0 ? 2 : 0) + (dnsOn ? 1 : 0)
 
   return (
     <Page>
-      <Figures />
-      {/* On wide screens: the chart and the map side by side, then every list in one row. */}
-      <div className="grid gap-6 4xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AreaChip area="overview" icon={ChartArea} />
-              Bandwidth
-            </CardTitle>
-            <CardDescription>
-              Traffic crossing the boundary between your Local Networks and the internet, {preset.label.toLowerCase()}.
-              Each Flow is spread over its duration.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {query.isPending ? (
-              <Skeleton className="h-72 w-full" />
-            ) : query.isError ? (
-              <QueryError title="Couldn't load bandwidth" error={query.error} />
-            ) : (
-              <TrafficChart
-                points={query.data.result.points}
-                series={bandwidthSeries}
-                stepSeconds={query.data.result.stepSeconds}
-                rangeMs={preset.ms}
-                incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
-                changes={query.data.changes ?? []}
-              />
-            )}
-            {query.data && (
-              <div className="mt-3">
-                <EstimateNote estimated={query.data.result.estimatedBytes} total={bandwidthBytes(query.data.result)} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <CountriesCard />
+      <Figures wan={wan ?? undefined} />
+      {/* The load now and who causes it; without SNMP, the Flows' bandwidth. */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+        {wan ? <WANLoadCard wan={wan} fetched={network.dataUpdatedAt} /> : <BandwidthCard />}
+        <UsageNowCard />
       </div>
 
+      {healthCards > 0 && (
+        <div className={cn("grid items-start gap-6", healthCards === 1 ? "" : healthCards === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
+          {devices.length > 0 && <DeviceHealthCard devices={devices} fetched={network.dataUpdatedAt} />}
+          {devices.length > 0 && <InterfaceProblemsCard problems={network.data?.problems ?? []} />}
+          {dnsOn && <DNSOverviewCard />}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
-        <div className={cn("grid items-start gap-6 lg:grid-cols-6", showDomains ? "4xl:grid-cols-6" : "4xl:grid-cols-5")}>
+        <div className={cn("grid items-start gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
           <TopCard
-            className={cn(showDomains ? "lg:col-span-2" : "lg:col-span-3", "4xl:col-span-1")}
             dimension="devices"
             area="hosts"
             icon={Monitor}
-            title="Local Hosts"
-            what="Local Hosts"
+            title="Devices"
+            what="Devices"
             description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address."
             action={
               <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
-                All Local Hosts
+                All Devices
               </Link>
             }
           />
+          {showDomains && <DomainsCard />}
           <TopCard
-            className={cn(showDomains ? "lg:col-span-2" : "lg:col-span-3", "4xl:col-span-1")}
             dimension="remotes"
             area="remote"
             icon={Globe}
@@ -144,9 +133,10 @@ export function OverviewPage() {
               </Link>
             }
           />
-          {showDomains && <DomainsCard className="lg:col-span-2 4xl:col-span-1" />}
+        </div>
+        <div className="grid items-start gap-6 lg:grid-cols-3 3xl:grid-cols-5">
+          <CountriesCard className="lg:col-span-3 3xl:col-span-2" />
           <TopCard
-            className="lg:col-span-2 4xl:col-span-1"
             dimension="asns"
             area="remote"
             icon={Building2}
@@ -157,7 +147,6 @@ export function OverviewPage() {
             footer={<GeoIPNote />}
           />
           <TopCard
-            className="lg:col-span-2 4xl:col-span-1"
             dimension="ports"
             area="explorer"
             icon={Plug}
@@ -166,7 +155,6 @@ export function OverviewPage() {
             description="The busiest Service Ports, as Network Totals."
           />
           <TopCard
-            className="lg:col-span-2 4xl:col-span-1"
             dimension="protocols"
             area="explorer"
             icon={Layers}
@@ -182,6 +170,49 @@ export function OverviewPage() {
         )}
       </div>
     </Page>
+  )
+}
+
+/** Bandwidth from Flows: what the Overview charts when no SNMP source polls a WAN Interface. */
+function BandwidthCard() {
+  const { preset } = useTimeRange()
+  const { exporter } = useExporterFilter()
+  const query = useQuery(bandwidthQuery({ preset, exporter }))
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <AreaChip area="overview" icon={ChartArea} />
+          Bandwidth
+        </CardTitle>
+        <CardDescription>
+          Traffic crossing the boundary between your Local Networks and the internet, {preset.label.toLowerCase()}. Each
+          Flow is spread over its duration. With an SNMP source on the router and a WAN Interface marked, this shows
+          the router's own counters instead.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {query.isPending ? (
+          <Skeleton className="h-72 w-full" />
+        ) : query.isError ? (
+          <QueryError title="Couldn't load bandwidth" error={query.error} />
+        ) : (
+          <TrafficChart
+            points={query.data.result.points}
+            series={bandwidthSeries}
+            stepSeconds={query.data.result.stepSeconds}
+            rangeMs={preset.ms}
+            incompleteFrom={new Date(query.data.incompleteFrom).getTime()}
+            changes={query.data.changes ?? []}
+          />
+        )}
+        {query.data && (
+          <div className="mt-3">
+            <EstimateNote estimated={query.data.result.estimatedBytes} total={bandwidthBytes(query.data.result)} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -234,7 +265,7 @@ function explorerFor(search: string, filters: Record<string, string>) {
   return { pathname: "/flows", search: `?${params}` }
 }
 
-function CountriesCard() {
+function CountriesCard({ className }: { className?: string }) {
   const navigate = useNavigate()
   const { search } = useLocation()
   const { preset } = useTimeRange()
@@ -248,7 +279,7 @@ function CountriesCard() {
   })
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <AreaChip area="remote" icon={Earth} />
@@ -433,48 +464,134 @@ function TopCard({
   )
 }
 
-/** The range's headline numbers, from the requests the chart and lists already make. */
-function Figures() {
+/**
+ * The headline numbers: the WAN's load now against the line (with SNMP), the range's traffic, Local Hosts and
+ * Remote IPs, and DNS lookups when a DNS source exists. Each comes from a request the cards make anyway.
+ */
+function Figures({ wan }: { wan?: WANLoad }) {
   const { search } = useLocation()
   const { preset } = useTimeRange()
   const { exporter } = useExporterFilter()
   const bandwidth = useQuery(bandwidthQuery({ preset, exporter }))
-  const hosts = useQuery(topQuery("hosts", { preset, exporter }))
+  const hosts = useQuery(topQuery("devices", { preset, exporter }))
   const remotes = useQuery(topQuery("remotes", { preset, exporter }))
+  const dns = useQuery(dnsQuery(preset))
   const bytes = (key: "inboundBps" | "outboundBps") =>
-    bandwidth.data && formatBytes(
-      bandwidth.data.result.points.reduce((n, p) => n + (p[key] * bandwidth.data.result.stepSeconds) / 8, 0),
-    )
+    bandwidth.data &&
+    formatBytes(bandwidth.data.result.points.reduce((n, p) => n + (p[key] * bandwidth.data.result.stepSeconds) / 8, 0))
   const remoteCount = remotes.data && formatNumber(remotes.data.result.count)
-
-  return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border lg:grid-cols-4">
+  const d = dns.data?.dnsSources ? dns.data.result : undefined
+  const devices = hosts.data && formatNumber(hosts.data.result.count)
+  const remoteLabel = remotes.data?.result.approximate ? `at least ${remoteCount}` : remoteCount
+  const figures: ReactNode[] = []
+  if (wan) {
+    // The load now leads; the range's traffic shares one tile, as do its counts.
+    figures.push(
+      <LoadFigure key="down" label="Download now" color="var(--chart-1)" bps={wan.now?.inBps} line={wan.line.downBps} lineSet={wan.line.fromSetting} />,
+      <LoadFigure key="up" label="Upload now" color="var(--chart-2)" bps={wan.now?.outBps} line={wan.line.upBps} lineSet={wan.line.fromSetting} />,
       <Figure
-        label={<Swatch color="var(--chart-1)">Received</Swatch>}
+        key="traffic"
+        label={`Received · sent, ${preset.label.toLowerCase()}`}
         value={bytes("inboundBps")}
-      />
-      <Figure label={<Swatch color="var(--chart-2)">Sent</Swatch>} value={bytes("outboundBps")} />
+        detail={bytes("outboundBps")}
+        footer={
+          <span className="flex flex-wrap gap-x-3">
+            <AreaLink area="hosts" to={{ pathname: "/hosts", search }}>
+              {devices ?? "…"} Devices
+            </AreaLink>
+            <AreaLink area="remote" to={{ pathname: "/remote", search }}>
+              {remoteLabel ?? "…"} Remote IPs
+            </AreaLink>
+          </span>
+        }
+      />,
+    )
+  } else {
+    figures.push(
+      <Figure key="rx" label={<Swatch color="var(--chart-1)">Received</Swatch>} value={bytes("inboundBps")} />,
+      <Figure key="tx" label={<Swatch color="var(--chart-2)">Sent</Swatch>} value={bytes("outboundBps")} />,
+      <Figure key="hosts" label={<AreaLink area="hosts" to={{ pathname: "/hosts", search }}>Devices</AreaLink>} value={devices} />,
+      <Figure key="remotes" label={<AreaLink area="remote" to={{ pathname: "/remote", search }}>Remote IPs</AreaLink>} value={remoteLabel} />,
+    )
+  }
+  if (d) {
+    figures.push(
       <Figure
-        label={<AreaLink area="hosts" to={{ pathname: "/hosts", search }}>Local Hosts</AreaLink>}
-        value={hosts.data && formatNumber(hosts.data.result.count)}
-      />
-      <Figure
-        label={<AreaLink area="remote" to={{ pathname: "/remote", search }}>Remote IPs</AreaLink>}
-        value={remotes.data?.result.approximate ? `at least ${remoteCount}` : remoteCount}
-      />
+        key="dns"
+        label={<AreaLink area="dns" to={{ pathname: "/dns", search }}>DNS lookups</AreaLink>}
+        value={formatNumber(d.queries)}
+        detail={d.queries > 0 ? `${((100 * d.blocked) / d.queries).toFixed(1)} % blocked` : undefined}
+      />,
+    )
+  }
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border",
+        figures.length === 3 ? "lg:grid-cols-3" : figures.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-5",
+      )}
+    >
+      {figures}
     </div>
   )
 }
 
-function Figure({ label, value }: { label: ReactNode; value: string | undefined }) {
+/** A rate now against the line's speed, with a meter that warns above 80 %. */
+function LoadFigure({ label, color, bps, line, lineSet }: { label: string; color: string; bps?: number; line: number; lineSet: boolean }) {
+  const share = bps !== undefined ? lineShare(bps, line) : undefined
+  return (
+    <div className="flex flex-col gap-1 bg-card px-5 py-4">
+      <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <Swatch color={color}>{label}</Swatch>
+        {share !== undefined && (
+          <span className={cn("tabular-nums", share > 0.8 && "font-medium text-warning-foreground")}>
+            {(share * 100).toFixed(0)} % of {lineSet ? "line" : "port"}
+          </span>
+        )}
+      </span>
+      {bps === undefined ? (
+        <span className="text-sm text-muted-foreground">No recent counters</span>
+      ) : (
+        <span className="text-2xl font-semibold tracking-tight tabular-nums">
+          {formatBitsPerSecond(bps)}
+          {line > 0 && <span className="text-sm font-normal text-muted-foreground"> / {formatBitsPerSecond(line)}</span>}
+        </span>
+      )}
+      {share !== undefined && (
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full", share > 0.8 ? "bg-warning" : "")}
+            style={{ width: `${Math.min(100, share * 100)}%`, background: share > 0.8 ? undefined : color }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Figure({
+  label,
+  value,
+  detail,
+  footer,
+}: {
+  label: ReactNode
+  value: string | undefined
+  detail?: string
+  footer?: ReactNode
+}) {
   return (
     <div className="flex flex-col gap-1 bg-card px-5 py-4">
       <span className="text-xs text-muted-foreground">{label}</span>
       {value === undefined ? (
         <Skeleton className="h-8 w-24" />
       ) : (
-        <span className="text-2xl font-semibold tracking-tight tabular-nums">{value}</span>
+        <span className="text-2xl font-semibold tracking-tight tabular-nums">
+          {value}
+          {detail && <span className="text-sm font-normal text-muted-foreground"> · {detail}</span>}
+        </span>
       )}
+      {footer && <span className="text-xs">{footer}</span>}
     </div>
   )
 }

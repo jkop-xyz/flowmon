@@ -19,6 +19,7 @@ export function BarRow({
   sent,
   max,
   estimated,
+  format = formatBytes,
 }: {
   label: ReactNode
   total: number
@@ -27,6 +28,8 @@ export function BarRow({
   max: number
   /** The part of total scaled up from sampled Flows. */
   estimated?: number
+  /** How the numbers read: bytes by default. */
+  format?: (n: number) => string
 }) {
   const width = max > 0 ? Math.max(2, (total / max) * 100) : 0
   return (
@@ -38,12 +41,12 @@ export function BarRow({
             <EstimateMark title={`${estimateShare(estimated, total)} estimated from sampled packets`} />
           ) : null}
           {estimated ? " " : null}
-          {formatBytes(total)}
+          {format(total)}
         </span>
       </div>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" style={{ width: `${width}%` }}>
-        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${formatBytes(received)}`} />
-        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`Sent ${formatBytes(sent)}`} />
+        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${format(received)}`} />
+        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`Sent ${format(sent)}`} />
       </div>
     </li>
   )
