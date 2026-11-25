@@ -117,12 +117,12 @@ export function OverviewPage() {
         <div className={cn("grid items-start gap-6 lg:grid-cols-6", showDomains ? "4xl:grid-cols-6" : "4xl:grid-cols-5")}>
           <TopCard
             className={cn(showDomains ? "lg:col-span-2" : "lg:col-span-3", "4xl:col-span-1")}
-            dimension="hosts"
+            dimension="devices"
             area="hosts"
             icon={Monitor}
             title="Local Hosts"
             what="Local Hosts"
-            description="The busiest Local Hosts by bytes sent and received, including Internal traffic."
+            description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address."
             action={
               <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
                 All Local Hosts
@@ -205,7 +205,7 @@ function itemLabel(dimension: TopDimension, item: TopItem) {
 
 /** A row's React key, from every field a list can be by. A field missing here gives that list's rows one key. */
 function itemKey(item: TopItem) {
-  return `${item.host}/${item.remoteIp}/${item.protocol}/${item.servicePort}/${item.country}/${item.asn}`
+  return `${item.mac}/${item.host}/${item.remoteIp}/${item.protocol}/${item.servicePort}/${item.country}/${item.asn}`
 }
 
 /** Under GeoIP data: why it is missing, or the attribution DB-IP's licence asks for. */
@@ -292,7 +292,7 @@ function CardFooterNote({ children }: { children: ReactNode }) {
 function TopList({ dimension, items, mono = true }: { dimension: TopDimension; items: TopItem[]; mono?: boolean }) {
   const { search } = useLocation()
   const names = useReverseDNS(dimension === "remotes" ? items.map((i) => i.remoteIp ?? "") : [])
-  const hostNames = useHostNames(dimension === "hosts" ? items.map((i) => i.host ?? "") : [])
+  const hostNames = useHostNames(dimension === "hosts" || dimension === "devices" ? items.map((i) => i.host ?? "") : [])
   const serviceNames = useServiceNames(
     dimension === "ports" ? items.map((i) => ({ protocol: i.protocol, port: i.servicePort })) : [],
   )
@@ -301,12 +301,14 @@ function TopList({ dimension, items, mono = true }: { dimension: TopDimension; i
   const label = (item: TopItem) => {
     switch (dimension) {
       case "hosts":
+      case "devices":
         return (
           <HostLink
             host={item.host ?? ""}
             name={hostNames[item.host ?? ""]}
             exporterHost={item.localIsExporterHost}
             addresses={item.addresses}
+            device={item.mac ? { mac: item.mac, vendor: item.vendor, privateMac: item.privateMac } : undefined}
           />
         )
       case "remotes":

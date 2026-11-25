@@ -46,6 +46,9 @@ type Router struct {
 type Options struct {
 	// Known are the router MACs learned before, from the Flow Store.
 	Known []Router
+	// Recent are addresses Devices sent from lately (the Flow Store's device addresses),
+	// so after a restart a reply to one still gets its Device before it sends again.
+	Recent []Sighting
 	// Learned is called once for each router MAC learned; the Flow Store keeps them so
 	// views can leave out Flows assigned to it before it was known.
 	Learned func(Router)
@@ -65,6 +68,13 @@ type Assigner struct {
 	sent map[netip.Addr]sighting
 }
 
+// Sighting is a MAC an address was seen with, and when.
+type Sighting struct {
+	Address netip.Addr
+	MAC     flow.MAC
+	At      time.Time
+}
+
 type sighting struct {
 	mac flow.MAC
 	at  time.Time
@@ -79,6 +89,11 @@ func New(opts Options) *Assigner {
 	}
 	for _, r := range opts.Known {
 		a.routers[r.MAC] = true
+	}
+	for _, s := range opts.Recent {
+		if prev, ok := a.sent[s.Address]; !ok || s.At.After(prev.at) {
+			a.sent[s.Address.Unmap()] = sighting{s.MAC, s.At}
+		}
 	}
 	return a
 }

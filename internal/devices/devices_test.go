@@ -249,3 +249,13 @@ func TestReceivedFlowsTakeTheMACTheAddressSentFrom(t *testing.T) {
 		t.Errorf("after the address moved: %s, want %s", again.LocalMAC, laptop)
 	}
 }
+
+func TestRecentAddressesBridgeARestart(t *testing.T) {
+	client := ip("192.168.10.44")
+	a := New(Options{Recent: []Sighting{{Address: client, MAC: phone, At: t0}}})
+	in := classified(routerOSInbound(client), flow.DirectionInbound, client, remote, t0.Add(time.Hour))
+	a.Assign(&in)
+	if in.LocalMAC != phone {
+		t.Errorf("reply after a restart: %q, want %s from the recent addresses", in.LocalMAC, phone)
+	}
+}
