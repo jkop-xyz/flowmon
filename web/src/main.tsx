@@ -1,7 +1,7 @@
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { BrowserRouter, Route, Routes } from "react-router"
+import { BrowserRouter, Navigate, Route, Routes } from "react-router"
 
 import "./index.css"
 import { AppLayout } from "@/components/app-layout"
@@ -20,7 +20,9 @@ import { NotFoundPage, PlaceholderPage } from "@/pages/placeholder-page"
 import { RemoteIPPage, RemoteIPsPage } from "@/pages/remote-pages"
 import { DNSDomainPage, DNSPage } from "@/pages/dns-pages"
 import { SNMPDevicePage } from "@/pages/snmp-pages"
-import { SettingsPage } from "@/pages/settings-page"
+import { CollectorSettings, DatabasesSettings, GeoIPCard, SettingsLayout, SourcesSettings } from "@/pages/settings-page"
+import { LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
+import { ServiceNamesCard } from "@/components/service-names-card"
 
 /** Screens that exist; every other navigation item shows a placeholder. */
 const screens: Record<string, React.ReactNode> = {
@@ -30,7 +32,6 @@ const screens: Record<string, React.ReactNode> = {
   "/flows": <FlowExplorerPage />,
   "/remote": <RemoteIPsPage />,
   "/dns": <DNSPage />,
-  "/settings": <SettingsPage />,
 }
 
 const queryClient: QueryClient = new QueryClient({
@@ -55,13 +56,25 @@ createRoot(document.getElementById("root")!).render(
             <BrowserRouter>
               <Routes>
                 <Route element={<AppLayout />}>
-                  {navItems.map((item) => (
-                    <Route
-                      key={item.path}
-                      path={item.path}
-                      element={screens[item.path] ?? <PlaceholderPage item={item} />}
-                    />
-                  ))}
+                  {navItems
+                    .filter((item) => item.path !== "/settings")
+                    .map((item) => (
+                      <Route
+                        key={item.path}
+                        path={item.path}
+                        element={screens[item.path] ?? <PlaceholderPage item={item} />}
+                      />
+                    ))}
+                  <Route path="/settings" element={<SettingsLayout />}>
+                    <Route index element={<Navigate to="local-networks" replace />} />
+                    <Route path="local-networks" element={<LocalNetworksCard />} />
+                    <Route path="service-names" element={<ServiceNamesCard />} />
+                    <Route path="collector" element={<CollectorSettings />} />
+                    <Route path="sources/:kind" element={<SourcesSettings />} />
+                    <Route path="retention" element={<RetentionCard />} />
+                    <Route path="databases" element={<DatabasesSettings />} />
+                    <Route path="geoip" element={<GeoIPCard />} />
+                  </Route>
                   <Route path="/hosts/*" element={<LocalHostPage />} />
                   <Route path="/devices/:mac" element={<DevicePage />} />
                   <Route path="/remote/:ip" element={<RemoteIPPage />} />

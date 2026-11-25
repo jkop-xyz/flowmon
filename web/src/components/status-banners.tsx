@@ -86,8 +86,8 @@ function OverCapBanner({ s }: { s: FlowStoreCapStatus }) {
         <p>
           It takes {formatBytes(s.usedBytes)} of the {formatBytes(s.maxBytes)} FLOWMON_FLOW_STORE_MAX_GB allows, and
           everything the cap may drop is gone, so it keeps growing. See the{" "}
-          <Link to="/settings" className="underline underline-offset-4">
-            Settings
+          <Link to="/settings/databases" className="underline underline-offset-4">
+            Settings → Databases
           </Link>{" "}
           page.
         </p>

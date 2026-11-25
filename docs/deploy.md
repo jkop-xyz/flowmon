@@ -91,7 +91,7 @@ SNMP Data Sources add each device's interfaces (`flowmon_interface_up`, `_speed_
 Flowmon looks up each Remote IP's country and ASN Owner when its Flow is stored. It picks a database for each, in this order:
 
 1. **Your own files.** Put MMDB files (MaxMind GeoLite2/GeoIP2 Country, City or ASN, or DB-IP Lite) in `/data/geoip`, or mount a directory there and set `FLOWMON_GEOIP_DIR`. Flowmon checks for new or changed files every hour and never replaces them.
-2. **MaxMind GeoLite2**, once you enter your account ID and license key in Settings, under GeoIP databases. A [free account](https://www.maxmind.com/en/geolite2/signup) gives you both. The key is stored encrypted with `secret.key`, and the download starts at once, then weekly. `FLOWMON_MAXMIND_ACCOUNT_ID` and `FLOWMON_MAXMIND_LICENSE_KEY` (or `FLOWMON_MAXMIND_LICENSE_KEY_FILE`) still work and lock the setting.
+2. **MaxMind GeoLite2**, once you enter your account ID and license key under Settings → GeoIP. A [free account](https://www.maxmind.com/en/geolite2/signup) gives you both. The key is stored encrypted with `secret.key`, and the download starts at once, then weekly. `FLOWMON_MAXMIND_ACCOUNT_ID` and `FLOWMON_MAXMIND_LICENSE_KEY` (or `FLOWMON_MAXMIND_LICENSE_KEY_FILE`) still work and lock the setting.
 3. **DB-IP Lite**, downloaded weekly without an account. It is licensed under CC BY 4.0, so the UI credits DB-IP wherever its data shows.
 
 Downloads go to `/data/geoip-downloads`. With downloads switched off in Settings (or `FLOWMON_GEOIP_DOWNLOAD=false`, which locks it), nothing is downloaded and only your own files are used. Settings shows which database is in use, how old it is, and why a download failed.
@@ -113,9 +113,9 @@ A Local Host is shown by its Host Name: a Host Label you set on the Local Hosts 
 
 ## DNS from AdGuard Home
 
-Flowmon can read AdGuard Home's query log, to show which names each device looks up and, in later versions, which domains its traffic goes to. Nothing is collected until you add AdGuard Home as a Data Source, because DNS logs say much more about what people do than Flows. Flowmon polls `/control/querylog` every 15 seconds with AdGuard Home's own login, and keeps DNS Queries for the DNS retention on the Settings page (7 days unless changed). The first poll reaches back one day. If Flowmon is off longer than AdGuard Home keeps its log, that time has no DNS and the source shows a warning.
+Flowmon can read AdGuard Home's query log, to show which names each device looks up and, in later versions, which domains its traffic goes to. Nothing is collected until you add AdGuard Home as a Data Source, because DNS logs say much more about what people do than Flows. Flowmon polls `/control/querylog` every 15 seconds with AdGuard Home's own login, and keeps DNS Queries for the DNS retention under Settings → Retention (7 days unless changed). The first poll reaches back one day. If Flowmon is off longer than AdGuard Home keeps its log, that time has no DNS and the source shows a warning.
 
-Add it under Settings → Data Sources: its address, and a user AdGuard Home accepts. Test shows its version and how long it keeps its log. Or set it with environment variables, which lock it in the UI:
+Add it under Settings → AdGuard Home: its address, and a user AdGuard Home accepts. Test shows its version and how long it keeps its log. Or set it with environment variables, which lock it in the UI:
 
 ```sh
 FLOWMON_SOURCE_ADGUARD_KIND=adguard
@@ -133,7 +133,7 @@ Flowmon also names traffic by domain. Each Flow gets the name its device looked 
 
 ## Settings and environment variables
 
-Local Networks and retention can be changed on the Settings page. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.
+Local Networks and retention can be changed under Settings → Local Networks and Settings → Retention. An environment variable wins: a field set by `FLOWMON_LOCAL_NETWORKS` or `FLOWMON_RETENTION_*` shows as locked. These settings are kept in the Flow Store, not the App Store, so collection never needs the App Store.
 
 Data Sources (integrations other than Exporters) can be set by environment variables too. Each Source gets an ID of letters and digits, and its settings are the Source's fields in capitals:
 
@@ -188,7 +188,7 @@ If you chose **PostgreSQL** for the App Store, accounts, sessions, Host Labels a
 
 Copying `flows.duckdb` while Flowmon runs can give a broken copy. Either stop Flowmon first (`docker compose stop`, or `systemctl stop flowmon`), or download a snapshot while it runs:
 
-- **In the UI:** Settings → Flow Store → **Download a backup**.
+- **In the UI:** Settings → Databases → **Download a backup**.
 - **From a script:** set `FLOWMON_BACKUP_TOKEN` (or `FLOWMON_BACKUP_TOKEN_FILE`) and send it as a bearer token:
 
   ```sh

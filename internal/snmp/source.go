@@ -68,8 +68,8 @@ func (k *SourceKind) Info() datasource.KindInfo {
 		Title: "SNMP device",
 		Description: "Polls every interface of a router, switch, access point or NAS over SNMP each minute: traffic, " +
 			"errors, discards, speed and whether it is up, and its health: uptime, CPU, memory, and on MikroTik its " +
-			"temperatures, voltage and Wi-Fi clients. Kept per minute and hour for the Rollup retentions on the Settings " +
-			"page. Allow SNMP only from Flowmon's address on the device.",
+			"temperatures, voltage and Wi-Fi clients. Kept per minute and hour for the Rollup retentions under " +
+			"Settings › Retention. Allow SNMP only from Flowmon's address on the device.",
 		Fields: []datasource.Field{
 			{Key: "address", Label: "Address", Type: datasource.FieldText, Required: true,
 				Help: "The device's address or name, with :port if it isn't 161."},

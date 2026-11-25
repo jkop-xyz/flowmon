@@ -93,6 +93,12 @@ export function SNMPDevicePage() {
               </span>
             )}
             {h.state === "failing" && h.error && <span className="text-destructive">{h.error}</span>}
+            <Link
+              to={`/settings/sources/snmp?source=${encodeURIComponent(d.source.id)}`}
+              className="underline underline-offset-4"
+            >
+              Its settings
+            </Link>
           </CardDescription>
         </CardHeader>
       </Card>

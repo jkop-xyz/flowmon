@@ -216,8 +216,8 @@ function GeoIPNote() {
     return (
       <>
         No GeoIP database is loaded yet, so countries and ASN Owners show as Unknown.{" "}
-        <Link to="/settings" className="underline underline-offset-4">
-          Settings
+        <Link to="/settings/geoip" className="underline underline-offset-4">
+          Settings → GeoIP
         </Link>{" "}
         says why.
       </>

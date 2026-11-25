@@ -1,20 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleCheck, CircleX, Lock, Pencil, Plus, Trash2 } from "lucide-react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { CircleCheck, CircleX, Lock, Plus, Trash2 } from "lucide-react"
 import { useState, type FormEvent } from "react"
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 
 import { Field, FormActions, FormError, QueryError, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
   createSource,
   deleteSource,
-  fetchSources,
   testSource,
   updateSource,
   type DataSource,
@@ -22,68 +21,134 @@ import {
   type SourceInput,
   type SourceKind,
 } from "@/lib/api"
-
-const sourcesKey = ["sources"]
+import { kindPlural, sourcesKey, useSources } from "@/lib/sources"
+import { cn } from "@/lib/utils"
 
 /** A select's value for "none": Radix selects can't hold an empty string. */
 const NONE = "__none__"
 
-/** Integrations other than Exporters, such as AdGuard Home: add, edit, test and watch them. */
-export function SourcesCard() {
-  const query = useQuery({ queryKey: sourcesKey, queryFn: ({ signal }) => fetchSources(signal), refetchInterval: 15_000 })
-  // "new:<kind>" while adding one, a source id while editing it.
-  const [editing, setEditing] = useState<string | null>(null)
-  const kinds = query.data?.kinds ?? []
+const stateDot: Record<SourceHealth["state"], string> = {
+  disabled: "bg-muted-foreground/40",
+  starting: "bg-muted-foreground",
+  ok: "bg-emerald-600",
+  failing: "bg-destructive",
+}
+
+/**
+ * The sources of one kind, such as every AdGuard Home: a list beside the selected one's status and settings.
+ * ?source=<id> in the URL picks which one is shown.
+ */
+export function SourceKindPanel({ kindName }: { kindName: string }) {
+  const query = useSources()
+  const [params, setParams] = useSearchParams()
+  // A remount resets the form after Cancel.
+  const [formKey, setFormKey] = useState(0)
+  if (query.isPending) return <SectionSkeleton rows={3} />
+  if (query.isError) return <QueryError title="Couldn't load the Data Sources" error={query.error} />
+  const kind = query.data.kinds.find((k) => k.name === kindName)
+  if (!kind)
+    return <QueryError title="No such kind of Data Source" error={new Error(`Flowmon doesn't know "${kindName}".`)} />
+  const sources = query.data.sources.filter((s) => s.kind === kindName)
+  const picked = params.get("source")
+  const adding = picked === "new" || sources.length === 0
+  const selected = adding ? undefined : (sources.find((s) => s.id === picked) ?? sources[0])
+  const pick = (id: string | null) => {
+    const next = new URLSearchParams(params)
+    if (id) next.set("source", id)
+    else next.delete("source")
+    setParams(next, { replace: true })
+    setFormKey((n) => n + 1)
+  }
+  const now = query.dataUpdatedAt
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Data Sources</CardTitle>
-        <CardDescription>
-          What Flowmon collects besides Flows from Exporters, such as DNS from AdGuard Home. Passwords are stored encrypted
-          with <code className="font-mono">secret.key</code>.
-        </CardDescription>
-        {kinds.length > 0 && editing === null && (
-          <CardAction className="flex gap-2">
-            {kinds.map((k) => (
-              <Button key={k.name} size="sm" variant="outline" onClick={() => setEditing(`new:${k.name}`)}>
-                <Plus />
-                {k.title}
-              </Button>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold">{kindPlural(kind)}</h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">{kind.description}</p>
+        </div>
+        {!adding && (
+          <Button size="sm" className="shrink-0" onClick={() => pick("new")}>
+            <Plus />
+            Add {kind.title}
+          </Button>
+        )}
+      </div>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+        {sources.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {sources.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => pick(s.id)}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted",
+                  s.id === selected?.id && "border-ring ring-1 ring-ring",
+                )}
+              >
+                <span className={cn("size-2 shrink-0 rounded-full", stateDot[s.health.state])} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 truncate font-medium">
+                    {s.name}
+                    {s.locked && (
+                      <Lock
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-label="Set by environment variables"
+                      />
+                    )}
+                  </span>
+                  <span className="block truncate font-mono text-xs text-muted-foreground">
+                    {s.settings.url || s.settings.address}
+                  </span>
+                </span>
+                <span
+                  className={cn("text-xs", s.health.state === "failing" ? "text-destructive" : "text-muted-foreground")}
+                >
+                  {stateLabels[s.health.state]}
+                </span>
+              </button>
             ))}
-          </CardAction>
+            {adding && (
+              <div className="flex items-center gap-3 rounded-lg border border-dashed border-ring px-3 py-2.5 text-sm">
+                <Plus className="size-4" />
+                New {kind.title}
+              </div>
+            )}
+          </div>
         )}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {query.isPending ? (
-          <SectionSkeleton rows={2} />
-        ) : query.isError ? (
-          <QueryError title="Couldn't load the Data Sources" error={query.error} />
-        ) : (
-          <>
-            {editing?.startsWith("new:") && (
-              <SourceForm kind={kinds.find((k) => `new:${k.name}` === editing)!} onDone={() => setEditing(null)} />
-            )}
-            {query.data.sources.length === 0 && !editing && (
-              <p className="text-sm text-muted-foreground">None yet. Nothing besides Flows is collected until you add one.</p>
-            )}
-            {query.data.sources.map((s) => {
-              const kind = kinds.find((k) => k.name === s.kind)
-              return editing === s.id && kind ? (
-                <SourceForm key={s.id} kind={kind} source={s} onDone={() => setEditing(null)} />
-              ) : (
-                <SourceRow
-                  key={s.id}
-                  source={s}
+        <Card className={sources.length === 0 ? "lg:col-span-2" : undefined}>
+          <CardContent className="flex flex-col gap-4">
+            {selected ? (
+              <>
+                <SourceRow source={selected} kind={kind} now={now} />
+                {!selected.locked && (
+                  <SourceForm
+                    key={`${selected.id}/${formKey}`}
+                    kind={kind}
+                    source={selected}
+                    onDone={(saved) => pick(saved?.id ?? null)}
+                    onCancel={() => setFormKey((n) => n + 1)}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                {sources.length === 0 && (
+                  <p className="text-sm text-muted-foreground">None yet. Add one to start collecting from it.</p>
+                )}
+                <SourceForm
+                  key={`new/${formKey}`}
                   kind={kind}
-                  now={query.dataUpdatedAt}
-                  onEdit={editing === null ? () => setEditing(s.id) : undefined}
+                  onDone={(saved) => pick(saved?.id ?? null)}
+                  onCancel={sources.length > 0 ? () => pick(null) : undefined}
                 />
-              )
-            })}
-          </>
-        )}
-      </CardContent>
-    </Card>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
 }
 
@@ -94,31 +159,26 @@ const stateLabels: Record<SourceHealth["state"], string> = {
   failing: "Failing",
 }
 
-function SourceRow({ source: s, kind, now, onEdit }: { source: DataSource; kind?: SourceKind; now: number; onEdit?: () => void }) {
+function SourceRow({ source: s, kind, now }: { source: DataSource; kind?: SourceKind; now: number }) {
   const h = s.health
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-4">
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{s.name}</span>
-        {s.name !== (kind?.title ?? s.kind) && <span className="text-sm text-muted-foreground">{kind?.title ?? s.kind}</span>}
+        {s.name !== (kind?.title ?? s.kind) && (
+          <span className="text-sm text-muted-foreground">{kind?.title ?? s.kind}</span>
+        )}
         <Badge variant={h.state === "failing" ? "destructive" : h.state === "ok" ? "default" : "secondary"}>
           {stateLabels[h.state]}
         </Badge>
         <span className="text-xs text-muted-foreground">
           since <TimeAgo iso={h.since} now={now} />
         </span>
-        {s.locked ? (
+        {s.locked && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="size-3.5" />
             Set by <code className="font-mono">FLOWMON_SOURCE_*</code>, so it can't be changed here.
           </span>
-        ) : (
-          onEdit && (
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={onEdit}>
-              <Pencil />
-              Edit
-            </Button>
-          )
         )}
       </div>
       {(s.settings.url || s.settings.address) && (
@@ -126,7 +186,7 @@ function SourceRow({ source: s, kind, now, onEdit }: { source: DataSource; kind?
           <span className="font-mono text-ident">{s.settings.url || s.settings.address}</span>
           {s.kind === "snmp" && (
             <Link to={`/snmp/${s.id}`} className="underline underline-offset-4">
-              Its interfaces
+              Interfaces and health
             </Link>
           )}
         </p>
@@ -160,7 +220,18 @@ function SourceRow({ source: s, kind, now, onEdit }: { source: DataSource; kind?
 }
 
 /** Adds a source of kind, or edits source. Secret fields left empty keep what is stored. */
-function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataSource; onDone: () => void }) {
+function SourceForm({
+  kind,
+  source,
+  onDone,
+  onCancel,
+}: {
+  kind: SourceKind
+  source?: DataSource
+  /** After saving (with what was saved) or deleting. */
+  onDone: (saved?: DataSource) => void
+  onCancel?: () => void
+}) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(source?.name ?? kind.title)
   const [enabled, setEnabled] = useState(source?.enabled ?? true)
@@ -173,10 +244,10 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
   const refresh = () => void queryClient.invalidateQueries({ queryKey: sourcesKey })
   const save = useMutation({
     mutationFn: () => (source ? updateSource(source.id, input()) : createSource(input())),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       refresh()
       void queryClient.invalidateQueries({ queryKey: ["domains"] })
-      onDone()
+      onDone(saved)
     },
   })
   const remove = useMutation({
@@ -194,8 +265,7 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4 rounded-lg border p-4">
-      <p className="text-sm text-muted-foreground">{kind.description}</p>
+    <form onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={id("name")} label="Name">
           <Input id={id("name")} value={name} onChange={(e) => setName(e.target.value)} required />
@@ -239,7 +309,9 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
                 autoComplete={f.type === "secret" ? "new-password" : "off"}
                 className={f.type === "url" ? "font-mono" : undefined}
                 required={f.required && !(f.type === "secret" && source?.secretsSet.includes(f.key))}
-                placeholder={f.type === "secret" && source?.secretsSet.includes(f.key) ? "Stored; leave empty to keep" : undefined}
+                placeholder={
+                  f.type === "secret" && source?.secretsSet.includes(f.key) ? "Stored; leave empty to keep" : undefined
+                }
                 value={settings[f.key]}
                 onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })}
               />
@@ -252,8 +324,16 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
         Collect from it
       </label>
       {test.data && (
-        <p className={test.data.ok ? "flex items-center gap-2 text-sm" : "flex items-center gap-2 text-sm text-destructive"}>
-          {test.data.ok ? <CircleCheck className="size-4 shrink-0 text-area" /> : <CircleX className="size-4 shrink-0" />}
+        <p
+          className={
+            test.data.ok ? "flex items-center gap-2 text-sm" : "flex items-center gap-2 text-sm text-destructive"
+          }
+        >
+          {test.data.ok ? (
+            <CircleCheck className="size-4 shrink-0 text-area" />
+          ) : (
+            <CircleX className="size-4 shrink-0" />
+          )}
           {test.data.message}
         </p>
       )}
@@ -276,9 +356,11 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
         <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
           {test.isPending ? "Testing…" : "Test"}
         </Button>
-        <Button type="button" variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
+        {onCancel && (
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
         <Button type="submit" disabled={save.isPending}>
           {source ? "Save" : "Add"}
         </Button>
