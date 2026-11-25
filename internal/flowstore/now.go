@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -48,8 +49,9 @@ type NowResult struct {
 
 // UsageNow ranks the Devices and domains by their traffic with Remote IPs in [from, to),
 // as average bits per second, limit of each. A router hop's MAC counts as none, and a
-// merged MAC as its Device.
-func (s *Store) UsageNow(ctx context.Context, from, to time.Time, limit int) (NowResult, error) {
+// merged MAC as its Device. Traffic without a MAC counts by address, merged into
+// groups (Host Labels' prefixes) as in Top.
+func (s *Store) UsageNow(ctx context.Context, from, to time.Time, groups []netip.Prefix, limit int) (NowResult, error) {
 	res := NowResult{From: from.UTC(), To: to.UTC(), Devices: []NowDevice{}, Domains: []NowDomain{}}
 	secs := to.Sub(from).Seconds()
 	if secs <= 0 || to.Sub(from) > 24*time.Hour {
@@ -86,6 +88,7 @@ FROM r LEFT JOIN device_merges dm ON dm.mac = r.local_mac GROUP BY 1, 2, 3, 4`, 
 		}
 		key := mac
 		if key == "" {
+			host, _ = hostKey(host, groups)
 			key = "host:" + host
 		}
 		d := devs[key]

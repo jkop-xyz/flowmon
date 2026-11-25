@@ -13,7 +13,7 @@ import (
 
 type fakeUsage struct{ from, to time.Time }
 
-func (f *fakeUsage) UsageNow(_ context.Context, from, to time.Time, _ int) (flowstore.NowResult, error) {
+func (f *fakeUsage) UsageNow(_ context.Context, from, to time.Time, _ []netip.Prefix, _ int) (flowstore.NowResult, error) {
 	f.from, f.to = from, to
 	return flowstore.NowResult{Devices: []flowstore.NowDevice{{MAC: "3c:5a:b4:00:00:44", Host: "192.168.10.44", InBps: 2e6}}, Domains: []flowstore.NowDomain{}}, nil
 }

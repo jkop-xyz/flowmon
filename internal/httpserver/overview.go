@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"sort"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 
 // UsageStore says who is using the internet now. *flowstore.Store implements it.
 type UsageStore interface {
-	UsageNow(ctx context.Context, from, to time.Time, limit int) (flowstore.NowResult, error)
+	UsageNow(ctx context.Context, from, to time.Time, groups []netip.Prefix, limit int) (flowstore.NowResult, error)
 }
 
 // NowWindow is how far back "now" reaches.
@@ -85,7 +86,7 @@ func registerOverview(mux *http.ServeMux, opts Options) {
 			return
 		}
 		now := opts.Now()
-		res, err := opts.Usage.UsageNow(r.Context(), now.Add(-NowWindow), now, 5)
+		res, err := opts.Usage.UsageNow(r.Context(), now.Add(-NowWindow), now, hostGroups(r.Context(), opts), 5)
 		if queryError(w, opts.Logger, "usage now", err) {
 			return
 		}
