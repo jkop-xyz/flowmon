@@ -41,8 +41,9 @@ export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number })
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-1 flex-col gap-2">
         <TrafficChart
+          fill
           points={wan.points.map((p) => ({ t: p.t, down: p.inBps, up: p.outBps }))}
           series={[
             { key: "down", label: "Download", color: "var(--chart-1)" },

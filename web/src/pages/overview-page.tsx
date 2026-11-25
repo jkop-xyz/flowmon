@@ -191,13 +191,14 @@ function BandwidthCard() {
           the router's own counters instead.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-1 flex-col">
         {query.isPending ? (
           <Skeleton className="h-72 w-full" />
         ) : query.isError ? (
           <QueryError title="Couldn't load bandwidth" error={query.error} />
         ) : (
           <TrafficChart
+            fill
             points={query.data.result.points}
             series={bandwidthSeries}
             stepSeconds={query.data.result.stepSeconds}
