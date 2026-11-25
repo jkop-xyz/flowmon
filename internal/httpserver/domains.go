@@ -18,7 +18,13 @@ type DomainOptions struct {
 		HostAddresses(ctx context.Context, q flowstore.HostQuery) ([]string, error)
 		RemoteNames(ctx context.Context, ip netip.Addr, from, to time.Time, limit int) ([]flowstore.RemoteName, error)
 		DNSSummary(ctx context.Context, f flowstore.DNSFilter) (flowstore.DNSSummary, error)
+		DNSServers(ctx context.Context, addrs []string, from, to time.Time) ([]flowstore.DNSServer, error)
 	}
+	// DNSServerAddrs are the addresses of the DNS Data Sources (AdGuard Home), which a
+	// Local Host's DNS is expected to go to.
+	DNSServerAddrs func(ctx context.Context) map[netip.Addr]bool
+	// IsExporter says whether an address is an Exporter's, which may relay DNS.
+	IsExporter func(netip.Addr) bool
 	// DNSSources counts the configured DNS Data Sources, enabled or not.
 	DNSSources func() int
 }
@@ -114,6 +120,54 @@ func registerDomains(mux *http.ServeMux, opts Options) {
 			sources = do.DNSSources()
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"result": res, "dnsSources": sources})
+	})
+	// The DNS servers a Local Host or Device (host=) sent to, each marked as one of the DNS
+	// Data Sources, an Exporter, or other: lookups to "other" ones bypass AdGuard Home.
+	mux.HandleFunc("GET /api/dns-servers", func(w http.ResponseWriter, r *http.Request) {
+		if !available(w) {
+			return
+		}
+		bq, err := bandwidthQuery(r, opts.Now())
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		key, mac, err := parseSubject(r.URL.Query().Get("host"))
+		if err != nil {
+			errorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		addrs, err := do.Store.HostAddresses(r.Context(), flowstore.HostQuery{Host: key, MAC: mac, From: bq.From, To: bq.To,
+			Exporter: bq.Exporter, HostGroups: hostGroups(r.Context(), opts)})
+		if queryError(w, opts.Logger, "dns servers", err) {
+			return
+		}
+		servers, err := do.Store.DNSServers(r.Context(), addrs, bq.From, bq.To)
+		if queryError(w, opts.Logger, "dns servers", err) {
+			return
+		}
+		known := map[netip.Addr]bool{}
+		if do.DNSServerAddrs != nil {
+			known = do.DNSServerAddrs(r.Context())
+		}
+		type server struct {
+			flowstore.DNSServer
+			// Kind is "source" (a DNS Data Source), "exporter" or "other".
+			Kind string `json:"kind"`
+		}
+		out := []server{}
+		for _, s := range servers {
+			a, _ := netip.ParseAddr(s.Server)
+			kind := "other"
+			switch {
+			case known[a.Unmap()]:
+				kind = "source"
+			case do.IsExporter != nil && do.IsExporter(a.Unmap()):
+				kind = "exporter"
+			}
+			out = append(out, server{s, kind})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"servers": out, "dnsSources": len(known)})
 	})
 	mux.HandleFunc("GET /api/remote-ips/{ip}/names", func(w http.ResponseWriter, r *http.Request) {
 		if !available(w) {

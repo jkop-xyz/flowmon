@@ -253,3 +253,27 @@ func TestDeviceMerges(t *testing.T) {
 		t.Fatalf("spans %+v %v", spans, err)
 	}
 }
+
+func TestDNSServers(t *testing.T) {
+	s := open(t)
+	dns := func(dir flow.Direction, server string, port uint16) flow.Flow {
+		f := withDevice(mkFlow(dir, t0, t0, 100), "192.168.10.44", phoneMAC)
+		f.Peer, f.Dst, f.PeerPort, f.DstPort = netip.MustParseAddr(server), netip.MustParseAddr(server), port, port
+		return f
+	}
+	if err := s.Write(ctx, []flow.Flow{
+		dns(flow.DirectionInternal, "192.168.10.2", 53), dns(flow.DirectionInternal, "192.168.10.2", 53),
+		dns(flow.DirectionOutbound, "8.8.8.8", 53),
+		dns(flow.DirectionOutbound, "1.1.1.1", 853),
+		dns(flow.DirectionOutbound, "1.1.1.1", 443), // HTTPS, not DNS this can tell
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.DNSServers(ctx, []string{"192.168.10.44"}, t0.Add(-time.Hour), t0.Add(time.Hour))
+	if err != nil || len(got) != 3 || got[0].Server != "192.168.10.2" || got[0].Flows != 2 {
+		t.Fatalf("servers %+v %v", got, err)
+	}
+	if other, _ := s.DNSServers(ctx, []string{"192.168.10.45"}, t0.Add(-time.Hour), t0.Add(time.Hour)); len(other) != 0 {
+		t.Errorf("another host's servers: %+v", other)
+	}
+}

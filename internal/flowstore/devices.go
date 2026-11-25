@@ -289,3 +289,45 @@ func (s *Store) MACSpans(ctx context.Context) ([]MACSpan, error) {
 	}
 	return out, rows.Err()
 }
+
+// DNSServer is a server a Local Host sent DNS to (port 53, or 853 for DNS over TLS),
+// from raw Flows.
+type DNSServer struct {
+	Server string    `json:"server"`
+	Port   uint16    `json:"port"`
+	Flows  int       `json:"flows"`
+	Bytes  uint64    `json:"bytes"`
+	Last   time.Time `json:"last"`
+}
+
+// DNSServers lists the DNS servers addrs sent to in [from, to), busiest first. Raw Flows
+// only: older ranges have none.
+func (s *Store) DNSServers(ctx context.Context, addrs []string, from, to time.Time) ([]DNSServer, error) {
+	out := []DNSServer{}
+	tables := s.tablesFor(from, to)
+	if len(tables) == 0 || len(addrs) == 0 {
+		return out, nil
+	}
+	a := &sqlArgs{}
+	where := fmt.Sprintf(`end_ts >= %s AND start_ts < %s AND direction IN (2, 3) AND peer_port IN (53, 853) AND %s`,
+		a.add(from.UTC()), a.add(to.UTC()), inList(a, "local_host", addrs))
+	parts := make([]string, len(tables))
+	for i, t := range tables {
+		parts[i] = fmt.Sprintf(`SELECT peer, peer_port, bytes, end_ts FROM %s WHERE %s`, t, where)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT peer, peer_port, count(*), sum(bytes), max(end_ts) FROM (`+strings.Join(parts, " UNION ALL ")+`)
+		GROUP BY peer, peer_port ORDER BY 3 DESC, 1 LIMIT 20`, a.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d DNSServer
+		if err := rows.Scan(&d.Server, &d.Port, &d.Flows, &d.Bytes, &d.Last); err != nil {
+			return nil, err
+		}
+		d.Last = d.Last.UTC()
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

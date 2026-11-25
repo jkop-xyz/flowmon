@@ -1077,3 +1077,19 @@ export function fetchDeviceLabels(signal?: AbortSignal) {
 /** Names a Device; an empty name removes its label. */
 export const setDeviceLabel = (mac: string, name: string) =>
   putJSON<{ mac: string; name: string }>(`/api/device-labels/${encodeURIComponent(mac)}`, { name })
+
+/** A DNS server a Local Host or Device sent to; "other" ones bypass the DNS Data Sources. */
+export type DNSServer = {
+  server: string
+  port: number
+  flows: number
+  bytes: number
+  last: string
+  kind: "source" | "exporter" | "other"
+}
+
+export function fetchDNSServers(host: string, range: RangeParams, signal?: AbortSignal) {
+  const params = rangeParams(range)
+  params.set("host", host)
+  return getJSON<{ servers: DNSServer[]; dnsSources: number }>(`/api/dns-servers?${params}`, signal)
+}
