@@ -14,7 +14,7 @@ import { configureDatabase, createAdmin, login, testDatabase, type DatabaseChoic
 
 function Screen({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted/40 p-4">
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 p-4">
       <div className="flex items-center gap-2 text-lg font-semibold">
         <Logo />
         Flowmon
