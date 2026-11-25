@@ -38,3 +38,35 @@ type Writer interface {
 	// WriteInterfaces records interfaces as they are now and their samples.
 	WriteInterfaces(ctx context.Context, now time.Time, ifaces []Interface, samples []InterfaceSample) error
 }
+
+// Health is an SNMP device's Device Health at one poll (ADR 0005).
+type Health struct {
+	Source string
+	At     time.Time
+	// Boot is when the device started: At less its uptime.
+	Boot time.Time
+	// Metrics are the readings by name: "uptime" (seconds), "cpu" (percent),
+	// "memory_used" and "memory_total" (bytes), "wifi_clients", and sensors as
+	// "<kind>:<sensor name>", with kind temperature (°C), voltage (V), current (A),
+	// power (W) or fan (rpm). A reading the device doesn't offer is absent.
+	Metrics map[string]float64
+	// Wifi are its Wi-Fi registrations now; nil when it has no registration table.
+	Wifi []WifiClient
+}
+
+// WifiClient is a station registered to one of an access point's interfaces.
+type WifiClient struct {
+	MAC     string
+	IfIndex uint32
+	// Signal is in dBm; rates in bits per second.
+	Signal         int
+	TxRate, RxRate uint64
+	Connected      time.Duration
+}
+
+// HealthWriter stores Device Health.
+type HealthWriter interface {
+	// WriteHealth records a poll's readings. restart is the boot time when the device
+	// restarted since the last poll (or while nothing polled it), else zero.
+	WriteHealth(ctx context.Context, h Health) (restart time.Time, err error)
+}

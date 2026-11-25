@@ -312,6 +312,9 @@ func (s *Store) ApplyRetention(ctx context.Context, r Retention, now time.Time, 
 	if err := s.applyTopRemoteRetention(ctx, now, r.Hour); err != nil {
 		return nil, err
 	}
+	if err := s.applyHealthRetention(ctx, now, r); err != nil {
+		return nil, err
+	}
 
 	var dropped []string
 	for _, v := range victims {

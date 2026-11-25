@@ -84,6 +84,8 @@ scrape_configs:
 
 Useful alerts are `flowmon_collection_quiet == 1`, `increase(flowmon_collector_socket_drops_total[15m]) > 0` and `increase(flowmon_ingest_flows_dropped_total[15m]) > 0`.
 
+SNMP Data Sources add each device's interfaces (`flowmon_interface_up`, `_speed_bits`, `_in_bits_per_second`, `_out_bits_per_second`, `_errors_last_hour`, labelled `source` and `interface`) and its Device Health (`flowmon_device_uptime_seconds`, `_cpu_percent`, `_memory_used_bytes`, `_memory_total_bytes`, `_wifi_clients`, and per `sensor` `flowmon_device_temperature_celsius`, `_voltage_volts`, `_current_amperes`, `_power_watts`, `_fan_rpm`). A device restart shows as `flowmon_device_uptime_seconds` dropping: `resets(flowmon_device_uptime_seconds[1h]) > 0`.
+
 ## GeoIP databases
 
 Flowmon looks up each Remote IP's country and ASN Owner when its Flow is stored. It picks a database for each, in this order:

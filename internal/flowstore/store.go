@@ -324,6 +324,26 @@ var migrations = []migration{
 		}
 		return nil
 	},
+	// 21: Device Health (v2.1): SNMP devices' readings per minute and hour, their boots
+	// and restarts, and their Wi-Fi registrations now (see health.go).
+	func(ctx context.Context, tx *sql.Tx) error {
+		for _, q := range []string{
+			`CREATE TABLE IF NOT EXISTS health_minute (bucket TIMESTAMP NOT NULL, source VARCHAR NOT NULL, metric VARCHAR NOT NULL,
+				value DOUBLE NOT NULL, PRIMARY KEY (bucket, source, metric))`,
+			`CREATE TABLE IF NOT EXISTS health_hour (bucket TIMESTAMP NOT NULL, source VARCHAR NOT NULL, metric VARCHAR NOT NULL,
+				total DOUBLE NOT NULL, n UINTEGER NOT NULL, lo DOUBLE NOT NULL, hi DOUBLE NOT NULL, PRIMARY KEY (bucket, source, metric))`,
+			`CREATE TABLE IF NOT EXISTS snmp_boots (source VARCHAR PRIMARY KEY, boot_at TIMESTAMP NOT NULL)`,
+			`CREATE TABLE IF NOT EXISTS snmp_restarts (source VARCHAR NOT NULL, restarted_at TIMESTAMP NOT NULL, PRIMARY KEY (source, restarted_at))`,
+			`CREATE TABLE IF NOT EXISTS snmp_wifi_clients (source VARCHAR NOT NULL, mac VARCHAR NOT NULL, if_index UINTEGER NOT NULL,
+				signal INTEGER NOT NULL, tx_rate UBIGINT NOT NULL, rx_rate UBIGINT NOT NULL, connected_seconds DOUBLE NOT NULL,
+				seen TIMESTAMP NOT NULL, PRIMARY KEY (source, mac, if_index))`,
+		} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 }
 
 func (s *Store) migrate(ctx context.Context) error {

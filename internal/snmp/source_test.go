@@ -40,6 +40,7 @@ type reports struct {
 	mu        sync.Mutex
 	successes []string
 	failures  []error
+	warnings  []string
 }
 
 func (r *reports) Succeeded(d string) {
@@ -48,7 +49,11 @@ func (r *reports) Succeeded(d string) {
 	r.mu.Unlock()
 }
 func (r *reports) Failed(err error) { r.mu.Lock(); r.failures = append(r.failures, err); r.mu.Unlock() }
-func (r *reports) Warn([]string)    {}
+func (r *reports) Warn(w []string) {
+	r.mu.Lock()
+	r.warnings = append(r.warnings, w...)
+	r.mu.Unlock()
+}
 
 func TestSourcePollsIntoInterfaceCounters(t *testing.T) {
 	ctx := context.Background()
@@ -132,5 +137,67 @@ func TestSourceSettings(t *testing.T) {
 	msg, err := k.Test(context.Background(), datasource.Settings{"address": "sw1"})
 	if err != nil || !strings.Contains(msg, "1 interfaces, 1 up") {
 		t.Errorf("Test = %q, %v", msg, err)
+	}
+}
+
+// healthyTable is a device with Device Health that restarts at its fourth poll.
+type healthyTable struct {
+	fakeTable
+	polls int
+}
+
+func (h *healthyTable) Health(context.Context) (Health, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.polls++
+	up := time.Duration(h.polls)*time.Minute + 30*24*time.Hour
+	if h.polls >= 4 {
+		up = time.Duration(h.polls-3) * time.Minute
+	}
+	return Health{Uptime: up, Metrics: map[string]float64{"uptime": up.Seconds(), "cpu": 12}}, nil
+}
+
+func TestSourcePollsDeviceHealth(t *testing.T) {
+	ctx := context.Background()
+	store, err := flowstore.Open(ctx, filepath.Join(t.TempDir(), "f.duckdb"), flowstore.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fake := &healthyTable{fakeTable: fakeTable{speed: 1000}}
+	t0 := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	now := t0
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); now = now.Add(time.Minute); return now }
+	k := NewSourceKind(SourceOptions{Writer: store, Health: store, Dial: func(Config) (TableReader, error) { return fake, nil }, Interval: 5 * time.Millisecond, Now: clock})
+	rep := &reports{}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		k.Run(runCtx, datasource.Source{ID: "ap", Settings: datasource.Settings{"address": "192.168.10.3"}}, rep)
+		close(done)
+	}()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		rep.mu.Lock()
+		n := len(rep.successes)
+		rep.mu.Unlock()
+		if n >= 5 {
+			break
+		}
+	}
+	cancel()
+	<-done
+	latest, err := store.LatestHealth(ctx, "ap")
+	if err != nil || latest["ap"].Metrics["cpu"] != 12 {
+		t.Fatalf("latest %+v %v", latest, err)
+	}
+	restarts, err := store.Restarts(ctx, "ap", t0, t0.Add(time.Hour))
+	if err != nil || len(restarts) != 1 || !restarts[0].Equal(t0.Add(3*time.Minute)) {
+		t.Errorf("restarts %v %v, want one at 12:03", restarts, err)
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	if len(rep.warnings) != 1 || !strings.Contains(rep.warnings[0], "restarted") {
+		t.Errorf("warnings %v", rep.warnings)
 	}
 }
