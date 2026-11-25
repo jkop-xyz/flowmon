@@ -63,3 +63,27 @@ func TestInterfaceCounters(t *testing.T) {
 		t.Errorf("dropped %v", dropped)
 	}
 }
+
+func TestReconciliationHours(t *testing.T) {
+	s := open(t)
+	h := t0.Truncate(time.Hour)
+	// An hour from before the move, in snmp_hours.
+	if err := s.AddSNMPDelta(ctx, exporter, "ether1", SNMPHour{Hour: h.Add(-time.Hour), InOctets: 5, Complete: true}); err != nil {
+		t.Fatal(err)
+	}
+	var samples []series.InterfaceSample
+	for m := 0; m < 60; m++ {
+		samples = append(samples, series.InterfaceSample{Source: "sw1", IfIndex: 1, At: h.Add(time.Duration(m) * time.Minute), Seconds: 60, InOctets: 100})
+	}
+	samples = append(samples, series.InterfaceSample{Source: "sw1", IfIndex: 1, At: h.Add(time.Hour), Seconds: 60, InOctets: 7})
+	if err := s.WriteInterfaces(ctx, t0, []series.Interface{{Source: "sw1", IfIndex: 1, Name: "ether1"}}, samples); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReconciliationHours(ctx, "sw1", exporter, "ether1", h.Add(-2*time.Hour), h.Add(2*time.Hour))
+	if err != nil || len(got) != 3 {
+		t.Fatalf("hours %+v %v", got, err)
+	}
+	if got[0].InOctets != 5 || !got[0].Complete || got[1].InOctets != 6000 || !got[1].Complete || got[2].InOctets != 7 || got[2].Complete {
+		t.Errorf("hours %+v; want the old hour, a complete hour of 6000 bytes, and a barely begun one", got)
+	}
+}

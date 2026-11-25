@@ -430,34 +430,13 @@ export const setClassification = (
 
 export const startReprocess = (address: string) => postJSON<ReprocessStatus>(`${exporterPath(address)}/reprocess`, {})
 
-export type SNMPConfig = {
-  enabled: boolean
-  version: "v2c" | "v3"
-  target: string
-  community?: string
-  user?: string
-  authProtocol?: string
-  authPassword?: string
-  privProtocol?: string
-  privPassword?: string
-  overhead: string
-  overheadBytes: number
-}
-
+/** The SNMP Data Source that polls an Exporter, if any. */
 export type SNMPView = {
-  config: SNMPConfig & { hasCommunity: boolean; hasAuthPassword: boolean; hasPrivPassword: boolean }
-  status: { lastPoll?: string; lastError?: string; interfaces: number }
-  overheadPresets: Record<string, number>
+  source: { id: string; name: string; enabled: boolean; health: SourceHealth } | null
 }
 
 export const fetchSNMP = (address: string, signal?: AbortSignal) =>
   getJSON<SNMPView>(`${exporterPath(address)}/snmp`, signal)
-
-export const saveSNMP = (address: string, config: SNMPConfig) =>
-  putJSON<SNMPView>(`${exporterPath(address)}/snmp`, { config })
-
-export const testSNMP = (address: string, config: SNMPConfig) =>
-  postJSON<{ interfaces: string[] }>(`${exporterPath(address)}/snmp/test`, { config })
 
 export type ReconDirection = { interfaceBytes: number; flowBytes: number; gap: number | null }
 

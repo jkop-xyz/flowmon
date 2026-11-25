@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -255,4 +256,64 @@ func (s *Store) InterfaceSeries(ctx context.Context, source string, ifIndex uint
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// completeHour is how many seconds of an hour polling must cover for Reconciliation to
+// trust it: all but a missed poll or so.
+const completeHour = 59 * 60
+
+// ReconciliationHours returns an interface's hours in [from, to), oldest first: from the
+// hour Interface Counters of source, and for hours they don't have, from snmp_hours,
+// which Exporters' own SNMP polling kept before SNMP moved onto Data Sources.
+func (s *Store) ReconciliationHours(ctx context.Context, source string, exporter netip.Addr, ifName string, from, to time.Time) ([]SNMPHour, error) {
+	byHour := map[time.Time]SNMPHour{}
+	if source != "" {
+		s.mu.Lock()
+		var parts []string
+		for name := range s.ifaceTables {
+			if g, p, ok := parseIfaceTable(name); ok && g == Hour && p.Before(to) && Hour.periodEnd(p).After(from) {
+				parts = append(parts, `SELECT * FROM `+name)
+			}
+		}
+		s.mu.Unlock()
+		if len(parts) > 0 {
+			sort.Strings(parts)
+			rows, err := s.db.QueryContext(ctx, `SELECT bucket, sum(in_octets), sum(out_octets), sum(in_packets), sum(out_packets), sum(seconds)
+				FROM (`+strings.Join(parts, ` UNION ALL `)+`) c JOIN snmp_interfaces i USING (source, if_index)
+				WHERE c.source = ? AND i.name = ? AND bucket >= ? AND bucket < ? GROUP BY bucket`, source, ifName, from.UTC(), to.UTC())
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var h SNMPHour
+				var secs float64
+				if err := rows.Scan(&h.Hour, &h.InOctets, &h.OutOctets, &h.InPackets, &h.OutPackets, &secs); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				h.Hour, h.Complete = h.Hour.UTC(), secs >= completeHour
+				byHour[h.Hour] = h
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	old, err := s.SNMPHours(ctx, exporter, ifName, from, to)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range old {
+		if _, ok := byHour[h.Hour]; !ok {
+			byHour[h.Hour] = h
+		}
+	}
+	out := make([]SNMPHour, 0, len(byHour))
+	for _, h := range byHour {
+		out = append(out, h)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Hour.Before(out[j].Hour) })
+	return out, nil
 }

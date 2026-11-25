@@ -58,7 +58,7 @@ Setting up a MikroTik? See [docs/mikrotik-setup.md](docs/mikrotik-setup.md) (als
 
 ### SNMP and Reconciliation
 
-On the Exporters page, each approved Exporter can be polled over SNMP (v3 recommended, or v2c) every minute. SNMP fills in interface names (`ifName`), and for every WAN Interface Flowmon compares the router's own 64-bit interface counters (minus layer-2 overhead per packet) with the bytes in Flows, per hour. A gap above 15% for 3 hours in a row is flagged: usually hardware offload that Traffic Flow can't see, a long active timeout, or the wrong overhead preset. SNMP credentials are stored encrypted with a key kept in `/data/secret.key`; back that file up with the rest of `/data`.
+Any device can be polled over SNMP (v3 recommended, or v2c): add it under Settings → Data Sources as an SNMP device. Every minute Flowmon reads all its interfaces into Interface Counters: traffic, errors, discards, speed and status. When the device is an Exporter (its address, or the Exporter set on the source), SNMP fills in its interface names (`ifName`), and for every WAN Interface Flowmon compares the router's own 64-bit interface counters (minus layer-2 overhead per packet) with the bytes in Flows, per hour. A gap above 15% for 3 hours in a row is flagged: usually hardware offload that Traffic Flow can't see, a long active timeout, or the wrong overhead preset, which is set on the source. SNMP settings an Exporter had in earlier versions become an SNMP Data Source on the first start. SNMP credentials are stored encrypted with a key kept in `/data/secret.key`; back that file up with the rest of `/data`.
 
 ### Supported exports
 

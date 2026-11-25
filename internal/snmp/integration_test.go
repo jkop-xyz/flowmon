@@ -23,25 +23,17 @@ func TestRealAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer a.Close()
-			names, err := a.InterfaceNames(ctx)
-			if err != nil || len(names) == 0 {
-				t.Fatalf("names %v %v", names, err)
+			tbl, err := a.Table(ctx)
+			if err != nil || len(tbl.Rows) == 0 || tbl.Uptime == 0 {
+				t.Fatalf("table %+v %v", tbl, err)
 			}
-			var idxs []uint32
-			for idx := range names {
-				idxs = append(idxs, idx)
-			}
-			cs, err := a.Counters(ctx, idxs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var lo Counters
-			for idx, n := range names {
-				if n == "lo" {
-					lo = cs[idx]
+			var lo IfRow
+			for _, r := range tbl.Rows {
+				if r.Name == "lo" {
+					lo = r
 				}
 			}
-			t.Logf("interfaces %v, lo %+v", names, lo)
+			t.Logf("%d interfaces, up %s, lo %+v", len(tbl.Rows), tbl.Uptime, lo)
 			if lo.InOctets == 0 && lo.InPackets == 0 {
 				t.Error("expected 64-bit counters for lo")
 			}
@@ -49,7 +41,7 @@ func TestRealAgent(t *testing.T) {
 	}
 	bad := Config{Version: "v2c", Target: target, Community: "wrong"}
 	if a, err := Dial(bad, netip.MustParseAddr("127.0.0.1")); err == nil {
-		if _, err := a.InterfaceNames(ctx); err == nil {
+		if _, err := a.Table(ctx); err == nil {
 			t.Error("a wrong community must fail")
 		}
 		a.Close()

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/netip"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -20,38 +19,6 @@ var (
 	t0  = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 )
 
-type fakeAgent struct {
-	names    map[uint32]string
-	counters map[uint32]Counters
-}
-
-func (a *fakeAgent) InterfaceNames(context.Context) (map[uint32]string, error) { return a.names, nil }
-func (a *fakeAgent) Counters(_ context.Context, idxs []uint32) (map[uint32]Counters, error) {
-	out := map[uint32]Counters{}
-	for _, i := range idxs {
-		out[i] = a.counters[i]
-	}
-	return out, nil
-}
-func (a *fakeAgent) Close() error { return nil }
-
-type memSink struct {
-	mu    sync.Mutex
-	names map[uint32]string
-	wan   map[string]uint32
-	store *flowstore.Store
-}
-
-func (s *memSink) Name(_ netip.Addr, idx uint32, name string, _ time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.names[idx] = name
-}
-func (s *memSink) WANInterfaces(netip.Addr) map[string]uint32 { return s.wan }
-func (s *memSink) AddSNMPDelta(ctx context.Context, e netip.Addr, n string, d flowstore.SNMPHour) error {
-	return s.store.AddSNMPDelta(ctx, e, n, d)
-}
-
 func openStore(t *testing.T) *flowstore.Store {
 	t.Helper()
 	s, err := flowstore.Open(ctx, filepath.Join(t.TempDir(), "f.duckdb"), flowstore.Options{})
@@ -60,65 +27,6 @@ func openStore(t *testing.T) *flowstore.Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
-}
-
-func setup(t *testing.T) (*Poller, *fakeAgent, *memSink, *time.Time) {
-	store := openStore(t)
-	agent := &fakeAgent{names: map[uint32]string{1: "ether1", 2: "bridge"}, counters: map[uint32]Counters{}}
-	sink := &memSink{names: map[uint32]string{}, wan: map[string]uint32{"ether1": 1}, store: store}
-	now := t0.Add(-30 * time.Second)
-	p := NewPoller(func(Config, netip.Addr) (Agent, error) { return agent, nil }, sink,
-		map[netip.Addr]Config{exp: {Enabled: true, Version: "v2c", Community: "public"}}, nil, func() time.Time { return now })
-	return p, agent, sink, &now
-}
-
-func TestPollerNamesAndHourlyDeltas(t *testing.T) {
-	p, agent, sink, now := setup(t)
-	agent.counters[1] = Counters{InOctets: 1000, OutOctets: 100}
-	if err := p.Poll(ctx, exp); err != nil {
-		t.Fatal(err)
-	}
-	if sink.names[2] != "bridge" || p.Status(exp).Interfaces != 2 {
-		t.Errorf("names %v status %+v", sink.names, p.Status(exp))
-	}
-	// A minute later, across the hour boundary at t0: 30 s in each hour.
-	*now = t0.Add(30 * time.Second)
-	agent.counters[1] = Counters{InOctets: 1000 + 6000, OutOctets: 100 + 600, InPackets: 10}
-	if err := p.Poll(ctx, exp); err != nil {
-		t.Fatal(err)
-	}
-	hours, _ := sink.store.SNMPHours(ctx, exp, "ether1", t0.Add(-time.Hour), t0.Add(time.Hour))
-	if len(hours) != 2 || hours[0].InOctets != 3000 || hours[1].InOctets != 3000 || hours[1].InPackets != 5 {
-		t.Fatalf("hours %+v", hours)
-	}
-	if hours[0].Complete || !hours[1].Complete {
-		t.Errorf("the hour polling started in is incomplete, the next isn't: %+v", hours)
-	}
-}
-
-func TestCounterResetAndGapsMakeHoursIncomplete(t *testing.T) {
-	p, agent, sink, now := setup(t)
-	*now = t0.Add(10 * time.Minute)
-	agent.counters[1] = Counters{InOctets: 5000}
-	_ = p.Poll(ctx, exp)
-	*now = t0.Add(11 * time.Minute)
-	agent.counters[1] = Counters{InOctets: 6000}
-	_ = p.Poll(ctx, exp)
-	*now = t0.Add(12 * time.Minute)
-	agent.counters[1] = Counters{InOctets: 10} // PPPoE reconnect reset the counters
-	_ = p.Poll(ctx, exp)
-	hours, _ := sink.store.SNMPHours(ctx, exp, "ether1", t0, t0.Add(time.Hour))
-	if len(hours) != 1 || hours[0].Complete || hours[0].InOctets != 1000 {
-		t.Errorf("reset: %+v", hours)
-	}
-
-	*now = t0.Add(2 * time.Hour) // nothing polled for a long time
-	agent.counters[1] = Counters{InOctets: 999999}
-	_ = p.Poll(ctx, exp)
-	hours, _ = sink.store.SNMPHours(ctx, exp, "ether1", t0.Add(2*time.Hour), t0.Add(3*time.Hour))
-	if len(hours) != 1 || hours[0].Complete || hours[0].InOctets != 0 {
-		t.Errorf("gap: %+v", hours)
-	}
 }
 
 func TestReconcile(t *testing.T) {
@@ -181,13 +89,20 @@ func TestConfigValidationAndSecrets(t *testing.T) {
 	if err := good.Validate(); err != nil || good.OverheadPerPacket() != 22 {
 		t.Fatalf("%v %d", err, good.OverheadPerPacket())
 	}
-	pub := good.Public()
-	if pub.AuthPassword != "" || pub.PrivPassword != "" || !pub.HasAuthPassword {
-		t.Errorf("public view leaks secrets: %+v", pub)
+	// Moved onto a Data Source, every setting carries over.
+	moved := ConfigOf(SettingsOf(good, exp))
+	moved.Enabled = good.Enabled
+	if moved != good {
+		t.Errorf("moved settings %+v, want %+v", moved, good)
 	}
-	merged := Config{Version: "v3", User: "flowmon"}.Merge(good)
-	if merged.AuthPassword != "authpass1" {
-		t.Error("an update without passwords keeps the stored ones")
+	if a, ok := ExporterOf(SettingsOf(good, exp)); !ok || a != exp {
+		t.Errorf("the moved source's Exporter: %v %v", a, ok)
+	}
+	if a, ok := ExporterOf(map[string]string{"address": "192.168.10.1:1161"}); !ok || a != exp {
+		t.Errorf("the Exporter from an address with a port: %v %v", a, ok)
+	}
+	if _, ok := ExporterOf(map[string]string{"address": "router.lan"}); ok {
+		t.Error("a host name taken for an Exporter")
 	}
 
 	store := openStore(t)
