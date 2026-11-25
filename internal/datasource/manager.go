@@ -85,6 +85,10 @@ type Manager struct {
 	now          func() time.Time
 	restartDelay time.Duration
 
+	// ops serializes Create, Update and Delete from start to end, so that one's stop,
+	// wait and start can't interleave with another's. Runs report under mu, which
+	// they release while they wait for a run to stop.
+	ops     sync.Mutex
 	mu      sync.Mutex
 	ctx     context.Context // set by Start; nil until then
 	entries map[string]*entry
@@ -238,6 +242,8 @@ func (m *Manager) Get(id string) (Status, error) {
 
 // Create stores a new Source and starts it if it is enabled. ID and Created are set here.
 func (m *Manager) Create(ctx context.Context, src Source) (Status, error) {
+	m.ops.Lock()
+	defer m.ops.Unlock()
 	k, ok := m.kinds[src.Kind]
 	if !ok {
 		return Status{}, ErrUnknownKind
@@ -266,6 +272,8 @@ func (m *Manager) Create(ctx context.Context, src Source) (Status, error) {
 // Update changes a Source's name, enabled state and settings, and restarts it. Its kind
 // can't change. An empty secret setting keeps the stored one.
 func (m *Manager) Update(ctx context.Context, id string, src Source) (Status, error) {
+	m.ops.Lock()
+	defer m.ops.Unlock()
 	m.mu.Lock()
 	e, ok := m.entries[id]
 	if !ok {
@@ -312,6 +320,8 @@ func (m *Manager) Update(ctx context.Context, id string, src Source) (Status, er
 
 // Delete stops and removes a Source. What it collected stays until its retention ends.
 func (m *Manager) Delete(ctx context.Context, id string) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
 	m.mu.Lock()
 	e, ok := m.entries[id]
 	if !ok {
