@@ -129,6 +129,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: #000000;
     --foreground: #e8e8e8;
     --card: #141414;
@@ -220,7 +221,9 @@
   body {
     @apply bg-background text-foreground;
     }
+  /* The page's background on <html> too, so that what lies beyond the body, such as
+     below a short page or outside a screen-high layout, is the same colour. */
   html {
-    @apply font-sans;
+    @apply bg-background font-sans;
     }
 }
