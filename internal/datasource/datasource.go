@@ -46,6 +46,8 @@ const (
 	FieldURL    FieldType = "url"
 	FieldSecret FieldType = "secret"
 	FieldBool   FieldType = "bool"
+	// FieldSelect is one of Field.Options.
+	FieldSelect FieldType = "select"
 )
 
 // Field is one setting of a Kind.
@@ -59,6 +61,8 @@ type Field struct {
 	Required bool      `json:"required,omitempty"`
 	// Default fills an empty setting.
 	Default string `json:"default,omitempty"`
+	// Options are a FieldSelect's choices; "" may be one, meaning none.
+	Options []string `json:"options,omitempty"`
 }
 
 // Settings are a Source's settings by Field key. Booleans are "true" or "false".

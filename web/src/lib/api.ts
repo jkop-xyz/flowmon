@@ -934,7 +934,7 @@ export const saveSettings = (change: {
 }) => putJSON<Settings>("/api/settings", change)
 
 /** How a Data Source setting is entered: secret ones are never sent back. */
-export type SourceFieldType = "text" | "url" | "secret" | "bool"
+export type SourceFieldType = "text" | "url" | "secret" | "bool" | "select"
 
 export type SourceField = {
   key: string
@@ -943,6 +943,8 @@ export type SourceField = {
   type: SourceFieldType
   required?: boolean
   default?: string
+  /** A select's choices; "" means none. */
+  options?: string[]
 }
 
 /** A kind of Data Source, such as AdGuard Home. */

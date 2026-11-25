@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
   createSource,
@@ -22,6 +23,9 @@ import {
 } from "@/lib/api"
 
 const sourcesKey = ["sources"]
+
+/** A select's value for "none": Radix selects can't hold an empty string. */
+const NONE = "__none__"
 
 /** Integrations other than Exporters, such as AdGuard Home: add, edit, test and watch them. */
 export function SourcesCard() {
@@ -187,7 +191,25 @@ function SourceForm({ kind, source, onDone }: { kind: SourceKind; source?: DataS
           <Input id={id("name")} value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         {kind.fields.map((f) =>
-          f.type === "bool" ? (
+          f.type === "select" ? (
+            <Field key={f.key} id={id(f.key)} label={f.label} hint={f.help}>
+              <Select
+                value={settings[f.key] || NONE}
+                onValueChange={(v) => setSettings({ ...settings, [f.key]: v === NONE ? "" : v })}
+              >
+                <SelectTrigger id={id(f.key)} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(f.options ?? []).map((o) => (
+                    <SelectItem key={o || NONE} value={o || NONE}>
+                      {o || "None"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : f.type === "bool" ? (
             <label key={f.key} htmlFor={id(f.key)} className="flex items-center gap-3 self-end text-sm">
               <Switch
                 id={id(f.key)}
