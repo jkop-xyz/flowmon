@@ -14,7 +14,9 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
 
-type fakeDeviceStore struct{}
+type fakeDeviceStore struct {
+	merged map[flow.MAC]flow.MAC
+}
 
 var testPhone, _ = flow.ParseMAC("3c:5a:b4:00:00:44")
 
@@ -32,8 +34,30 @@ func (fakeDeviceStore) DevicesAt(_ context.Context, a netip.Addr) ([]flowstore.D
 
 func (fakeDeviceStore) IsRouterMAC(context.Context, flow.MAC) (bool, error) { return false, nil }
 
+func (f fakeDeviceStore) DeviceMerges(context.Context) ([]flowstore.DeviceMerge, error) {
+	var out []flowstore.DeviceMerge
+	for m, into := range f.merged {
+		out = append(out, flowstore.DeviceMerge{MAC: m, Into: into, Reason: "manual"})
+	}
+	return out, nil
+}
+
+func (f fakeDeviceStore) MergeDevice(_ context.Context, m, into flow.MAC, _ string, _ time.Time) error {
+	if f.merged[into] == m {
+		return flowstore.ErrMergeSelf
+	}
+	f.merged[m] = into
+	return nil
+}
+
+func (f fakeDeviceStore) SplitDevice(_ context.Context, m flow.MAC) error {
+	delete(f.merged, m)
+	return nil
+}
+
 func TestDeviceEndpoints(t *testing.T) {
-	h := New(Options{UI: builtUI, Devices: fakeDeviceStore{}})
+	store := fakeDeviceStore{merged: map[flow.MAC]flow.MAC{}}
+	h := New(Options{UI: builtUI, Devices: store})
 	rec := get(t, h, "/api/devices/3C:5A:B4:00:00:44")
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"vendor":"Google"`) || !strings.Contains(body, `"address":"192.168.10.77"`) {
 		t.Errorf("device: %d %s", rec.Code, body)
@@ -45,6 +69,24 @@ func TestDeviceEndpoints(t *testing.T) {
 		if rec := get(t, h, bad); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}
+	}
+	c := &client{t: t, h: h}
+	if rec := c.do("POST", "/api/devices/da:a1:19:00:00:01/merge", `{"into":"3c:5a:b4:00:00:44"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("merge: %d %s", rec.Code, rec.Body)
+	}
+	if rec := get(t, h, "/api/devices/3c:5a:b4:00:00:44"); !strings.Contains(rec.Body.String(), `"merged":[{"mac":"da:a1:19:00:00:01"`) {
+		t.Errorf("merged MACs: %s", rec.Body)
+	}
+	if rec := get(t, h, "/api/devices/da:a1:19:00:00:01"); !strings.Contains(rec.Body.String(), `"mergedInto":"3c:5a:b4:00:00:44"`) {
+		t.Errorf("merged into: %s", rec.Body)
+	}
+	for _, bad := range []string{`{"into":"da:a1:19:00:00:01"}`, `{"into":"nope"}`} {
+		if rec := c.do("POST", "/api/devices/da:a1:19:00:00:01/merge", bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("merge %s: %d", bad, rec.Code)
+		}
+	}
+	if rec := c.do("DELETE", "/api/devices/da:a1:19:00:00:01/merge", ""); rec.Code != http.StatusNoContent || len(store.merged) != 0 {
+		t.Errorf("split: %d %v", rec.Code, store.merged)
 	}
 	if _, mac, err := parseSubject("device:3C:5A:B4:00:00:44"); err != nil || mac != "3c:5a:b4:00:00:44" {
 		t.Errorf("parseSubject: %q %v", mac, err)

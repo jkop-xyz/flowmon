@@ -1036,8 +1036,28 @@ export type Device = {
   privateMac?: boolean
   /** A router hop's MAC, never a Device. */
   router?: boolean
-  /** Most recently seen first. */
+  /** Most recently seen first, the merged MACs' included. */
   addresses: DeviceAddress[]
+  /** The MACs counted as this Device: "auto" for Private Addresses with the same name. */
+  merged?: { mac: string; vendor?: string; reason: "auto" | "manual"; mergedAt: string }[]
+  /** The Device this MAC now counts as. */
+  mergedInto?: string
+}
+
+/** Counts mac as the Device into, with everything merged into mac. */
+export const mergeDevice = (mac: string, into: string) =>
+  postJSONNoContent(`/api/devices/${encodeURIComponent(mac)}/merge`, { into })
+
+/** Undoes mac's merge: it counts as its own Device again. */
+export async function splitDevice(mac: string) {
+  const path = `/api/devices/${encodeURIComponent(mac)}/merge`
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
+}
+
+async function postJSONNoContent(path: string, body: unknown) {
+  const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  if (!response.ok) await parse(path, response)
 }
 
 export function fetchDevice(mac: string, signal?: AbortSignal) {

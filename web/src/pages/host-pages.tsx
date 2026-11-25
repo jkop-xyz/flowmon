@@ -24,6 +24,8 @@ import {
   fetchDevice,
   fetchDevicesAt,
   setDeviceLabel,
+  mergeDevice,
+  splitDevice,
   createHostLabel,
   deleteHostLabel,
   fetchHostRemoteIPs,
@@ -33,6 +35,7 @@ import {
   updateHostLabel,
   type HostItem,
   type HostLabel,
+  type Device,
   type HostName,
 } from "@/lib/api"
 import { countryName } from "@/lib/countries"
@@ -919,6 +922,18 @@ function DeviceIdentityCard({ mac }: { mac: string }) {
             ))}
           </DataTable>
         )}
+        {device.data?.mergedInto && (
+          <p className="text-sm">
+            This MAC address now counts as the Device{" "}
+            <Link to={{ pathname: `/devices/${device.data.mergedInto}`, search }} className="font-mono underline underline-offset-4">
+              {device.data.mergedInto}
+            </Link>
+            .
+          </p>
+        )}
+        {device.data && !device.data.router && !device.data.mergedInto && (
+          <MergedMACs mac={mac} merged={device.data.merged ?? []} now={device.dataUpdatedAt} />
+        )}
         {label ? (
           <p className="text-xs text-muted-foreground">Named by you; the name follows the Device to every address it uses.</p>
         ) : name && (
@@ -998,5 +1013,79 @@ function DeviceLabelForm({ mac, label, onDone }: { mac: string; label?: string; 
         </Button>
       </FormActions>
     </form>
+  )
+}
+
+/**
+ * The MAC addresses counted as this Device, with Undo, and a form to merge another one in:
+ * Private Addresses rotate, so one device can show up under several.
+ */
+function MergedMACs({ mac, merged, now }: { mac: string; merged: NonNullable<Device["merged"]>; now: number }) {
+  const queryClient = useQueryClient()
+  const [other, setOther] = useState("")
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["device"] })
+    void queryClient.invalidateQueries({ queryKey: ["top"] })
+  }
+  const merge = useMutation({
+    mutationFn: () => mergeDevice(other.trim().toLowerCase(), mac),
+    onSuccess: () => {
+      setOther("")
+      refresh()
+    },
+  })
+  const split = useMutation({ mutationFn: (m: string) => splitDevice(m), onSuccess: refresh })
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    merge.mutate()
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {merged.length > 0 && (
+        <DataTable
+          head={
+            <>
+              <TableHead>Also counted as this Device</TableHead>
+              <TableHead>Why</TableHead>
+              <TableHead>Since</TableHead>
+              <TableHead />
+            </>
+          }
+        >
+          {merged.map((m) => (
+            <TableRow key={m.mac}>
+              <TableCell className="font-mono text-ident">{m.mac}</TableCell>
+              <TableCell className="text-sm">
+                {m.reason === "auto" ? "A new Private Address with the same name, after this one went quiet" : "Merged by hand"}
+              </TableCell>
+              <TableCell>
+                <TimeAgo iso={m.mergedAt} now={now} />
+              </TableCell>
+              <TableCell className="text-right">
+                <Button size="sm" variant="ghost" disabled={split.isPending} onClick={() => split.mutate(m.mac)}>
+                  Undo
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </DataTable>
+      )}
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+        <Field id={`merge-${mac}`} label="Merge another MAC address into this Device">
+          <Input
+            id={`merge-${mac}`}
+            value={other}
+            onChange={(e) => setOther(e.target.value)}
+            placeholder="aa:bb:cc:dd:ee:ff"
+            className="w-56 font-mono"
+          />
+        </Field>
+        <Button type="submit" size="sm" variant="outline" disabled={merge.isPending || !other.trim()}>
+          Merge
+        </Button>
+      </form>
+      <p className="-mt-1 text-xs text-muted-foreground">For one device that shows up under several MACs: Private Addresses rotate.</p>
+      <FormError error={merge.error ?? split.error} />
+    </div>
   )
 }

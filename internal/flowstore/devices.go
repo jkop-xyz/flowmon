@@ -2,6 +2,8 @@ package flowstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -128,7 +130,7 @@ func (s *Store) saveDeviceAddresses(ctx context.Context, flows []flow.Flow) erro
 func (s *Store) deviceAddresses(ctx context.Context, tables []string, from, to time.Time, mac string) ([]string, error) {
 	parts := make([]string, len(tables))
 	for i, t := range tables {
-		parts[i] = fmt.Sprintf(`SELECT DISTINCT local_host FROM %s WHERE bucket >= $1 AND bucket < $2 AND local_mac = $3`, t)
+		parts[i] = fmt.Sprintf(`SELECT DISTINCT local_host FROM %s WHERE bucket >= $1 AND bucket < $2 AND (local_mac = $3 OR local_mac IN (SELECT mac FROM device_merges WHERE into_mac = $3))`, t)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT local_host FROM (`+strings.Join(parts, "\nUNION ALL\n")+`) ORDER BY 1`, from, to, mac)
 	if err != nil {
@@ -146,9 +148,10 @@ func (s *Store) deviceAddresses(ctx context.Context, tables []string, from, to t
 	return out, rows.Err()
 }
 
-// DeviceAddressesOf returns the addresses mac used, most recently seen first.
+// DeviceAddressesOf returns the addresses mac, and the MACs merged into it, used, most
+// recently seen first.
 func (s *Store) DeviceAddressesOf(ctx context.Context, mac flow.MAC) ([]DeviceAddress, error) {
-	return s.queryDeviceAddresses(ctx, `WHERE mac = ? ORDER BY last_seen DESC, address`, mac.String())
+	return s.queryDeviceAddresses(ctx, `WHERE mac = ? OR mac IN (SELECT mac FROM device_merges WHERE into_mac = ?) ORDER BY last_seen DESC, address`, mac.String(), mac.String())
 }
 
 // DevicesAt returns the Devices that used addr, most recently first.
@@ -180,6 +183,109 @@ func (s *Store) queryDeviceAddresses(ctx context.Context, tail string, args ...a
 		d.Address, _ = netip.ParseAddr(addr)
 		d.FirstSeen, d.LastSeen = d.FirstSeen.UTC(), d.LastSeen.UTC()
 		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DeviceMerge is a MAC counted as another Device.
+type DeviceMerge struct {
+	MAC, Into flow.MAC
+	// Reason is "auto" (Private Addresses with the same name) or "manual".
+	Reason   string
+	MergedAt time.Time
+}
+
+// DeviceMerges returns every merge.
+func (s *Store) DeviceMerges(ctx context.Context) ([]DeviceMerge, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT mac, into_mac, reason, merged_at FROM device_merges ORDER BY merged_at, mac`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DeviceMerge{}
+	for rows.Next() {
+		var m DeviceMerge
+		var mac, into string
+		if err := rows.Scan(&mac, &into, &m.Reason, &m.MergedAt); err != nil {
+			return nil, err
+		}
+		m.MAC, _ = flow.ParseMAC(mac)
+		m.Into, _ = flow.ParseMAC(into)
+		m.MergedAt = m.MergedAt.UTC()
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ErrMergeSelf is a merge of a Device into itself.
+var ErrMergeSelf = errors.New("flowstore: a Device can't be merged into itself")
+
+// MergeDevice counts mac as into, and every MAC merged into mac with it. When into is
+// itself merged, mac goes to the Device into belongs to, so merges stay one step deep.
+func (s *Store) MergeDevice(ctx context.Context, mac, into flow.MAC, reason string, at time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var root string
+	err = tx.QueryRowContext(ctx, `SELECT into_mac FROM device_merges WHERE mac = ?`, into.String()).Scan(&root)
+	if errors.Is(err, sql.ErrNoRows) {
+		root, err = into.String(), nil
+	}
+	if err != nil {
+		return err
+	}
+	if root == mac.String() {
+		return ErrMergeSelf
+	}
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`UPDATE device_merges SET into_mac = ? WHERE into_mac = ?`, []any{root, mac.String()}},
+		{`INSERT INTO device_merges VALUES (?, ?, ?, ?) ON CONFLICT (mac) DO UPDATE SET into_mac = excluded.into_mac, reason = excluded.reason, merged_at = excluded.merged_at`,
+			[]any{mac.String(), root, reason, at.UTC()}},
+	} {
+		if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SplitDevice undoes mac's merge: it counts as its own Device again. MACs merged into
+// mac's Device stay merged.
+func (s *Store) SplitDevice(ctx context.Context, mac flow.MAC) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM device_merges WHERE mac = ?`, mac.String())
+	return err
+}
+
+// MACSpan is when a MAC was first and last seen, and the address it used last.
+type MACSpan struct {
+	MAC                 flow.MAC
+	FirstSeen, LastSeen time.Time
+	Latest              netip.Addr
+}
+
+// MACSpans returns every MAC's span, from the addresses Devices used.
+func (s *Store) MACSpans(ctx context.Context) ([]MACSpan, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT mac, min(first_seen), max(last_seen), arg_max(address, last_seen) FROM device_addresses GROUP BY mac`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MACSpan
+	for rows.Next() {
+		var m MACSpan
+		var mac, addr string
+		if err := rows.Scan(&mac, &m.FirstSeen, &m.LastSeen, &addr); err != nil {
+			return nil, err
+		}
+		m.MAC, _ = flow.ParseMAC(mac)
+		m.Latest, _ = netip.ParseAddr(addr)
+		m.FirstSeen, m.LastSeen = m.FirstSeen.UTC(), m.LastSeen.UTC()
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

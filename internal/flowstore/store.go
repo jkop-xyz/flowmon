@@ -305,6 +305,9 @@ var migrations = []migration{
 	},
 	// 18: Domain Rollups (v2), listed like Rollup tables (see domainrollups.go).
 	stmt(`CREATE TABLE IF NOT EXISTS domain_rollup_partitions (granularity VARCHAR NOT NULL, period DATE NOT NULL, table_name VARCHAR NOT NULL UNIQUE, PRIMARY KEY (granularity, period))`),
+	// 19: Device merges (v2): a MAC counted as another Device (Private Addresses). Kept
+	// flat: into_mac is never itself merged.
+	stmt(`CREATE TABLE IF NOT EXISTS device_merges (mac VARCHAR PRIMARY KEY, into_mac VARCHAR NOT NULL, reason VARCHAR NOT NULL, merged_at TIMESTAMP NOT NULL)`),
 }
 
 func (s *Store) migrate(ctx context.Context) error {

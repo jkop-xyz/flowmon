@@ -192,3 +192,64 @@ func TestHostQueriesByDevice(t *testing.T) {
 		t.Errorf("devices at .99: %+v %v", at, err)
 	}
 }
+
+func TestDeviceMerges(t *testing.T) {
+	s := open(t)
+	oldPhone, newPhone, third := flow.MAC{0xda, 0xa1, 0x19, 0, 0, 1}, flow.MAC{0x6e, 0, 0, 0, 0, 2}, flow.MAC{0xaa, 0, 0, 0, 0, 3}
+	if err := s.Write(ctx, []flow.Flow{
+		withDevice(mkFlow(flow.DirectionOutbound, t0, t0, 100), "192.168.10.60", oldPhone),
+		withDevice(mkFlow(flow.DirectionOutbound, t0.Add(time.Minute), t0.Add(time.Minute), 200), "192.168.10.61", newPhone),
+		withDevice(mkFlow(flow.DirectionOutbound, t0.Add(2*time.Minute), t0.Add(2*time.Minute), 400), "192.168.10.62", third),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	top := func() []TopItem {
+		t.Helper()
+		res, err := s.Top(ctx, TopQuery{Dimension: TopDevices, From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Items
+	}
+	if err := s.MergeDevice(ctx, newPhone, oldPhone, "auto", t0); err != nil {
+		t.Fatal(err)
+	}
+	// Merging the old phone into a third Device takes the new one along: one step deep.
+	if err := s.MergeDevice(ctx, oldPhone, third, "manual", t0); err != nil {
+		t.Fatal(err)
+	}
+	items := top()
+	if len(items) != 1 || items[0].Mac != third.String() || items[0].TotalBytes != 700 || items[0].Addresses != 3 {
+		t.Fatalf("after merging %+v; want one Device of 700 bytes at 3 addresses", items)
+	}
+	merges, _ := s.DeviceMerges(ctx)
+	for _, m := range merges {
+		if m.Into != third {
+			t.Errorf("merge %+v not one step deep", m)
+		}
+	}
+	if err := s.MergeDevice(ctx, third, newPhone, "manual", t0); err != ErrMergeSelf {
+		t.Errorf("merging a Device into one merged into it: %v", err)
+	}
+	addrs, _ := s.HostAddresses(ctx, HostQuery{MAC: third.String(), From: t0.Add(-time.Hour), To: t0.Add(time.Hour)})
+	if len(addrs) != 3 {
+		t.Errorf("the merged Device's addresses %v", addrs)
+	}
+	if page, _ := s.Flows(ctx, FlowQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Device: third.String(), Limit: 10}); page.Total != 3 {
+		t.Errorf("the merged Device's Flows: %d", page.Total)
+	}
+	if of, _ := s.DeviceAddressesOf(ctx, third); len(of) != 3 {
+		t.Errorf("addresses of the merged Device: %+v", of)
+	}
+
+	if err := s.SplitDevice(ctx, oldPhone); err != nil {
+		t.Fatal(err)
+	}
+	if items := top(); len(items) != 2 {
+		t.Errorf("after splitting the old phone off: %+v", items)
+	}
+	spans, err := s.MACSpans(ctx)
+	if err != nil || len(spans) != 3 {
+		t.Fatalf("spans %+v %v", spans, err)
+	}
+}

@@ -2,10 +2,12 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
 	"github.com/jkop-xyz/flowmon/internal/flow"
@@ -18,6 +20,16 @@ type DeviceStore interface {
 	DeviceAddressesOf(ctx context.Context, mac flow.MAC) ([]flowstore.DeviceAddress, error)
 	DevicesAt(ctx context.Context, addr netip.Addr) ([]flowstore.DeviceAddress, error)
 	IsRouterMAC(ctx context.Context, mac flow.MAC) (bool, error)
+	DeviceMerges(ctx context.Context) ([]flowstore.DeviceMerge, error)
+	MergeDevice(ctx context.Context, mac, into flow.MAC, reason string, at time.Time) error
+	SplitDevice(ctx context.Context, mac flow.MAC) error
+}
+
+type mergeJSON struct {
+	MAC      string `json:"mac"`
+	Vendor   string `json:"vendor,omitempty"`
+	Reason   string `json:"reason"`
+	MergedAt string `json:"mergedAt"`
 }
 
 // timeLayout is how times are sent: RFC 3339 with milliseconds, in UTC.
@@ -36,6 +48,9 @@ type deviceJSON struct {
 	// Router is set for a MAC that is a router hop, never a Device.
 	Router    bool                `json:"router,omitempty"`
 	Addresses []deviceAddressJSON `json:"addresses"`
+	// Merged are the MACs counted as this Device; MergedInto the Device this MAC counts as.
+	Merged     []mergeJSON `json:"merged,omitempty"`
+	MergedInto string      `json:"mergedInto,omitempty"`
 }
 
 func describeMAC(m flow.MAC) deviceJSON {
@@ -70,8 +85,20 @@ func registerDevices(mux *http.ServeMux, opts Options) {
 		if queryError(w, opts.Logger, "device", err) {
 			return
 		}
+		merges, err := ds.DeviceMerges(r.Context())
+		if queryError(w, opts.Logger, "device", err) {
+			return
+		}
 		out := describeMAC(m)
 		out.Router = router
+		for _, mg := range merges {
+			switch {
+			case mg.Into == m:
+				out.Merged = append(out.Merged, mergeJSON{mg.MAC.String(), oui.Vendor(net.HardwareAddr(mg.MAC[:])), mg.Reason, mg.MergedAt.UTC().Format(timeLayout)})
+			case mg.MAC == m:
+				out.MergedInto = mg.Into.String()
+			}
+		}
 		for _, a := range addrs {
 			out.Addresses = append(out.Addresses, deviceAddressJSON{a.Address.String(), a.FirstSeen.UTC().Format(timeLayout), a.LastSeen.UTC().Format(timeLayout)})
 		}
@@ -125,6 +152,55 @@ func registerDevices(mux *http.ServeMux, opts Options) {
 		}
 		opts.Logger.Info("device named", "mac", m.String(), "name", name, "by", currentUser(r.Context()))
 		writeJSON(w, http.StatusOK, map[string]string{"mac": m.String(), "name": name})
+	})
+	// Merging a Device into another (into), and splitting it off again.
+	parseMAC := func(w http.ResponseWriter, s string) (flow.MAC, bool) {
+		m, err := flow.ParseMAC(strings.ToLower(strings.TrimSpace(s)))
+		if err != nil || m.IsZero() {
+			errorJSON(w, http.StatusBadRequest, "not a MAC address such as aa:bb:cc:dd:ee:ff")
+			return m, false
+		}
+		return m, true
+	}
+	mux.HandleFunc("POST /api/devices/{mac}/merge", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Into string `json:"into"`
+		}
+		if !available(w) || !readJSON(w, r, &req) {
+			return
+		}
+		m, ok := parseMAC(w, r.PathValue("mac"))
+		if !ok {
+			return
+		}
+		into, ok := parseMAC(w, req.Into)
+		if !ok {
+			return
+		}
+		err := ds.MergeDevice(r.Context(), m, into, "manual", opts.Now())
+		if errors.Is(err, flowstore.ErrMergeSelf) || (err == nil && m == into) {
+			errorJSON(w, http.StatusBadRequest, "a Device can't be merged into itself")
+			return
+		}
+		if queryError(w, opts.Logger, "merging devices", err) {
+			return
+		}
+		opts.Logger.Info("devices merged", "mac", m.String(), "into", into.String(), "by", currentUser(r.Context()))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /api/devices/{mac}/merge", func(w http.ResponseWriter, r *http.Request) {
+		if !available(w) {
+			return
+		}
+		m, ok := parseMAC(w, r.PathValue("mac"))
+		if !ok {
+			return
+		}
+		if queryError(w, opts.Logger, "splitting a device", ds.SplitDevice(r.Context(), m)) {
+			return
+		}
+		opts.Logger.Info("device split off", "mac", m.String(), "by", currentUser(r.Context()))
+		w.WriteHeader(http.StatusNoContent)
 	})
 	// The Devices that used an address, most recently first: a Local Host page's links.
 	mux.HandleFunc("GET /api/devices", func(w http.ResponseWriter, r *http.Request) {
