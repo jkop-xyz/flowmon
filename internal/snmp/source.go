@@ -31,6 +31,8 @@ type SourceOptions struct {
 	// Names, if set, is called after each poll with the interfaces' names, so an
 	// Exporter's Interfaces get them (see ExporterOf).
 	Names func(src datasource.Source, names map[uint32]string, at time.Time)
+	// Neighbors, if set, is given each poll's neighbor tables, for Devices.
+	Neighbors func(ctx context.Context, src datasource.Source, at time.Time, ns []Neighbor) error
 }
 
 // SourceKind is the SNMP Data Source kind (ADR 0005): any device, polled every minute
@@ -190,6 +192,13 @@ func (k *SourceKind) Test(ctx context.Context, s datasource.Settings) (string, e
 			}
 		}
 	}
+	if nr, ok := a.(NeighborReader); ok {
+		if ns, err := nr.Neighbors(ctx); err != nil {
+			msg += " Its neighbor tables couldn't be read: " + err.Error() + "."
+		} else {
+			msg += fmt.Sprintf(" Its neighbor tables list %d addresses.", len(ns))
+		}
+	}
 	return msg + fmt.Sprintf(" The device has been running for %s.", roundUptime(uptime)), nil
 }
 
@@ -269,6 +278,13 @@ func (k *SourceKind) Run(ctx context.Context, src datasource.Source, r datasourc
 				r.Failed(fmt.Errorf("storing Interface Counters: %w", err))
 			} else {
 				var warn []string
+				if cur.NeighborsErr != nil {
+					warn = append(warn, "Its neighbor tables couldn't be read: "+cur.NeighborsErr.Error())
+				} else if k.opts.Neighbors != nil && cur.Neighbors != nil {
+					if err := k.opts.Neighbors(ctx, src, cur.At, cur.Neighbors); err != nil {
+						warn = append(warn, "Storing its neighbor tables: "+err.Error())
+					}
+				}
 				switch {
 				case herr != nil:
 					warn = append(warn, herr.Error())
@@ -322,6 +338,9 @@ func (k *SourceKind) poll(ctx context.Context, c Config) (Poll, error) {
 		return Poll{}, err
 	}
 	p := Poll{At: k.opts.Now(), Table: t}
+	if nr, ok := a.(NeighborReader); ok && k.opts.Neighbors != nil {
+		p.Neighbors, p.NeighborsErr = nr.Neighbors(ctx)
+	}
 	if hr, ok := a.(HealthReader); ok && k.opts.Health != nil {
 		h, err := hr.Health(ctx)
 		if err != nil {

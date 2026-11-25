@@ -259,3 +259,37 @@ func TestRecentAddressesBridgeARestart(t *testing.T) {
 		t.Errorf("reply after a restart: %q, want %s from the recent addresses", in.LocalMAC, phone)
 	}
 }
+
+// A quiet device that only receives, through an Exporter whose records name no MAC for
+// it, gets its Device from the router's neighbor table, until the mapping ages out.
+func TestNeighborTablesGiveQuietDevicesTheirMAC(t *testing.T) {
+	a := New(Options{Known: []Router{{MAC: routerLAN}}})
+	printer, printerMAC := ip("192.168.10.60"), mustMAC("00:1b:a9:00:00:60")
+	reply := func(at time.Time) flow.Flow {
+		r := record{src: remote, dst: printer, srcMAC: isp, dstMAC: routerWAN}
+		return classified(r, flow.DirectionInbound, printer, remote, at)
+	}
+	f := reply(t0)
+	a.Assign(&f)
+	if !f.LocalMAC.IsZero() {
+		t.Fatalf("no MAC known yet, got %s", f.LocalMAC)
+	}
+	if !a.Observe(printer, printerMAC, t0) {
+		t.Fatal("the printer's mapping was refused")
+	}
+	f = reply(t0.Add(time.Minute))
+	a.Assign(&f)
+	if f.LocalMAC != printerMAC {
+		t.Errorf("after the neighbor table: %s, want %s", f.LocalMAC, printerMAC)
+	}
+	// Not seen again for longer than AddressTTL: the mapping has aged out.
+	f = reply(t0.Add(AddressTTL + time.Hour))
+	a.Assign(&f)
+	if !f.LocalMAC.IsZero() {
+		t.Errorf("an aged-out mapping still used: %s", f.LocalMAC)
+	}
+	// The router's own MAC in a neighbor table is never a Device.
+	if a.Observe(ip("192.168.10.1"), routerLAN, t0) {
+		t.Error("a router hop's MAC taken as a Device")
+	}
+}

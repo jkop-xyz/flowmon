@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jkop-xyz/flowmon/internal/appstore"
+	"github.com/jkop-xyz/flowmon/internal/datasource"
 	"github.com/jkop-xyz/flowmon/internal/flow"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
 )
@@ -55,12 +56,25 @@ func (f fakeDeviceStore) SplitDevice(_ context.Context, m flow.MAC) error {
 	return nil
 }
 
+func (fakeDeviceStore) NeighborsOf(_ context.Context, m flow.MAC) ([]flowstore.Neighbor, error) {
+	t := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	return []flowstore.Neighbor{{Source: "core", MAC: m, Address: netip.MustParseAddr("192.168.10.77"), IfIndex: 2, Interface: "bridge", FirstSeen: t, LastSeen: t}}, nil
+}
+
+func (fakeDeviceStore) QuietDevices(context.Context, time.Time, time.Time) ([]flowstore.QuietDevice, error) {
+	return []flowstore.QuietDevice{{MAC: "00:1b:a9:00:00:60", Address: "192.168.10.60"}}, nil
+}
+
 func TestDeviceEndpoints(t *testing.T) {
 	store := fakeDeviceStore{merged: map[flow.MAC]flow.MAC{}}
-	h := New(Options{UI: builtUI, Devices: store})
+	h := New(Options{UI: builtUI, Devices: store, Sources: fakeSourceList{{Source: datasource.Source{ID: "core", Kind: "snmp", Name: "Core router"}}}})
 	rec := get(t, h, "/api/devices/3C:5A:B4:00:00:44")
-	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"vendor":"Google"`) || !strings.Contains(body, `"address":"192.168.10.77"`) {
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"vendor":"Google"`) || !strings.Contains(body, `"address":"192.168.10.77"`) ||
+		!strings.Contains(body, `"sourceName":"Core router"`) || !strings.Contains(body, `"interface":"bridge"`) {
 		t.Errorf("device: %d %s", rec.Code, body)
+	}
+	if rec := get(t, h, "/api/devices/quiet"); !strings.Contains(rec.Body.String(), `"mac":"00:1b:a9:00:00:60"`) {
+		t.Errorf("quiet devices: %d %s", rec.Code, rec.Body)
 	}
 	if rec := get(t, h, "/api/devices?address=192.168.10.77"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"mac":"3c:5a:b4:00:00:44"`) {
 		t.Errorf("devices at: %d %s", rec.Code, rec.Body)
