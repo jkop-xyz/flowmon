@@ -554,6 +554,8 @@ func normalize(k Kind, in Settings) (Settings, error) {
 			default:
 				return nil, &InvalidError{Field: f.Key, Msg: f.Label + " must be true or false."}
 			}
+		case f.Type == FieldSelect && !slices.Contains(f.Options, v):
+			return nil, &InvalidError{Field: f.Key, Msg: f.Label + " must be one of " + strings.Join(f.Options, ", ") + "."}
 		case f.Type == FieldURL:
 			u, err := url.Parse(v)
 			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

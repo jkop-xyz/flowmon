@@ -148,3 +148,105 @@ func (a *gosnmpAgent) Counters(ctx context.Context, indexes []uint32) (map[uint3
 	}
 	return out, nil
 }
+
+// IF-MIB and SNMPv2-MIB columns read for Interface Counters.
+const (
+	oidSysUpTime     = ".1.3.6.1.2.1.1.3.0"
+	oidIfInDiscards  = ".1.3.6.1.2.1.2.2.1.13"
+	oidIfInErrors    = ".1.3.6.1.2.1.2.2.1.14"
+	oidIfOutDiscards = ".1.3.6.1.2.1.2.2.1.19"
+	oidIfOutErrors   = ".1.3.6.1.2.1.2.2.1.20"
+	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
+	oidIfHighSpeed   = ".1.3.6.1.2.1.31.1.1.1.15"
+	oidIfAlias       = ".1.3.6.1.2.1.31.1.1.1.18"
+)
+
+// IfRow is one interface's row of IF-MIB, as read.
+type IfRow struct {
+	Name, Alias string
+	// SpeedMbps is ifHighSpeed.
+	SpeedMbps uint64
+	Up        bool
+	// 64-bit counters.
+	InOctets, OutOctets, InPackets, OutPackets uint64
+	// 32-bit counters, which wrap at 2^32.
+	InErrors, OutErrors, InDiscards, OutDiscards uint32
+}
+
+// Table is an agent's interfaces at one moment.
+type Table struct {
+	// Uptime is sysUpTime: it goes back when the device restarted.
+	Uptime time.Duration
+	Rows   map[uint32]IfRow
+}
+
+// TableReader reads a device's whole interface table.
+type TableReader interface {
+	Table(ctx context.Context) (Table, error)
+	Close() error
+}
+
+// Table walks IF-MIB's interface columns.
+func (a *gosnmpAgent) Table(ctx context.Context) (Table, error) {
+	a.g.Context = ctx
+	t := Table{Rows: map[uint32]IfRow{}}
+	res, err := a.g.Get([]string{oidSysUpTime})
+	if err != nil {
+		return t, fmt.Errorf("snmp: getting sysUpTime: %w", err)
+	}
+	for _, v := range res.Variables {
+		if v.Type == gosnmp.TimeTicks {
+			t.Uptime = time.Duration(gosnmp.ToBigInt(v.Value).Uint64()) * 10 * time.Millisecond
+		}
+	}
+	row := func(idx uint32) IfRow { return t.Rows[idx] }
+	walk := func(base string, set func(r *IfRow, v gosnmp.SnmpPDU)) error {
+		pdus, err := a.g.BulkWalkAll(base)
+		if err != nil {
+			return fmt.Errorf("snmp: walking %s: %w", base, err)
+		}
+		for _, p := range pdus {
+			idx, ok := indexOf(p.Name, base)
+			if !ok {
+				continue
+			}
+			r := row(idx)
+			set(&r, p)
+			t.Rows[idx] = r
+		}
+		return nil
+	}
+	num := func(p gosnmp.SnmpPDU) uint64 { return gosnmp.ToBigInt(p.Value).Uint64() }
+	str := func(p gosnmp.SnmpPDU) string {
+		if b, ok := p.Value.([]byte); ok {
+			return string(b)
+		}
+		return ""
+	}
+	for _, c := range []struct {
+		oid string
+		set func(r *IfRow, p gosnmp.SnmpPDU)
+	}{
+		{oidIfName, func(r *IfRow, p gosnmp.SnmpPDU) { r.Name = str(p) }},
+		{oidIfAlias, func(r *IfRow, p gosnmp.SnmpPDU) { r.Alias = str(p) }},
+		{oidIfHighSpeed, func(r *IfRow, p gosnmp.SnmpPDU) { r.SpeedMbps = num(p) }},
+		{oidIfOperStatus, func(r *IfRow, p gosnmp.SnmpPDU) { r.Up = num(p) == 1 }},
+		{oidIfHCInOctets, func(r *IfRow, p gosnmp.SnmpPDU) { r.InOctets = num(p) }},
+		{oidIfHCOutOctets, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutOctets = num(p) }},
+		{oidIfHCInUcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.InPackets += num(p) }},
+		{oidIfHCInMcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.InPackets += num(p) }},
+		{oidIfHCInBcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.InPackets += num(p) }},
+		{oidIfHCOutUcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutPackets += num(p) }},
+		{oidIfHCOutMcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutPackets += num(p) }},
+		{oidIfHCOutBcastPkts, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutPackets += num(p) }},
+		{oidIfInErrors, func(r *IfRow, p gosnmp.SnmpPDU) { r.InErrors = uint32(num(p)) }},
+		{oidIfOutErrors, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutErrors = uint32(num(p)) }},
+		{oidIfInDiscards, func(r *IfRow, p gosnmp.SnmpPDU) { r.InDiscards = uint32(num(p)) }},
+		{oidIfOutDiscards, func(r *IfRow, p gosnmp.SnmpPDU) { r.OutDiscards = uint32(num(p)) }},
+	} {
+		if err := walk(c.oid, c.set); err != nil {
+			return t, err
+		}
+	}
+	return t, nil
+}

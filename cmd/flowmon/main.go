@@ -303,7 +303,7 @@ func serve(stderr io.Writer) int {
 		Logger:     logger,
 	})
 	go fillDomains(pipelineCtx, logger, store, attributor)
-	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind}, Env: sourceEnv, Logger: logger})
+	sources, err := datasource.New(datasource.Options{Store: store, Box: box, Kinds: []datasource.Kind{adguardKind, snmp.NewSourceKind(snmp.SourceOptions{Writer: store, Logger: logger})}, Env: sourceEnv, Logger: logger})
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error:", err)
 		return 2
