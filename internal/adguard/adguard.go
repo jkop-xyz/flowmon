@@ -75,8 +75,8 @@ func (k *Kind) Info() datasource.KindInfo {
 		Title: "AdGuard Home",
 		Description: "Reads AdGuard Home's query log every 15 seconds: every DNS lookup, with the device that asked, " +
 			"the name, the answer and whether it was blocked. DNS logs say much more about what people do than Flows, " +
-			"so nothing is collected until a source is added. DNS Queries are kept for the DNS retention on the Settings " +
-			"page (7 days unless changed), apart from Flows.",
+			"so nothing is collected until a source is added. DNS Queries are kept for the DNS retention under " +
+			"Settings › Retention (7 days unless changed), apart from Flows.",
 		Fields: []datasource.Field{
 			{Key: "url", Label: "Address", Type: datasource.FieldURL, Required: true,
 				Help: "AdGuard Home's web address, such as http://192.168.10.2:3000."},

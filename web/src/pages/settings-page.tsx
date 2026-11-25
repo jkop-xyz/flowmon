@@ -1,38 +1,152 @@
+import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle } from "lucide-react"
+import { Link, NavLink, Outlet, useLocation, useParams } from "react-router"
 
-import { LocalNetworksCard, RetentionCard } from "@/components/collection-settings"
 import { AppStoreCard } from "@/components/app-store-card"
 import { FlowStoreCard } from "@/components/flow-store-card"
 import { DBIPAttribution } from "@/components/geoip"
 import { GeoIPSettings } from "@/components/geoip-settings"
-import { ServiceNamesCard } from "@/components/service-names-card"
-import { SourcesCard } from "@/components/sources-card"
+import { SourceKindPanel } from "@/components/source-kind-panel"
+import { kindPlural, useSources } from "@/lib/sources"
+import { CollectorCard } from "@/components/collector-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import type { GeoIPDatabase, GeoIPStatus } from "@/lib/api"
+import { fetchExporters, type GeoIPDatabase, type GeoIPStatus } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
 import { sourceLabels, useGeoIP, usesDBIP } from "@/lib/geoip"
 
 const kindLabels: Record<GeoIPDatabase["kind"], string> = { country: "Countries", asn: "ASN Owners" }
 
-export function SettingsPage() {
+type SettingsLink = { to: string; title: string; detail?: string }
+
+/** The pages of Settings, in groups: fixed ones, plus one per kind of Data Source. */
+function useSettingsGroups(): { title: string; links: SettingsLink[] }[] {
+  const sources = useSources()
+  const kinds = sources.data?.kinds ?? []
+  return [
+    {
+      title: "Network",
+      links: [
+        { to: "local-networks", title: "Local Networks" },
+        { to: "service-names", title: "Service names" },
+      ],
+    },
+    {
+      title: "Collection",
+      links: [
+        { to: "collector", title: "Flow collector" },
+        ...kinds.map((k) => {
+          const n = sources.data?.sources.filter((s) => s.kind === k.name).length ?? 0
+          return { to: `sources/${k.name}`, title: kindPlural(k), detail: n > 0 ? String(n) : undefined }
+        }),
+      ],
+    },
+    {
+      title: "Storage",
+      links: [
+        { to: "retention", title: "Retention" },
+        { to: "databases", title: "Databases" },
+        { to: "geoip", title: "GeoIP" },
+      ],
+    },
+  ]
+}
+
+/** Settings: a menu of its pages beside the one open. */
+export function SettingsLayout() {
+  const groups = useSettingsGroups()
+  const { search } = useLocation()
   return (
-    <Page narrow>
-      <LocalNetworksCard />
-      <SourcesCard />
-      <RetentionCard />
-      <AppStoreCard />
-      <FlowStoreCard />
-      <GeoIPCard />
-      <ServiceNamesCard />
+    <Page>
+      <div className="grid items-start gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
+        <nav aria-label="Settings" className="flex flex-col gap-4 lg:sticky lg:top-4">
+          {groups.map((g) => (
+            <div key={g.title} className="flex flex-col gap-1">
+              <h2 className="px-2.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{g.title}</h2>
+              <div className="flex flex-wrap gap-1 lg:flex-col">
+                {g.links.map((l) => (
+                  <NavLink
+                    key={l.to}
+                    to={{ pathname: l.to, search }}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted",
+                        isActive && "bg-area-tint font-medium text-area-ink hover:bg-area-tint",
+                      )
+                    }
+                  >
+                    {l.title}
+                    {l.detail && <span className="text-xs text-muted-foreground tabular-nums">{l.detail}</span>}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+        <div className="flex min-w-0 flex-col gap-6">
+          <Outlet />
+        </div>
+      </div>
     </Page>
   )
 }
 
-function GeoIPCard() {
+export function DatabasesSettings() {
+  return (
+    <>
+      <AppStoreCard />
+      <FlowStoreCard />
+    </>
+  )
+}
+
+export function SourcesSettings() {
+  const { kind = "" } = useParams()
+  return <SourceKindPanel key={kind} kindName={kind} />
+}
+
+/** The Flow collector: what it listens on and whether it is losing data. Its addresses are set by environment variable. */
+export function CollectorSettings() {
+  const query = useQuery({
+    queryKey: ["exporters"],
+    queryFn: ({ signal }) => fetchExporters(signal),
+    refetchInterval: 15_000,
+  })
+  return (
+    <>
+      {query.isPending ? (
+        <SectionSkeleton rows={3} />
+      ) : query.isError ? (
+        <QueryError title="Couldn't load the collector" error={query.error} />
+      ) : (
+        <CollectorCard status={query.data} now={query.dataUpdatedAt} />
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Where these come from</CardTitle>
+          <CardDescription>
+            The collector starts with Flowmon, so its settings are environment variables:{" "}
+            <code className="font-mono text-ident">FLOWMON_FLOW_UDP_ADDRS</code> (the addresses it listens on),{" "}
+            <code className="font-mono text-ident">FLOWMON_UDP_RECEIVE_BUFFER_MB</code>,{" "}
+            <code className="font-mono text-ident">FLOWMON_EXPORTER_AUTO_ACCEPT</code> and{" "}
+            <code className="font-mono text-ident">FLOWMON_EXPORTER_ALLOWLIST</code>. Each Exporter is approved, and its
+            Interfaces and classification set, on the{" "}
+            <Link to="/exporters" className="underline underline-offset-4">
+              Exporters
+            </Link>{" "}
+            page.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </>
+  )
+}
+
+export function GeoIPCard() {
   const query = useGeoIP()
   return (
     <Card>

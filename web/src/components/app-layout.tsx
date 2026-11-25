@@ -42,7 +42,7 @@ function AppFooter() {
       {driver && (
         <>
           <span aria-hidden>·</span>
-          <Link to="/settings" className="underline-offset-4 hover:underline">
+          <Link to="/settings/databases" className="underline-offset-4 hover:underline">
             App Store: {appStoreNames[driver]}
           </Link>
         </>

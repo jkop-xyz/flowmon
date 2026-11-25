@@ -53,8 +53,8 @@ function DNSOff() {
   return (
     <p className="text-sm text-muted-foreground">
       DNS collection is off. Add AdGuard Home under{" "}
-      <Link to="/settings" className="underline underline-offset-4">
-        Settings → Data Sources
+      <Link to="/settings/sources/adguard" className="underline underline-offset-4">
+        Settings → AdGuard Home
       </Link>{" "}
       to see which names are looked up and which are blocked.
     </p>

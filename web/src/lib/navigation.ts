@@ -82,7 +82,7 @@ export const navItems: NavItem[] = [
     ready: true,
     filters: none,
     icon: Settings,
-    summary: "Local Networks, GeoIP databases, retention and accounts.",
+    summary: "Local Networks, Data Sources, retention, databases and GeoIP.",
   },
 ]
 
@@ -99,6 +99,7 @@ export type RouteMeta = {
 export function routeMeta(pathname: string): RouteMeta {
   const item = navItems.find((i) => i.path === pathname)
   if (item) return { ...within(item.path), filters: item.ready ? item.filters : none }
+  if (pathname.startsWith("/settings/")) return { ...within("/settings"), filters: none }
   if (pathname.startsWith("/hosts/")) return { ...within("/hosts", "Local Host"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/devices/")) return { ...within("/hosts", "Device"), filters: { exporter: true, timeRange: true } }
   if (pathname.startsWith("/remote/")) return { ...within("/remote", "Remote IP"), filters: { exporter: true, timeRange: true } }

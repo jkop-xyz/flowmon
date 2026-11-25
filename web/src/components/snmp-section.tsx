@@ -32,8 +32,8 @@ export function SNMPSection({ address }: { address: string }) {
         <p className="text-sm text-muted-foreground">
           Not polled. To name its interfaces and check Flow totals against its own counters, add it as an SNMP device
           under{" "}
-          <Link to="/settings" className="underline underline-offset-4">
-            Settings → Data Sources
+          <Link to="/settings/sources/snmp?source=new" className="underline underline-offset-4">
+            Settings → SNMP devices
           </Link>
           , at this address. On RouterOS, allow SNMP only from Flowmon's address.
         </p>
