@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -31,6 +32,12 @@ func get(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 	return rec
+}
+
+func send(t *testing.T, h http.Handler, method, target, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	c := &client{t: t, h: h}
+	return c.do(method, target, body)
 }
 
 func TestHealth(t *testing.T) {
@@ -112,11 +119,35 @@ type fakeGeoIP struct{}
 func (fakeGeoIP) Status() geoip.Status {
 	return geoip.Status{DownloadsEnabled: true, Databases: []geoip.DatabaseStatus{{Kind: geoip.KindCountry, Source: geoip.SourceDBIP}}}
 }
+func (fakeGeoIP) Update(_ context.Context, u geoip.Update) error {
+	switch {
+	case u.Download != nil:
+		return fmt.Errorf("downloads are %w", geoip.ErrLocked)
+	case u.MaxMindAccountID != nil && *u.MaxMindAccountID == "x":
+		return fmt.Errorf("%w: bad account", geoip.ErrInvalid)
+	}
+	return nil
+}
+func (fakeGeoIP) RetryNow() {}
 
 func TestGeoIPEndpoint(t *testing.T) {
 	rec := get(t, New(Options{UI: builtUI, GeoIP: fakeGeoIP{}}), "/api/geoip")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"dbip"`) {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+	h := New(Options{UI: builtUI, GeoIP: fakeGeoIP{}})
+	for body, want := range map[string]int{
+		`{"maxMindAccountId":"12345","maxMindLicenseKey":"k"}`: http.StatusOK,
+		`{"maxMindAccountId":"x"}`:                             http.StatusBadRequest,
+		`{"download":false}`:                                   http.StatusConflict,
+		`{"licenseKey":"k"}`:                                   http.StatusBadRequest,
+	} {
+		if rec := send(t, h, http.MethodPut, "/api/geoip", body); rec.Code != want {
+			t.Errorf("PUT %s: %d %s, want %d", body, rec.Code, rec.Body, want)
+		}
+	}
+	if rec := send(t, h, http.MethodPost, "/api/geoip/refresh", ""); rec.Code != http.StatusAccepted {
+		t.Errorf("refresh: %d", rec.Code)
 	}
 	rec = get(t, New(Options{UI: builtUI}), "/api/geoip")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"databases":[]`) {

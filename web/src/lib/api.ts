@@ -474,6 +474,14 @@ export type GeoIPDatabase = {
 export type GeoIPStatus = {
   downloadsEnabled: boolean
   maxMindConfigured: boolean
+  /** Shown; the license key never is. */
+  maxMindAccountId?: string
+  /** Why a stored MaxMind account isn't used. */
+  maxMindWarning?: string
+  /** Settings set by environment variable, which can't be changed here. */
+  locks: { download: boolean; maxMind: boolean }
+  /** A refresh is checking for or downloading databases now. */
+  downloading: boolean
   dir: string
   databases: GeoIPDatabase[]
   warnings: string[]
@@ -482,6 +490,14 @@ export type GeoIPStatus = {
 export function fetchGeoIP(signal?: AbortSignal) {
   return getJSON<GeoIPStatus>("/api/geoip", signal)
 }
+
+/** A change to the GeoIP settings. An empty license key keeps the saved one; an empty account ID removes the account. */
+export type GeoIPUpdate = { download?: boolean; maxMindAccountId?: string; maxMindLicenseKey?: string }
+
+export const saveGeoIP = (u: GeoIPUpdate) => putJSON<GeoIPStatus>("/api/geoip", u)
+
+/** Retries failed downloads now instead of in a few hours. */
+export const retryGeoIP = () => postJSON<GeoIPStatus>("/api/geoip/refresh", {})
 
 /** Where an answer about Remote IPs came from, and what it can't include. */
 export type Coverage = {

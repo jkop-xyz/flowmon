@@ -19,7 +19,6 @@ import (
 	"github.com/jkop-xyz/flowmon/internal/collector"
 	"github.com/jkop-xyz/flowmon/internal/exporters"
 	"github.com/jkop-xyz/flowmon/internal/flowstore"
-	"github.com/jkop-xyz/flowmon/internal/geoip"
 	"github.com/jkop-xyz/flowmon/internal/ingest"
 	"github.com/jkop-xyz/flowmon/internal/services"
 	"github.com/jkop-xyz/flowmon/internal/settings"
@@ -59,8 +58,8 @@ type Options struct {
 	Interfaces *InterfaceOptions
 	// SNMP wires SNMP settings and Reconciliation.
 	SNMP *SNMPOptions
-	// GeoIP reports the GeoIP databases in use. Nil reports none.
-	GeoIP interface{ Status() geoip.Status }
+	// GeoIP reports the GeoIP databases in use and changes their settings. Nil reports none.
+	GeoIP GeoIP
 	// Remote wires the Remote IPs screens.
 	Remote *RemoteOptions
 	// Hosts wires Host Labels, Host Names and the Local Host screens.
@@ -179,13 +178,7 @@ func New(opts Options) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, withIncomplete{Result: res, IncompleteFrom: incompleteFrom(opts)})
 	})
-	mux.HandleFunc("GET /api/geoip", func(w http.ResponseWriter, _ *http.Request) {
-		if opts.GeoIP == nil {
-			writeJSON(w, http.StatusOK, geoip.Status{Databases: []geoip.DatabaseStatus{}, Warnings: []string{}})
-			return
-		}
-		writeJSON(w, http.StatusOK, opts.GeoIP.Status())
-	})
+	registerGeoIP(mux, opts)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})

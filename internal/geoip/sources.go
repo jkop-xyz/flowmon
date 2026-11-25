@@ -48,6 +48,8 @@ type Options struct {
 	Download bool
 	// MaxMindAccountID and MaxMindLicenseKey enable GeoLite2 downloads.
 	MaxMindAccountID, MaxMindLicenseKey string
+	// Locks say which of those environment variables set, so Settings can't change them.
+	Locks Locks
 	// UserAgent is sent with downloads.
 	UserAgent string
 	Client    *http.Client
@@ -57,17 +59,39 @@ type Options struct {
 	MaxMindURL, DBIPURL string
 }
 
+// Config is what Settings can change: whether to download, and the MaxMind account.
+type Config struct {
+	Download                            bool
+	MaxMindAccountID, MaxMindLicenseKey string
+}
+
+func (c Config) maxMind() bool {
+	return c.Download && c.MaxMindAccountID != "" && c.MaxMindLicenseKey != ""
+}
+
+// Locks say which settings environment variables set.
+type Locks struct {
+	Download bool `json:"download"`
+	MaxMind  bool `json:"maxMind"`
+}
+
 // Manager finds, downloads and refreshes databases and keeps the Resolver current.
 type Manager struct {
 	opts     Options
 	resolver *Resolver
+	// kick asks Run to refresh now.
+	kick chan struct{}
 
-	mu       sync.Mutex
-	attempts map[string]*attempt // by download file name
-	loaded   map[Kind]stamp
-	loadErr  map[Kind]string
-	warnings []string
-	scanned  map[string]scanned // mounted files, by path
+	mu          sync.Mutex
+	cfg         Config
+	downloading bool
+	// maxMindWarning says why a stored MaxMind account isn't used.
+	maxMindWarning string
+	attempts       map[string]*attempt // by download file name
+	loaded         map[Kind]stamp
+	loadErr        map[Kind]string
+	warnings       []string
+	scanned        map[string]scanned // mounted files, by path
 }
 
 type attempt struct {
@@ -108,12 +132,47 @@ func NewManager(opts Options, resolver *Resolver) *Manager {
 	if opts.DBIPURL == "" {
 		opts.DBIPURL = "https://download.db-ip.com/free"
 	}
-	return &Manager{opts: opts, resolver: resolver, attempts: map[string]*attempt{},
+	return &Manager{opts: opts, resolver: resolver, kick: make(chan struct{}, 1), attempts: map[string]*attempt{},
+		cfg:    Config{Download: opts.Download, MaxMindAccountID: opts.MaxMindAccountID, MaxMindLicenseKey: opts.MaxMindLicenseKey},
 		loaded: map[Kind]stamp{}, loadErr: map[Kind]string{}, scanned: map[string]scanned{}}
 }
 
-func (m *Manager) maxMindEnabled() bool {
-	return m.opts.Download && m.opts.MaxMindAccountID != "" && m.opts.MaxMindLicenseKey != ""
+func (m *Manager) config() Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg
+}
+
+// Configure applies changed settings and refreshes soon. A new MaxMind account is tried
+// at once rather than after the wait for a failed one.
+func (m *Manager) Configure(c Config) {
+	m.mu.Lock()
+	if c.MaxMindAccountID != m.cfg.MaxMindAccountID || c.MaxMindLicenseKey != m.cfg.MaxMindLicenseKey {
+		for _, k := range Kinds {
+			delete(m.attempts, downloadName(SourceMaxMind, k))
+		}
+		m.maxMindWarning = ""
+	}
+	m.cfg = c
+	m.mu.Unlock()
+	m.Kick()
+}
+
+// RetryNow forgets failed downloads and refreshes soon, instead of waiting RetryAfter.
+// Databases younger than RefreshAfter aren't downloaded again.
+func (m *Manager) RetryNow() {
+	m.mu.Lock()
+	clear(m.attempts)
+	m.mu.Unlock()
+	m.Kick()
+}
+
+// Kick asks Run to refresh now.
+func (m *Manager) Kick() {
+	select {
+	case m.kick <- struct{}{}:
+	default:
+	}
 }
 
 func downloadName(s Source, k Kind) string { return string(s) + "-" + string(k) + ".mmdb" }
@@ -130,11 +189,12 @@ func (m *Manager) candidates() map[Kind][]candidate {
 	for _, f := range m.mountedFiles() {
 		out[f.kind] = append(out[f.kind], candidate{SourceFile, f.path})
 	}
+	cfg := m.config()
 	var sources []Source
-	if m.maxMindEnabled() {
+	if cfg.maxMind() {
 		sources = append(sources, SourceMaxMind)
 	}
-	if m.opts.Download {
+	if cfg.Download {
 		sources = append(sources, SourceDBIP)
 	}
 	for _, k := range Kinds {
@@ -268,7 +328,15 @@ func (m *Manager) loadKind(k Kind, cands []candidate) {
 // Refresh downloads databases that are missing or older than RefreshAfter, then loads
 // the best file for each kind. A kind served by a mounted file is never downloaded.
 func (m *Manager) Refresh(ctx context.Context) {
-	if m.opts.Download {
+	if cfg := m.config(); cfg.Download {
+		m.mu.Lock()
+		m.downloading = true
+		m.mu.Unlock()
+		defer func() {
+			m.mu.Lock()
+			m.downloading = false
+			m.mu.Unlock()
+		}()
 		mounted := map[Kind]bool{}
 		for _, f := range m.mountedFiles() {
 			mounted[f.kind] = true
@@ -282,13 +350,13 @@ func (m *Manager) Refresh(ctx context.Context) {
 				}
 				// MaxMind first when configured; DB-IP when it isn't, or when MaxMind has
 				// never succeeded (a wrong key shouldn't leave the map empty).
-				if m.maxMindEnabled() && m.ensure(ctx, SourceMaxMind, k) {
+				if cfg.maxMind() && m.ensure(ctx, cfg, SourceMaxMind, k) {
 					m.mu.Lock()
 					delete(m.attempts, downloadName(SourceDBIP, k)) // no longer relevant
 					m.mu.Unlock()
 					continue
 				}
-				m.ensure(ctx, SourceDBIP, k)
+				m.ensure(ctx, cfg, SourceDBIP, k)
 			}
 		}
 	}
@@ -297,7 +365,7 @@ func (m *Manager) Refresh(ctx context.Context) {
 
 // ensure downloads s's database for k if it is due, and reports whether a usable file
 // exists afterwards.
-func (m *Manager) ensure(ctx context.Context, s Source, k Kind) bool {
+func (m *Manager) ensure(ctx context.Context, cfg Config, s Source, k Kind) bool {
 	name := downloadName(s, k)
 	path := filepath.Join(m.opts.DownloadDir, name)
 	now := m.opts.Now()
@@ -312,7 +380,7 @@ func (m *Manager) ensure(ctx context.Context, s Source, k Kind) bool {
 	if last != nil && now.Sub(last.at) < RetryAfter {
 		return exists
 	}
-	err := m.download(ctx, s, k, path)
+	err := m.download(ctx, cfg, s, k, path)
 	m.mu.Lock()
 	m.attempts[name] = &attempt{at: now}
 	if err != nil {
@@ -326,7 +394,7 @@ func (m *Manager) ensure(ctx context.Context, s Source, k Kind) bool {
 	return true
 }
 
-func (m *Manager) download(ctx context.Context, s Source, k Kind, path string) error {
+func (m *Manager) download(ctx context.Context, cfg Config, s Source, k Kind, path string) error {
 	var mmdb io.Reader
 	switch s {
 	case SourceMaxMind:
@@ -334,7 +402,7 @@ func (m *Manager) download(ctx context.Context, s Source, k Kind, path string) e
 		if k == KindASN {
 			edition = "GeoLite2-ASN"
 		}
-		body, err := m.get(ctx, m.opts.MaxMindURL+"/"+edition+"/download?suffix=tar.gz", true)
+		body, err := m.get(ctx, m.opts.MaxMindURL+"/"+edition+"/download?suffix=tar.gz", &cfg)
 		if err != nil {
 			return err
 		}
@@ -349,7 +417,7 @@ func (m *Manager) download(ctx context.Context, s Source, k Kind, path string) e
 		var err error
 		for _, month := range []time.Time{now, now.AddDate(0, 0, -now.Day())} {
 			url := fmt.Sprintf("%s/dbip-%s-lite-%s.mmdb.gz", m.opts.DBIPURL, k, month.Format("2006-01"))
-			if body, err = m.get(ctx, url, false); !errors.Is(err, errNotFound) {
+			if body, err = m.get(ctx, url, nil); !errors.Is(err, errNotFound) {
 				break
 			}
 		}
@@ -396,15 +464,16 @@ var sourceNames = map[Source]string{SourceFile: "File", SourceMaxMind: "MaxMind"
 
 var errNotFound = errors.New("not found")
 
-func (m *Manager) get(ctx context.Context, url string, maxmind bool) (io.ReadCloser, error) {
+// get fetches url, with maxmind's account when it is set.
+func (m *Manager) get(ctx context.Context, url string, maxmind *Config) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", m.opts.UserAgent)
-	if maxmind {
+	if maxmind != nil {
 		// Go drops this header when MaxMind redirects to its storage host.
-		req.SetBasicAuth(m.opts.MaxMindAccountID, m.opts.MaxMindLicenseKey)
+		req.SetBasicAuth(maxmind.MaxMindAccountID, maxmind.MaxMindLicenseKey)
 	}
 	resp, err := m.opts.Client.Do(req)
 	if err != nil {
@@ -417,8 +486,8 @@ func (m *Manager) get(ctx context.Context, url string, maxmind bool) (io.ReadClo
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, errNotFound
-	case maxmind && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden):
-		return nil, errors.New("MaxMind refused the account ID or license key")
+	case maxmind != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden):
+		return nil, errors.New("refused the account ID or license key")
 	case resp.StatusCode == http.StatusTooManyRequests:
 		return nil, errors.New("download limit reached; will retry later")
 	}
@@ -456,17 +525,25 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-m.kick:
 		}
 	}
 }
 
 // Status is shown in Settings.
 type Status struct {
-	DownloadsEnabled  bool             `json:"downloadsEnabled"`
-	MaxMindConfigured bool             `json:"maxMindConfigured"`
-	Dir               string           `json:"dir"`
-	Databases         []DatabaseStatus `json:"databases"`
-	Warnings          []string         `json:"warnings"`
+	DownloadsEnabled  bool `json:"downloadsEnabled"`
+	MaxMindConfigured bool `json:"maxMindConfigured"`
+	// MaxMindAccountID is shown; the license key never is.
+	MaxMindAccountID string `json:"maxMindAccountId,omitempty"`
+	Locks            Locks  `json:"locks"`
+	// MaxMindWarning says why a stored MaxMind account isn't used.
+	MaxMindWarning string `json:"maxMindWarning,omitempty"`
+	// Downloading says a refresh is checking for or downloading databases now.
+	Downloading bool             `json:"downloading"`
+	Dir         string           `json:"dir"`
+	Databases   []DatabaseStatus `json:"databases"`
+	Warnings    []string         `json:"warnings"`
 }
 
 // DatabaseStatus describes the database in use for one kind.
@@ -488,7 +565,8 @@ type DatabaseStatus struct {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := Status{DownloadsEnabled: m.opts.Download, MaxMindConfigured: m.opts.MaxMindAccountID != "" && m.opts.MaxMindLicenseKey != "",
+	st := Status{DownloadsEnabled: m.cfg.Download, MaxMindConfigured: m.cfg.MaxMindAccountID != "" && m.cfg.MaxMindLicenseKey != "",
+		MaxMindAccountID: m.cfg.MaxMindAccountID, MaxMindWarning: m.maxMindWarning, Locks: m.opts.Locks, Downloading: m.downloading,
 		Dir: m.opts.Dir, Databases: []DatabaseStatus{}, Warnings: append([]string{}, m.warnings...)}
 	for _, k := range Kinds {
 		ds := DatabaseStatus{Kind: k, Error: m.loadErr[k]}

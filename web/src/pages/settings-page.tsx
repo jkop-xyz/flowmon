@@ -4,6 +4,7 @@ import { LocalNetworksCard, RetentionCard } from "@/components/collection-settin
 import { AppStoreCard } from "@/components/app-store-card"
 import { FlowStoreCard } from "@/components/flow-store-card"
 import { DBIPAttribution } from "@/components/geoip"
+import { GeoIPSettings } from "@/components/geoip-settings"
 import { ServiceNamesCard } from "@/components/service-names-card"
 import { SourcesCard } from "@/components/sources-card"
 import { Page, QueryError, Section, SectionHeading, SectionSkeleton, TimeAgo } from "@/components/page"
@@ -103,7 +104,11 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
           <AlertTitle>{kindLabels[d.kind]}: the last update failed</AlertTitle>
           <AlertDescription>
             <p>{d.error}</p>
-            {d.lastAttempt && <p>Last tried {formatDateTime(d.lastAttempt)}. Flowmon tries again every few hours.</p>}
+            {d.lastAttempt && (
+              <p>
+                Last tried {formatDateTime(d.lastAttempt)}. Flowmon tries again every few hours, or now with Check now.
+              </p>
+            )}
           </AlertDescription>
         </Alert>
       ))}
@@ -121,6 +126,8 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
         </Alert>
       )}
 
+      <GeoIPSettings status={status} />
+
       <Section>
         <SectionHeading title="Where the databases come from" />
         <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
@@ -129,25 +136,11 @@ function GeoIPDetails({ status, now }: { status: GeoIPStatus; now: number }) {
             city or ASN databases from MaxMind or DB-IP). They are picked up within the hour and never replaced.
           </li>
           <li>
-            MaxMind GeoLite2, downloaded weekly with your free account (
-            <code className="font-mono text-ident text-foreground">FLOWMON_MAXMIND_ACCOUNT_ID</code> and{" "}
-            <code className="font-mono text-ident text-foreground">FLOWMON_MAXMIND_LICENSE_KEY</code>).{" "}
-            {status.maxMindConfigured ? "Configured." : "Not configured."}
+            MaxMind GeoLite2, downloaded weekly with the account above. {status.maxMindConfigured ? "Set." : "Not set."}
           </li>
           <li>DB-IP Lite, downloaded weekly without an account. Slightly less detailed than GeoLite2.</li>
         </ol>
         <p className="text-sm text-muted-foreground">
-          {status.downloadsEnabled ? (
-            <>
-              Downloads are on. Set <code className="font-mono text-ident text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>{" "}
-              to use only your own files.
-            </>
-          ) : (
-            <>
-              Downloads are off (<code className="font-mono text-ident text-foreground">FLOWMON_GEOIP_DOWNLOAD=false</code>
-              ), so only your own files are used.
-            </>
-          )}{" "}
           A new database applies to Flows from then on; stored Flows keep what was known when they arrived.
         </p>
         {usesDBIP(status) && (

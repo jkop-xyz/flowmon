@@ -23,7 +23,7 @@ services:
       # FLOWMON_DATABASE_PASSWORD_FILE: /run/secrets/flowmon_db_password
       # FLOWMON_EXPORTER_ALLOWLIST: "192.168.10.1/32"
       # FLOWMON_TRUSTED_PROXIES: "127.0.0.1/32"
-      # GeoIP: MaxMind GeoLite2 instead of DB-IP Lite (see docs/deploy.md).
+      # GeoIP: MaxMind GeoLite2 instead of DB-IP Lite. Easier in Settings; set here, it is locked (docs/deploy.md).
       # FLOWMON_MAXMIND_ACCOUNT_ID: "123456"
       # FLOWMON_MAXMIND_LICENSE_KEY_FILE: /run/secrets/maxmind_license_key
       TZ: UTC

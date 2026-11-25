@@ -7,6 +7,8 @@ export function useGeoIP() {
     queryKey: ["geoip"],
     queryFn: ({ signal }) => fetchGeoIP(signal),
     staleTime: 5 * 60_000,
+    // Follow a download while it runs.
+    refetchInterval: (q) => (q.state.data?.downloading ? 2_000 : false),
   })
 }
 
