@@ -112,7 +112,7 @@ export function OverviewPage() {
             icon={Monitor}
             title="Devices"
             what="Devices"
-            description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address."
+            description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address, or by Host Label prefix."
             action={
               <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
                 All Devices
