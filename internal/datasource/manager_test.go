@@ -367,7 +367,7 @@ func TestOverlappingEditsLeaveNoStrayRun(t *testing.T) {
 			k.mu.Unlock()
 
 			upd := fakeSource
-			upd.Settings = datasource.Settings{"url": "https://dns2.example", "user": "admin"}
+			upd.Settings = datasource.Settings{"url": "https://dns.example", "user": "bob"}
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				if _, err := m.Update(context.Background(), st.ID, upd); err != nil {
