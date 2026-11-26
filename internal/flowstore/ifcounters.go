@@ -206,6 +206,9 @@ type InterfacePoint struct {
 	// InBps and OutBps are bits per second over the seconds polling covered.
 	InBps  float64 `json:"inBps"`
 	OutBps float64 `json:"outBps"`
+	// InOctets and OutOctets are the octets counted in the bucket.
+	InOctets  float64 `json:"inOctets"`
+	OutOctets float64 `json:"outOctets"`
 	// Errors and Discards are counts in the bucket, both directions.
 	Errors   uint64 `json:"errors"`
 	Discards uint64 `json:"discards"`
@@ -251,6 +254,7 @@ func (s *Store) InterfaceSeries(ctx context.Context, source string, ifIndex uint
 			return nil, err
 		}
 		p.T = p.T.UTC()
+		p.InOctets, p.OutOctets = in, outB
 		if secs > 0 {
 			p.InBps, p.OutBps = in*8/secs, outB*8/secs
 		}

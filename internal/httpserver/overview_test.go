@@ -59,3 +59,25 @@ func TestOverviewEndpoints(t *testing.T) {
 		t.Errorf("without SNMP: %s", body)
 	}
 }
+
+// seriesInterfaces serves a known counter series for the WAN interface.
+type seriesInterfaces struct{ fakeInterfaces }
+
+func (f seriesInterfaces) InterfaceSeries(context.Context, string, uint32, time.Time, time.Time) ([]flowstore.InterfacePoint, error) {
+	return []flowstore.InterfacePoint{
+		{T: f.now.Add(-2 * time.Minute), InBps: 80, OutBps: 16, InOctets: 600, OutOctets: 120, Coverage: 1},
+		{T: f.now.Add(-time.Minute), InBps: 160, OutBps: 32, InOctets: 600, OutOctets: 120, Coverage: 0.5},
+	}, nil
+}
+
+func TestWANLoadTotals(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	sources := fakeSourceList{{Source: datasource.Source{ID: "sw1", Kind: "snmp", Name: "Router", Enabled: true, Settings: datasource.Settings{"address": "192.168.10.1"}}}}
+	h := New(Options{UI: builtUI, Now: func() time.Time { return now }, Sources: sources, InterfaceCounters: seriesInterfaces{fakeInterfaces{now}},
+		SNMP: &SNMPOptions{WAN: func(netip.Addr) map[string]uint32 { return map[string]uint32{"ether1": 1} }}})
+	body := get(t, h, "/api/overview/network?from=2026-11-25T11:00:00Z&to=2026-11-25T12:00:00Z").Body.String()
+	// 600+600 octets in, 120+120 out; polling covered 60s + 30s.
+	if want := `"total":{"inBytes":1200,"outBytes":240,"seconds":90}`; !strings.Contains(body, want) {
+		t.Errorf("network lacks %s: %s", want, body)
+	}
+}
