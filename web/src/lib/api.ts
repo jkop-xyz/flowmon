@@ -1233,3 +1233,11 @@ export type UsageNow = {
 export function fetchUsageNow(signal?: AbortSignal) {
   return getJSON<UsageNow>("/api/overview/now", signal)
 }
+
+/** One Overview section in a user's saved layout; the id may be one this build doesn't know. */
+export type SavedSection = { id: string; hidden: boolean }
+
+/** The signed-in user's saved Overview layout; null when they have never saved one. */
+export async function fetchOverviewLayout(signal?: AbortSignal): Promise<SavedSection[] | null> {
+  return (await getJSON<{ sections: SavedSection[] | null }>("/api/me/overview-layout", signal)).sections
+}
