@@ -125,7 +125,7 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   },
   dns: {
     name: "DNS",
-    cards: "Lookups and blocks, Most blocked",
+    cards: "Lookups and blocks, Most queried or most blocked",
     sketch: [1],
     available: ({ dnsOn }) => dnsOn,
     unavailable: "Needs AdGuard Home, which isn't set up. Shown once it is.",
