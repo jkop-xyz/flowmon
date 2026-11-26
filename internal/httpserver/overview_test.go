@@ -36,7 +36,7 @@ func TestOverviewEndpoints(t *testing.T) {
 	body := get(t, h, "/api/overview/network?from=2026-11-25T11:00:00Z&to=2026-11-25T12:00:00Z").Body.String()
 	for _, want := range []string{
 		`"interfaces":[{"source":"sw1","sourceName":"Router","ifIndex":1,"name":"ether1","speed":1000000000}]`,
-		`"now":{"t":"2026-11-25T11:59:00Z","inBps":250000000,"outBps":20000000}`,
+		`"now":{"t":"2026-11-25T11:59:00Z","inBps":250000000,"outBps":20000000,"inBytes":0,"outBytes":0}`,
 		`"line":{"downBps":1000000000,"upBps":1000000000,"fromSetting":false}`,
 		`"restarts":["2026-11-25T11:30:00Z"]`,
 		`"cpu":12.5`,
@@ -79,5 +79,17 @@ func TestWANLoadTotals(t *testing.T) {
 	// 600+600 octets in, 120+120 out; polling covered 60s + 30s.
 	if want := `"total":{"inBytes":1200,"outBytes":240,"seconds":90}`; !strings.Contains(body, want) {
 		t.Errorf("network lacks %s: %s", want, body)
+	}
+	for _, want := range []string{`"inBps":80,"outBps":16,"inBytes":600,"outBytes":120`, `"inBps":160,"outBps":32,"inBytes":600,"outBytes":120`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("network lacks point %s: %s", want, body)
+		}
+	}
+	// A bucket that two WAN interfaces share sums both.
+	both := New(Options{UI: builtUI, Now: func() time.Time { return now }, Sources: sources, InterfaceCounters: seriesInterfaces{fakeInterfaces{now}},
+		SNMP: &SNMPOptions{WAN: func(netip.Addr) map[string]uint32 { return map[string]uint32{"ether1": 1, "ether2": 2} }}})
+	body = get(t, both, "/api/overview/network?from=2026-11-25T11:00:00Z&to=2026-11-25T12:00:00Z").Body.String()
+	if want := `"inBps":160,"outBps":32,"inBytes":1200,"outBytes":240`; !strings.Contains(body, want) {
+		t.Errorf("two interfaces: network lacks %s: %s", want, body)
 	}
 }

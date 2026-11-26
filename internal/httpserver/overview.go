@@ -63,6 +63,9 @@ type wanPoint struct {
 	// InBps is download (into the WAN interfaces), OutBps upload.
 	InBps  float64 `json:"inBps"`
 	OutBps float64 `json:"outBps"`
+	// InBytes and OutBytes are the octets the router counted in the point's step.
+	InBytes  float64 `json:"inBytes"`
+	OutBytes float64 `json:"outBytes"`
 }
 
 type deviceHealthJSON struct {
@@ -186,6 +189,8 @@ func wanLoad(ctx context.Context, opts Options, srcs []datasource.Status, from, 
 				}
 				w.InBps += p.InBps
 				w.OutBps += p.OutBps
+				w.InBytes += p.InOctets
+				w.OutBytes += p.OutOctets
 			}
 			wan.Total.Seconds = max(wan.Total.Seconds, covered)
 			if n, ok := latest[i.IfIndex]; ok && opts.Now().Sub(n.At) < recentlyPolled {
