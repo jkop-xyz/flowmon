@@ -1183,7 +1183,7 @@ export function fetchDeviceHealth(id: string, range: RangeParams, signal?: Abort
 export type WANLoad = {
   interfaces: { source: string; sourceName: string; ifIndex: number; name: string; speed: number }[]
   /** inBps is download, outBps upload. */
-  points: { t: string; inBps: number; outBps: number }[]
+  points: { t: string; inBps: number; outBps: number; inBytes: number; outBytes: number }[]
   stepSeconds: number
   /** The latest minute, when recent. */
   now?: { t: string; inBps: number; outBps: number }

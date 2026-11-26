@@ -21,8 +21,8 @@ import {
   DNSOverviewCard,
   InterfaceProblemsCard,
   UsageNowCard,
-  WANLoadCard,
 } from "@/components/overview-network"
+import { WANLoadCard } from "@/components/wan-load-card"
 import { dnsQuery, lineShare, useNetworkOverview } from "@/lib/overview"
 import { DBIPAttribution } from "@/components/geoip"
 import { useGeoIP, usesDBIP } from "@/lib/geoip"
