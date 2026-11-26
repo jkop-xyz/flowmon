@@ -119,7 +119,7 @@ Add it under Settings → AdGuard Home: its address, and a user AdGuard Home acc
 
 ```sh
 FLOWMON_SOURCE_ADGUARD_KIND=adguard
-FLOWMON_SOURCE_ADGUARD_URL=http://192.168.10.2:3000
+FLOWMON_SOURCE_ADGUARD_URL=http://192.168.88.2:3000
 FLOWMON_SOURCE_ADGUARD_USERNAME=admin
 FLOWMON_SOURCE_ADGUARD_PASSWORD=...
 FLOWMON_SOURCE_ADGUARD_SKIP_TLS_VERIFY=false   # true for https with a self-signed certificate

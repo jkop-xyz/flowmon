@@ -1,7 +1,7 @@
 import { useSearchParams } from "react-router"
 
 /**
- * The global Exporter filter, kept in the URL (?exporter=192.168.10.1) like the time
+ * The global Exporter filter, kept in the URL (?exporter=192.168.88.1) like the time
  * range. Empty means all Exporters.
  */
 export function useExporterFilter() {

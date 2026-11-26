@@ -16,12 +16,12 @@ services:
     volumes:
       - flowmon-data:/data
     environment:
-      # Everything below is optional; see the README for all settings.
+      # Everything below is optional; see docs/configuration.md for all settings.
       # FLOWMON_HTTP_ADDR: ":8080"
       # FLOWMON_FLOW_UDP_ADDRS: ":2055,:4739"
       # FLOWMON_DATABASE_URL: "postgres://flowmon@postgres.lan:5432/lab?sslmode=require&search_path=flowmon"
       # FLOWMON_DATABASE_PASSWORD_FILE: /run/secrets/flowmon_db_password
-      # FLOWMON_EXPORTER_ALLOWLIST: "192.168.10.1/32"
+      # FLOWMON_EXPORTER_ALLOWLIST: "192.168.88.1/32"
       # FLOWMON_TRUSTED_PROXIES: "127.0.0.1/32"
       # GeoIP: MaxMind GeoLite2 instead of DB-IP Lite. Easier in Settings; set here, it is locked (docs/deploy.md).
       # FLOWMON_MAXMIND_ACCOUNT_ID: "123456"
