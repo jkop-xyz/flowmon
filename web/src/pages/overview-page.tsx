@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 import { Building2, ChartArea, Earth, Globe, Layers, Monitor, Plug, type LucideIcon } from "lucide-react"
-import { lazy, Suspense, type ReactNode } from "react"
+import { Fragment, lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
 import { AreaChip } from "@/components/area-chip"
@@ -246,11 +246,8 @@ export function OverviewPage() {
 
   return (
     <Page>
-      {shown.map(({ id }, i) => (
-        // The two top-list sections sit closer together than the page's other sections.
-        <div key={id} className={cn(id === "internet" && shown[i - 1]?.id === "top" && "-mt-4")}>
-          {overviewSections[id].render(ctx)}
-        </div>
+      {shown.map(({ id }) => (
+        <Fragment key={id}>{overviewSections[id].render(ctx)}</Fragment>
       ))}
       {incomplete && shown.some(({ id }) => id === "top" || id === "internet") && (
         <p className="text-xs text-muted-foreground">
