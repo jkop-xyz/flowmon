@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 import { Building2, ChartArea, Earth, Globe, Layers, Monitor, Plug, type LucideIcon } from "lucide-react"
-import { lazy, Suspense, type ReactNode } from "react"
+import { Fragment, lazy, Suspense, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
 import { AreaChip } from "@/components/area-chip"
@@ -10,6 +10,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   fetchBandwidth,
+  fetchOverviewLayout,
   fetchTop,
   type BandwidthResult,
   type TopDimension,
@@ -44,6 +45,7 @@ import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-ran
 import type { Area } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import { useDeviceLabels } from "@/lib/devices"
+import { resolveLayout, type OverviewSectionId } from "@/lib/overview-layout"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
@@ -73,6 +75,149 @@ const bandwidthSeries: TrafficSeries<"inboundBps" | "outboundBps">[] = [
   { key: "outboundBps", label: "Outbound", color: "var(--chart-2)" },
 ]
 
+/** What a section's renderer reads from the page. */
+type OverviewContext = {
+  network: ReturnType<typeof useNetworkOverview>
+  showDomains: boolean
+  search: string
+}
+
+type OverviewSection = {
+  /** The name in the layout editor. */
+  name: string
+  /** The cards it holds, for the layout editor. */
+  cards: string
+  /** Whether it has anything to show; a section that isn't available is skipped. */
+  available: (ctx: OverviewContext & { dnsOn: boolean }) => boolean
+  /** The layout editor's note when it isn't available. */
+  unavailable?: string
+  render: (ctx: OverviewContext) => ReactNode
+}
+
+const overviewSections: Record<OverviewSectionId, OverviewSection> = {
+  figures: {
+    name: "Figures",
+    cards: "Download now, Upload now, Received and sent, DNS lookups",
+    available: () => true,
+    render: ({ network }) => <Figures wan={network.data?.wan ?? undefined} />,
+  },
+  load: {
+    name: "Load now",
+    cards: "WAN load (Bandwidth without SNMP), Who is using it now",
+    available: () => true,
+    // The load now and who causes it; without SNMP, the Flows' bandwidth.
+    render: ({ network }) => (
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+        {network.data?.wan ? (
+          <WANLoadCard wan={network.data.wan} fetched={network.dataUpdatedAt} />
+        ) : (
+          <BandwidthCard />
+        )}
+        <UsageNowCard />
+      </div>
+    ),
+  },
+  dns: {
+    name: "DNS",
+    cards: "Lookups and blocks, Most blocked",
+    available: ({ dnsOn }) => dnsOn,
+    unavailable: "Needs AdGuard Home, which isn't set up. Shown once it is.",
+    render: () => <DNSOverviewCard />,
+  },
+  top: {
+    name: "Top lists",
+    cards: "Devices, Domains, Remote IPs",
+    available: () => true,
+    render: ({ showDomains, search }) => (
+      <div className={cn("grid gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
+        <TopCard
+          dimension="devices"
+          area="hosts"
+          icon={Monitor}
+          title="Devices"
+          what="Devices"
+          description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address, or by Host Label prefix."
+          action={
+            <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
+              All Devices
+            </Link>
+          }
+        />
+        {showDomains && <DomainsCard />}
+        <TopCard
+          dimension="remotes"
+          area="remote"
+          icon={Globe}
+          title="Remote IPs"
+          what="Remote IPs"
+          description="The busiest addresses on the internet side, by bytes sent and received."
+          action={
+            <Link to={{ pathname: "/remote", search }} className="text-sm underline-offset-4 hover:underline">
+              All Remote IPs
+            </Link>
+          }
+        />
+      </div>
+    ),
+  },
+  internet: {
+    name: "The internet side",
+    cards: "Countries map, ASN Owners, Service Ports, Protocols",
+    available: () => true,
+    render: () => (
+      <div className="grid gap-6 lg:grid-cols-3 3xl:grid-cols-5">
+        <CountriesCard className="lg:col-span-3 3xl:col-span-2" />
+        <TopCard
+          dimension="asns"
+          area="remote"
+          icon={Building2}
+          title="ASN Owners"
+          what="ASN Owners"
+          description="The organisations announcing the Remote IPs."
+          mono={false}
+          footer={<GeoIPNote />}
+        />
+        <TopCard
+          dimension="ports"
+          area="explorer"
+          icon={Plug}
+          title="Service Ports"
+          what="Service Ports"
+          description="The busiest Service Ports, as Network Totals."
+        />
+        <TopCard
+          dimension="protocols"
+          area="explorer"
+          icon={Layers}
+          title="Protocols"
+          what="protocols"
+          description="The busiest IP protocols, as Network Totals."
+        />
+      </div>
+    ),
+  },
+  health: {
+    name: "Health",
+    cards: "Device health, Interface problems",
+    available: ({ network }) => (network.data?.devices.length ?? 0) > 0,
+    unavailable: "Needs an SNMP source that reports devices. Shown once there is one.",
+    render: ({ network }) => (
+      <div className="grid gap-6 lg:grid-cols-2">
+        <DeviceHealthCard devices={network.data?.devices ?? []} fetched={network.dataUpdatedAt} />
+        <InterfaceProblemsCard problems={network.data?.problems ?? []} />
+      </div>
+    ),
+  },
+}
+
+/** The saved layout; an error, or a 404 from a server without the endpoint, leaves the default order. */
+const overviewLayoutQuery = queryOptions({
+  queryKey: ["overview-layout"],
+  queryFn: ({ signal }) => fetchOverviewLayout(signal),
+  retry: false,
+  staleTime: Infinity,
+})
+
 export function OverviewPage() {
   const { search } = useLocation()
   const { preset } = useTimeRange()
@@ -80,94 +225,34 @@ export function OverviewPage() {
   const query = useQuery(bandwidthQuery({ preset, exporter }))
   const network = useNetworkOverview()
   const dns = useQuery(dnsQuery(preset))
-  const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
+  const layout = useQuery(overviewLayoutQuery)
   const showDomains = useDomainsShown()
-  const wan = network.data?.wan
-  const devices = network.data?.devices ?? []
+  const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
   const dnsOn = (dns.data?.dnsSources ?? 0) > 0
+
+  // Draw once the saved layout has settled, so the page doesn't show the default order and then jump.
+  if (layout.isPending) {
+    return (
+      <Page>
+        <SectionSkeleton rows={5} />
+      </Page>
+    )
+  }
+
+  const ctx = { network, showDomains, search }
+  const shown = resolveLayout(layout.data ?? null).filter(
+    (entry) => !entry.hidden && overviewSections[entry.id].available({ ...ctx, dnsOn }),
+  )
 
   return (
     <Page>
-      <Figures wan={wan ?? undefined} />
-      {/* The load now and who causes it; without SNMP, the Flows' bandwidth. */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-        {wan ? <WANLoadCard wan={wan} fetched={network.dataUpdatedAt} /> : <BandwidthCard />}
-        <UsageNowCard />
-      </div>
-
-      {dnsOn && <DNSOverviewCard />}
-
-      <div className="flex flex-col gap-2">
-        <div className={cn("grid gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
-          <TopCard
-            dimension="devices"
-            area="hosts"
-            icon={Monitor}
-            title="Devices"
-            what="Devices"
-            description="The busiest Devices by bytes sent and received, including Internal traffic. Traffic without a known MAC counts by address, or by Host Label prefix."
-            action={
-              <Link to={{ pathname: "/hosts", search }} className="text-sm underline-offset-4 hover:underline">
-                All Devices
-              </Link>
-            }
-          />
-          {showDomains && <DomainsCard />}
-          <TopCard
-            dimension="remotes"
-            area="remote"
-            icon={Globe}
-            title="Remote IPs"
-            what="Remote IPs"
-            description="The busiest addresses on the internet side, by bytes sent and received."
-            action={
-              <Link to={{ pathname: "/remote", search }} className="text-sm underline-offset-4 hover:underline">
-                All Remote IPs
-              </Link>
-            }
-          />
-        </div>
-        <div className="grid gap-6 lg:grid-cols-3 3xl:grid-cols-5">
-          <CountriesCard className="lg:col-span-3 3xl:col-span-2" />
-          <TopCard
-            dimension="asns"
-            area="remote"
-            icon={Building2}
-            title="ASN Owners"
-            what="ASN Owners"
-            description="The organisations announcing the Remote IPs."
-            mono={false}
-            footer={<GeoIPNote />}
-          />
-          <TopCard
-            dimension="ports"
-            area="explorer"
-            icon={Plug}
-            title="Service Ports"
-            what="Service Ports"
-            description="The busiest Service Ports, as Network Totals."
-          />
-          <TopCard
-            dimension="protocols"
-            area="explorer"
-            icon={Layers}
-            title="Protocols"
-            what="protocols"
-            description="The busiest IP protocols, as Network Totals."
-          />
-        </div>
-        {incomplete && (
-          <p className="text-xs text-muted-foreground">
-            The chart and lists include the last few minutes, which are incomplete: Flows for them may still arrive.
-          </p>
-        )}
-      </div>
-
-      {devices.length > 0 && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <DeviceHealthCard devices={devices} fetched={network.dataUpdatedAt} />
-          <InterfaceProblemsCard problems={network.data?.problems ?? []} />
-        </div>
+      {shown.map(({ id }) => (
+        <Fragment key={id}>{overviewSections[id].render(ctx)}</Fragment>
+      ))}
+      {incomplete && shown.some(({ id }) => id === "top" || id === "internet") && (
+        <p className="text-xs text-muted-foreground">
+          The chart and lists include the last few minutes, which are incomplete: Flows for them may still arrive.
+        </p>
       )}
     </Page>
   )
