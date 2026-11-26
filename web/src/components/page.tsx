@@ -33,17 +33,28 @@ export const pageWidth = "max-w-6xl 3xl:max-w-[100rem] 4xl:max-w-[180rem]"
  * A page's column. narrow keeps reading pages (guides, settings) at 72rem, a readable
  * width, however wide the screen.
  */
-export function Page({ children, className, narrow }: { children: ReactNode; className?: string; narrow?: boolean }) {
+export function Page({
+  children,
+  className,
+  narrow,
+  actions,
+}: {
+  children: ReactNode
+  className?: string
+  narrow?: boolean
+  /** Buttons at the right end of the title row. */
+  actions?: ReactNode
+}) {
   return (
     <div className={cn("mx-auto flex w-full flex-col gap-6", narrow ? "max-w-6xl" : pageWidth, className)}>
-      <PageTitle />
+      <PageTitle actions={actions} />
       {children}
     </div>
   )
 }
 
 /** The page's name beside a tile in its area's colour, after a way back for a page below another. */
-function PageTitle() {
+function PageTitle({ actions }: { actions?: ReactNode }) {
   const { pathname, search, key } = useLocation()
   const navigate = useNavigate()
   const { title, icon: Icon, parent } = routeMeta(pathname)
@@ -68,6 +79,7 @@ function PageTitle() {
         <Icon className="size-5" />
       </span>
       <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{title}</h1>
+      {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   )
 }

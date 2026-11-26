@@ -61,6 +61,7 @@ It is one container with an embedded database. Point your router at it and open 
 **Running it**
 - One image for `linux/amd64` and `linux/arm64`. Accounts and settings live in built-in SQLite or your own PostgreSQL.
 - Online Flow Store backups, `/metrics` for Prometheus, collector health with kernel drop counts, and a warning when Flows stop arriving.
+- Each user chooses which Overview sections show, and in what order, from Edit layout on the Overview; it is saved to their account.
 - Light and dark mode, and layouts for wide monitors and narrow windows.
 
 <table>

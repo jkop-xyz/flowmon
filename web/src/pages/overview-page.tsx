@@ -1,9 +1,11 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
-import { Building2, ChartArea, Earth, Globe, Layers, Monitor, Plug, type LucideIcon } from "lucide-react"
-import { Fragment, lazy, Suspense, type ReactNode } from "react"
+import { Building2, ChartArea, Earth, Globe, Layers, Monitor, Pencil, Plug, type LucideIcon } from "lucide-react"
+import { Fragment, lazy, Suspense, useState, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
 import { AreaChip } from "@/components/area-chip"
+import { OverviewEditor, type EditorSection } from "@/components/overview-editor"
+import { Button } from "@/components/ui/button"
 import { DomainsCard } from "@/components/domains-card"
 import { useDomainsShown } from "@/lib/domains"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,7 +47,7 @@ import { resolveRange, useTimeRange, type TimeRangePreset } from "@/lib/time-ran
 import type { Area } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import { useDeviceLabels } from "@/lib/devices"
-import { resolveLayout, type OverviewSectionId } from "@/lib/overview-layout"
+import { overviewLayoutKey, resolveLayout, type OverviewSectionId } from "@/lib/overview-layout"
 
 // The map and its shapes are a separate chunk, loaded when the Overview first needs them.
 const WorldMap = lazy(() => import("@/components/world-map"))
@@ -87,6 +89,8 @@ type OverviewSection = {
   name: string
   /** The cards it holds, for the layout editor. */
   cards: string
+  /** Column proportions of its cards, for the layout editor's sketch. */
+  sketch: number[]
   /** Whether it has anything to show; a section that isn't available is skipped. */
   available: (ctx: OverviewContext & { dnsOn: boolean }) => boolean
   /** The layout editor's note when it isn't available. */
@@ -98,12 +102,14 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   figures: {
     name: "Figures",
     cards: "Download now, Upload now, Received and sent, DNS lookups",
+    sketch: [1, 1, 1, 1],
     available: () => true,
     render: ({ network }) => <Figures wan={network.data?.wan ?? undefined} />,
   },
   load: {
     name: "Load now",
     cards: "WAN load (Bandwidth without SNMP), Who is using it now",
+    sketch: [1.75, 1],
     available: () => true,
     // The load now and who causes it; without SNMP, the Flows' bandwidth.
     render: ({ network }) => (
@@ -119,7 +125,8 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   },
   dns: {
     name: "DNS",
-    cards: "Lookups and blocks, Most blocked",
+    cards: "Lookups and blocks, Most queried or most blocked",
+    sketch: [1],
     available: ({ dnsOn }) => dnsOn,
     unavailable: "Needs AdGuard Home, which isn't set up. Shown once it is.",
     render: () => <DNSOverviewCard />,
@@ -127,6 +134,7 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   top: {
     name: "Top lists",
     cards: "Devices, Domains, Remote IPs",
+    sketch: [1, 1, 1],
     available: () => true,
     render: ({ showDomains, search }) => (
       <div className={cn("grid gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
@@ -163,6 +171,7 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   internet: {
     name: "The internet side",
     cards: "Countries map, ASN Owners, Service Ports, Protocols",
+    sketch: [2, 1, 1, 1],
     available: () => true,
     render: () => (
       <div className="grid gap-6 lg:grid-cols-3 3xl:grid-cols-5">
@@ -199,6 +208,7 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
   health: {
     name: "Health",
     cards: "Device health, Interface problems",
+    sketch: [1, 1],
     available: ({ network }) => (network.data?.devices.length ?? 0) > 0,
     unavailable: "Needs an SNMP source that reports devices. Shown once there is one.",
     render: ({ network }) => (
@@ -212,7 +222,7 @@ const overviewSections: Record<OverviewSectionId, OverviewSection> = {
 
 /** The saved layout; an error, or a 404 from a server without the endpoint, leaves the default order. */
 const overviewLayoutQuery = queryOptions({
-  queryKey: ["overview-layout"],
+  queryKey: overviewLayoutKey,
   queryFn: ({ signal }) => fetchOverviewLayout(signal),
   retry: false,
   staleTime: Infinity,
@@ -226,6 +236,7 @@ export function OverviewPage() {
   const network = useNetworkOverview()
   const dns = useQuery(dnsQuery(preset))
   const layout = useQuery(overviewLayoutQuery)
+  const [editing, setEditing] = useState(false)
   const showDomains = useDomainsShown()
   const incomplete = query.data && new Date(query.data.result.to) > new Date(query.data.incompleteFrom)
   const dnsOn = (dns.data?.dnsSources ?? 0) > 0
@@ -240,12 +251,33 @@ export function OverviewPage() {
   }
 
   const ctx = { network, showDomains, search }
-  const shown = resolveLayout(layout.data ?? null).filter(
-    (entry) => !entry.hidden && overviewSections[entry.id].available({ ...ctx, dnsOn }),
-  )
+  const resolved = resolveLayout(layout.data ?? null)
+
+  if (editing) {
+    const sections = Object.fromEntries(
+      Object.entries(overviewSections).map(([id, { name, cards, sketch, available, unavailable }]) => [
+        id,
+        { name, cards, sketch, unavailable: available({ ...ctx, dnsOn }) ? undefined : unavailable },
+      ]),
+    ) as Record<OverviewSectionId, EditorSection>
+    return (
+      <Page>
+        <OverviewEditor layout={resolved} sections={sections} onClose={() => setEditing(false)} />
+      </Page>
+    )
+  }
+
+  const shown = resolved.filter((entry) => !entry.hidden && overviewSections[entry.id].available({ ...ctx, dnsOn }))
 
   return (
-    <Page>
+    <Page
+      actions={
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+          <Pencil data-icon="inline-start" />
+          Edit layout
+        </Button>
+      }
+    >
       {shown.map(({ id }) => (
         <Fragment key={id}>{overviewSections[id].render(ctx)}</Fragment>
       ))}
