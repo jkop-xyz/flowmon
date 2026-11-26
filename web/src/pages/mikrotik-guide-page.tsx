@@ -190,7 +190,7 @@ export function MikroTikGuidePage() {
           <li>In IP → SNMP, set Enabled.</li>
           <li>
             In Communities, add one for Flowmon: Name (e.g. <code className="font-mono">flowmon</code>; this is the
-            SNMPv3 user), Addresses = only this Flowmon host (e.g. <code className="font-mono">192.168.10.44/32</code>),
+            SNMPv3 user), Addresses = only this Flowmon host (e.g. <code className="font-mono">192.168.88.10/32</code>),
             Security <code className="font-mono">private</code>, Authentication Protocol{" "}
             <code className="font-mono">SHA1</code>, Encryption Protocol <code className="font-mono">AES</code>,
             passwords of at least 8 characters, read access only.

@@ -58,7 +58,7 @@ SNMP fills in interface names, and lets Flowmon check Flow totals against the ro
 1. In **IP → SNMP**, set **Enabled**.
 2. In **Communities**, add one for Flowmon:
    - **Name**: e.g. `flowmon`. This is the SNMPv3 user name.
-   - **Addresses**: only the Flowmon host, e.g. `192.168.10.44/32`.
+   - **Addresses**: only the Flowmon host, e.g. `192.168.88.10/32`.
    - **Security**: `private` (authentication and encryption).
    - **Authentication Protocol**: `SHA1`. **Encryption Protocol**: `AES`.
    - Passwords of at least 8 characters.

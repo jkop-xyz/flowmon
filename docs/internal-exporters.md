@@ -28,8 +28,8 @@ softflowd is the usual way to export Flows from a Linux hypervisor. Where it cap
 - **Capture on each VM's tap interface instead.** Proxmox names them `tap<VMID>i<N>` (`tap100i0` is VM 100's first network device), and every frame a VM sends or receives passes its tap. Run one softflowd per tap, all sending to Flowmon:
 
   ```sh
-  softflowd -i tap100i0 -n 192.168.10.5:2055 -v 9
-  softflowd -i tap101i0 -n 192.168.10.5:2055 -v 9
+  softflowd -i tap100i0 -n 192.168.88.10:2055 -v 9
+  softflowd -i tap101i0 -n 192.168.88.10:2055 -v 9
   ```
 
   They all send from the hypervisor's address, so Flowmon sees one Exporter. A Flow between VM 100 and VM 101 is captured at both taps, so turn on **Observes multiple points**. Containers (LXC) have `veth<VMID>i<N>` interfaces that work the same way.
