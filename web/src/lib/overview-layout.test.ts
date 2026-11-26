@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 
-import { defaultOrder, resolveLayout, type SavedSection } from "./overview-layout"
+import {
+  defaultLayout,
+  defaultOrder,
+  isDefault,
+  moveSection,
+  resolveLayout,
+  setHidden,
+  type SavedSection,
+} from "./overview-layout"
 
 const ids = (saved: SavedSection[] | null) => resolveLayout(saved).map((e) => e.id)
 const shown = (...list: string[]): SavedSection[] => list.map((id) => ({ id, hidden: false }))
@@ -57,5 +65,35 @@ describe("resolveLayout", () => {
 
   it("gives the default order, shown, for an empty save", () => {
     expect(resolveLayout([])).toEqual(resolveLayout(null))
+  })
+})
+
+describe("editing", () => {
+  const order = (layout: { id: string }[]) => layout.map((e) => e.id)
+
+  it("moves a section to a new place and leaves the input alone", () => {
+    const before = defaultLayout()
+    expect(order(moveSection(before, 0, 2))).toEqual(["load", "dns", "figures", "top", "internet", "health"])
+    expect(order(moveSection(before, 5, 4))).toEqual(["figures", "load", "dns", "top", "health", "internet"])
+    expect(order(before)).toEqual(defaultOrder)
+  })
+
+  it("ignores a move out of range", () => {
+    const before = defaultLayout()
+    expect(moveSection(before, 0, -1)).toBe(before)
+    expect(moveSection(before, 5, 6)).toBe(before)
+  })
+
+  it("hides and shows one section", () => {
+    const hidden = setHidden(defaultLayout(), "dns", true)
+    expect(hidden.find((e) => e.id === "dns")?.hidden).toBe(true)
+    expect(hidden.filter((e) => e.hidden)).toHaveLength(1)
+    expect(setHidden(hidden, "dns", false)).toEqual(defaultLayout())
+  })
+
+  it("knows the default only when order and visibility both match", () => {
+    expect(isDefault(defaultLayout())).toBe(true)
+    expect(isDefault(moveSection(defaultLayout(), 0, 1))).toBe(false)
+    expect(isDefault(setHidden(defaultLayout(), "top", true))).toBe(false)
   })
 })

@@ -36,3 +36,26 @@ export function resolveLayout(saved: SavedSection[] | null): LayoutEntry[] {
   }
   return layout
 }
+
+/** The layout with the entry at from moved to to; out-of-range indexes change nothing. */
+export function moveSection(layout: LayoutEntry[], from: number, to: number): LayoutEntry[] {
+  if (from === to || !layout[from] || to < 0 || to >= layout.length) return layout
+  const next = [...layout]
+  next.splice(to, 0, ...next.splice(from, 1))
+  return next
+}
+
+export function setHidden(layout: LayoutEntry[], id: OverviewSectionId, hidden: boolean): LayoutEntry[] {
+  return layout.map((e) => (e.id === id ? { ...e, hidden } : e))
+}
+
+/** The default layout: the default order, all shown. */
+export const defaultLayout = (): LayoutEntry[] => defaultOrder.map((id) => ({ id, hidden: false }))
+
+/** Whether the layout is the default order with every section shown. */
+export function isDefault(layout: LayoutEntry[]): boolean {
+  return layout.length === defaultOrder.length && layout.every((e, i) => e.id === defaultOrder[i] && !e.hidden)
+}
+
+/** The query key of the signed-in user's saved layout. */
+export const overviewLayoutKey = ["overview-layout"]

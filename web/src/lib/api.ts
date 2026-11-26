@@ -1241,3 +1241,15 @@ export type SavedSection = { id: string; hidden: boolean }
 export async function fetchOverviewLayout(signal?: AbortSignal): Promise<SavedSection[] | null> {
   return (await getJSON<{ sections: SavedSection[] | null }>("/api/me/overview-layout", signal)).sections
 }
+
+/** Saves the signed-in user's Overview layout. */
+export async function saveOverviewLayout(sections: SavedSection[]): Promise<SavedSection[]> {
+  return (await putJSON<{ sections: SavedSection[] }>("/api/me/overview-layout", { sections })).sections
+}
+
+/** Deletes the saved layout, so the user gets the default and new sections in their default places. */
+export async function resetOverviewLayout() {
+  const path = "/api/me/overview-layout"
+  const response = await fetch(path, { method: "DELETE" })
+  if (!response.ok) await parse(path, response)
+}
