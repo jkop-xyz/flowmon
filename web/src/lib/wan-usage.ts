@@ -1,4 +1,5 @@
 import type { WANLoad } from "@/lib/api"
+import { byteUnits } from "@/lib/format"
 
 export type UsageUnit = { name: "minute" | "5 minutes" | "30 minutes" | "hour" | "day" | "week"; ms?: number }
 
@@ -90,4 +91,18 @@ export function bucketLabel(b: UsageBucket, unit: UsageUnit, rangeMs: number): s
 export function bucketTitle(b: UsageBucket, unit: UsageUnit): string {
   if (unit.ms !== undefined) return `${weekday(b.start)} ${date(b.start)}, ${clock(b.start)}–${clock(b.end)}`
   return unit.name === "week" ? `Week of ${date(b.start)}` : `${weekday(b.start)} ${date(b.start)}`
+}
+
+/** A byte axis up to max in round steps of the largest unit max reaches, so it reads 0, 200, 400, 600 GiB rather than 0, 140, 279, 419 GiB. */
+export function byteAxis(max: number): { ticks: number[]; format: (v: number) => string } {
+  if (max <= 0) return { ticks: [0], format: () => "0 B" }
+  const power = Math.min(Math.floor(Math.log(max) / Math.log(1024)), byteUnits.length - 1)
+  const base = 1024 ** power
+  const raw = max / base / 4
+  const p = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 2.5, 5, 10].find((m) => m * p >= raw)! * p * base
+  return {
+    ticks: Array.from({ length: Math.ceil(max / step) + 1 }, (_, i) => i * step),
+    format: (v) => (v === 0 ? "0" : `${Number((v / base).toFixed(2))} ${byteUnits[power]}`),
+  }
 }

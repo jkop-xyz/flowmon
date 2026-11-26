@@ -9,7 +9,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { formatBytes } from "@/lib/format"
-import { bucketLabel, bucketTitle, type UsageBucket, type UsageUnit } from "@/lib/wan-usage"
+import { bucketLabel, bucketTitle, byteAxis, type UsageBucket, type UsageUnit } from "@/lib/wan-usage"
 
 const config = {
   inBytes: { label: "Downloaded", color: "var(--chart-1)" },
@@ -20,13 +20,14 @@ const config = {
 export function UsageChart({ buckets, unit, rangeMs }: { buckets: UsageBucket[]; unit: UsageUnit; rangeMs: number }) {
   const empty = buckets.every((b) => b.inBytes === 0 && b.outBytes === 0)
   const last = buckets.length - 1
+  const axis = byteAxis(Math.max(0, ...buckets.map((b) => Math.max(b.inBytes, b.outBytes))))
   return (
     <div className="relative w-full min-w-0">
       <ChartContainer
         config={config}
         className="aspect-auto h-72 w-full min-w-0 [&_.recharts-responsive-container]:min-w-0"
       >
-        <BarChart data={buckets} margin={{ left: 8, right: 8, top: 8 }} barGap={2} barCategoryGap="20%" maxBarSize={18}>
+        <BarChart data={buckets} margin={{ left: 8, right: 8, top: 8 }} barGap={2} barCategoryGap="12%" maxBarSize={18}>
           <CartesianGrid vertical={false} />
           <XAxis
             dataKey="start"
@@ -41,7 +42,14 @@ export function UsageChart({ buckets, unit, rangeMs }: { buckets: UsageBucket[];
               )
             }
           />
-          <YAxis tickLine={false} axisLine={false} width={88} tickFormatter={(v: number) => formatBytes(v)} />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={72}
+            ticks={axis.ticks}
+            domain={[0, axis.ticks[axis.ticks.length - 1]]}
+            tickFormatter={axis.format}
+          />
           <ChartTooltip
             cursor={{ fill: "var(--muted-foreground)", fillOpacity: 0.08 }}
             content={

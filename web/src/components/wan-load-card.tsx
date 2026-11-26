@@ -71,10 +71,17 @@ function UsageTile({
     view === "speed" ? (
       total.seconds > 0 ? (
         <>
-          Average <b className="font-medium text-foreground">{formatBitsPerSecond((bytes * 8) / total.seconds)}</b> ·
-          peak {wan.stepSeconds === 3600 ? "hour" : "minute"}{" "}
-          <b className="font-medium text-foreground">{formatBitsPerSecond(peak)}</b>
-          {line.fromSetting && lineBps > 0 && ` · ${Math.round((100 * peak) / lineBps)} % of line`}
+          <span className="whitespace-nowrap">
+            Average <b className="font-medium text-foreground">{formatBitsPerSecond((bytes * 8) / total.seconds)}</b>
+          </span>
+          {" · "}
+          <span className="whitespace-nowrap">
+            peak {wan.stepSeconds === 3600 ? "hour" : "minute"}{" "}
+            <b className="font-medium text-foreground">{formatBitsPerSecond(peak)}</b>
+          </span>
+          {line.fromSetting && lineBps > 0 && (
+            <span className="whitespace-nowrap"> · {Math.round((100 * peak) / lineBps)} % of line</span>
+          )}
         </>
       ) : (
         "No data"
@@ -125,7 +132,7 @@ export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number })
         </CardTitle>
         <CardDescription>
           {names}, from its counters each minute, {preset.label.toLowerCase()}
-          {view === "data" && `, by ${unit.name}`}.{" "}
+          {view === "data" && `, per ${unit.name}`}.{" "}
           {view === "data" ? null : wan.line.fromSetting ? (
             "Dashed: your line's speed."
           ) : (
@@ -186,7 +193,8 @@ export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number })
             <>
               <UsageChart buckets={buckets} unit={unit} rangeMs={preset.ms} />
               <p className="text-xs text-muted-foreground">
-                Each bar is the bytes the router counted in that {unit.name}.
+                Each bar is {/^\d/.test(unit.name) ? "" : unit.name === "hour" ? "an " : "a "}
+                {unit.name} of the router's counters.
               </p>
             </>
           )}

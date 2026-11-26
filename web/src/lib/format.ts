@@ -4,7 +4,7 @@ export function formatNumber(n: number): string {
   return numberFormat.format(n)
 }
 
-const byteUnits = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+export const byteUnits = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
 
 /** Volumes are shown in bytes (rates use bits/s elsewhere). */
 export function formatBytes(n: number): string {
