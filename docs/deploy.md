@@ -4,7 +4,7 @@ Flowmon is one container image, `ghcr.io/jkop-xyz/flowmon`, built for `linux/amd
 
 | Tag | What it is |
 |---|---|
-| `latest`, `1.2.3`, `1.2` | releases |
+| `latest`, `1.2.3`, `1.2`, `1` | releases |
 | `edge`, `sha-<commit>` | the newest commit on `main` |
 
 Everything it keeps is in one volume mounted at `/data`.
@@ -216,7 +216,7 @@ Flowmon migrates its stores on start, and it refuses to start on a store written
 Before you update:
 
 1. Back up `/data` as described above, and the PostgreSQL database if the App Store is there.
-2. Check which tag you run. `latest` moves to each new release, so `docker compose pull` and `podman auto-update` take you to it. To stay on a version, use its tag instead, for example `ghcr.io/jkop-xyz/flowmon:0.2`.
+2. Check which tag you run. `latest` moves to each new release, so `docker compose pull` and `podman auto-update` take you to it. To stay on a version, use its tag instead: `ghcr.io/jkop-xyz/flowmon:2` takes 2.x updates only, and `:0.2` stays on 0.2.
 
 To go back to the older version after an update:
 
