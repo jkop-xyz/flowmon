@@ -11,10 +11,83 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type DeviceHealthSummary, type InterfaceProblem, type WANLoad } from "@/lib/api"
 import { useDeviceLabels } from "@/lib/devices"
-import { formatBitsPerSecond, formatNumber } from "@/lib/format"
+import { formatBitsPerSecond, formatBytes, formatNumber } from "@/lib/format"
 import { useHostNames } from "@/lib/hosts"
 import { dnsQuery, useUsageNow } from "@/lib/overview"
 import { useTimeRange } from "@/lib/time-range"
+
+/** The line's speed as dashed levels: one when both directions match, else each label on the far side of its own line. */
+function lineLimits(down: number, up: number) {
+  if (down === up) return up > 0 ? [{ value: down, label: `Line ${formatBitsPerSecond(down)}` }] : []
+  const levels = [
+    { value: down, label: `Line down ${formatBitsPerSecond(down)}` },
+    { value: up, label: `Line up ${formatBitsPerSecond(up)}` },
+  ].filter((l) => l.value > 0)
+  const lowest = Math.min(...levels.map((l) => l.value))
+  return levels.map((l) => (levels.length > 1 && l.value === lowest ? { ...l, side: "below" as const } : l))
+}
+
+/** Download and upload over the range: transferred, average, the highest step, and now. */
+function WANTotals({ wan }: { wan: WANLoad }) {
+  const { total, line } = wan
+  const rows = [
+    {
+      label: "Download",
+      color: "var(--chart-1)",
+      bytes: total.inBytes,
+      peak: Math.max(0, ...wan.points.map((p) => p.inBps)),
+      now: wan.now?.inBps,
+      lineBps: line.downBps,
+    },
+    {
+      label: "Upload",
+      color: "var(--chart-2)",
+      bytes: total.outBytes,
+      peak: Math.max(0, ...wan.points.map((p) => p.outBps)),
+      now: wan.now?.outBps,
+      lineBps: line.upBps,
+    },
+  ]
+  const share = (bps: number, lineBps: number) =>
+    line.fromSetting && lineBps > 0 ? `${Math.round((100 * bps) / lineBps)} % of line` : undefined
+  return (
+    <div className="flex flex-col gap-4">
+      {rows.map((r) => (
+        <div key={r.label} className="flex flex-col gap-2">
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="size-2 rounded-full" style={{ background: r.color }} />
+            {r.label}
+          </span>
+          <Stat label="Transferred" value={formatBytes(r.bytes)} />
+          <Stat
+            label="Average"
+            value={total.seconds > 0 ? formatBitsPerSecond((r.bytes * 8) / total.seconds) : "No data"}
+          />
+          <Stat
+            label="Peak (highest step average)"
+            value={formatBitsPerSecond(r.peak)}
+            detail={share(r.peak, r.lineBps)}
+          />
+          <Stat
+            label="Now"
+            value={r.now === undefined ? "No data" : formatBitsPerSecond(r.now)}
+            detail={r.now === undefined ? undefined : share(r.now, r.lineBps)}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-lg font-semibold tracking-tight whitespace-nowrap tabular-nums">{value}</span>
+      {detail && <span className="text-xs text-muted-foreground tabular-nums">{detail}</span>}
+    </div>
+  )
+}
 
 /** The WAN's load over the range, from the router's own counters, against the line. */
 export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number }) {
@@ -41,30 +114,26 @@ export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number })
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-2">
-        <TrafficChart
-          fill
-          points={wan.points.map((p) => ({ t: p.t, down: p.inBps, up: p.outBps }))}
-          series={[
-            { key: "down", label: "Download", color: "var(--chart-1)" },
-            { key: "up", label: "Upload", color: "var(--chart-2)" },
-          ]}
-          stepSeconds={wan.stepSeconds}
-          rangeMs={preset.ms}
-          incompleteFrom={fetched - 60_000}
-          noun="counters"
-          limits={
-            wan.line.fromSetting
-              ? [
-                  { value: wan.line.downBps, label: `Line down ${formatBitsPerSecond(wan.line.downBps)}` },
-                  { value: wan.line.upBps, label: `Line up ${formatBitsPerSecond(wan.line.upBps)}` },
-                ].filter((l) => l.value > 0)
-              : []
-          }
-        />
-        <p className="text-xs text-muted-foreground">
-          The router's exact byte counts, so this includes traffic Flows miss, such as hardware-offloaded connections.
-        </p>
+      <CardContent className="grid flex-1 gap-4 lg:grid-cols-[11rem_minmax(0,1fr)]">
+        <WANTotals wan={wan} />
+        <div className="flex min-w-0 flex-col gap-2">
+          <TrafficChart
+            fill
+            points={wan.points.map((p) => ({ t: p.t, down: p.inBps, up: p.outBps }))}
+            series={[
+              { key: "down", label: "Download", color: "var(--chart-1)" },
+              { key: "up", label: "Upload", color: "var(--chart-2)" },
+            ]}
+            stepSeconds={wan.stepSeconds}
+            rangeMs={preset.ms}
+            incompleteFrom={fetched - 60_000}
+            noun="counters"
+            limits={wan.line.fromSetting ? lineLimits(wan.line.downBps, wan.line.upBps) : []}
+          />
+          <p className="text-xs text-muted-foreground">
+            The router's exact byte counts, so this includes traffic Flows miss, such as hardware-offloaded connections.
+          </p>
+        </div>
       </CardContent>
     </Card>
   )
