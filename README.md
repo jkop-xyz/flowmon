@@ -28,6 +28,9 @@ Flowmon is a self-hosted dashboard for network traffic. It collects IPFIX and Ne
 
 It is one container with an embedded database. Point your router at it and open the browser.
 
+> [!NOTE]
+> Flowmon is mostly written by AI: [Claude](https://claude.com/claude-code), Anthropic's model, through Claude Code. A person decides what to build and tests it on a real network.
+
 ## Features
 
 **Traffic**
