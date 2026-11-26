@@ -48,8 +48,9 @@ export function TrafficChart<K extends string>({
   noun?: string
   /** When the device restarted, marked as solid lines. */
   restarts?: string[]
-  /** Levels drawn as dashed lines across the chart, such as a line's speed. */
-  limits?: { value: number; label: string }[]
+  /** Levels drawn as dashed lines across the chart, such as a line's speed. The label sits
+   * above its line unless `side` is "below", so two close levels can keep apart. */
+  limits?: { value: number; label: string; side?: "above" | "below" }[]
   /** Whether to explain the points and the shaded end below the chart. */
   note?: boolean
   /** A shorter chart with fewer time ticks, for a narrow card. */
@@ -113,7 +114,12 @@ export function TrafficChart<K extends string>({
               stroke="var(--muted-foreground)"
               strokeDasharray="6 4"
               ifOverflow="extendDomain"
-              label={{ value: l.label, position: "insideTopRight", fill: "var(--muted-foreground)", fontSize: 11 }}
+              label={{
+                value: l.label,
+                position: l.side === "below" ? "insideBottomRight" : "insideTopRight",
+                fill: "var(--muted-foreground)",
+                fontSize: 11,
+              }}
             />
           ))}
           {restarts.map((t) => (

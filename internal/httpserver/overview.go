@@ -48,6 +48,14 @@ type wanJSON struct {
 		UpBps       uint64 `json:"upBps"`
 		FromSetting bool   `json:"fromSetting"`
 	} `json:"line"`
+	// Total is what crossed the WAN over the range. Seconds is the polled time it
+	// covers: per interface the sum of each bucket's coverage times its length, then the
+	// most of any interface, so a second interface does not double it.
+	Total struct {
+		InBytes  float64 `json:"inBytes"`
+		OutBytes float64 `json:"outBytes"`
+		Seconds  float64 `json:"seconds"`
+	} `json:"total"`
 }
 
 type wanPoint struct {
@@ -166,7 +174,11 @@ func wanLoad(ctx context.Context, opts Options, srcs []datasource.Status, from, 
 			if err != nil {
 				return nil, err
 			}
+			var covered float64
 			for _, p := range pts {
+				wan.Total.InBytes += p.InOctets
+				wan.Total.OutBytes += p.OutOctets
+				covered += p.Coverage * float64(wan.StepSeconds)
 				w := byT[p.T]
 				if w == nil {
 					w = &wanPoint{T: p.T}
@@ -175,6 +187,7 @@ func wanLoad(ctx context.Context, opts Options, srcs []datasource.Status, from, 
 				w.InBps += p.InBps
 				w.OutBps += p.OutBps
 			}
+			wan.Total.Seconds = max(wan.Total.Seconds, covered)
 			if n, ok := latest[i.IfIndex]; ok && opts.Now().Sub(n.At) < recentlyPolled {
 				now.InBps += n.InBps
 				now.OutBps += n.OutBps

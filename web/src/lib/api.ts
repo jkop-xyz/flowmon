@@ -1189,6 +1189,8 @@ export type WANLoad = {
   now?: { t: string; inBps: number; outBps: number }
   /** What load is measured against: the line set in Settings, else the interfaces' speed. */
   line: { downBps: number; upBps: number; fromSetting: boolean }
+  /** What crossed the WAN over the range, and the polled seconds it covers (for an average rate). */
+  total: { inBytes: number; outBytes: number; seconds: number }
 }
 
 export type DeviceHealthSummary = {

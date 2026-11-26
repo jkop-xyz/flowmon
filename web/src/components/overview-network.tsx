@@ -11,10 +11,70 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type DeviceHealthSummary, type InterfaceProblem, type WANLoad } from "@/lib/api"
 import { useDeviceLabels } from "@/lib/devices"
-import { formatBitsPerSecond, formatNumber } from "@/lib/format"
+import { formatBitsPerSecond, formatBytes, formatNumber } from "@/lib/format"
 import { useHostNames } from "@/lib/hosts"
 import { dnsQuery, useUsageNow } from "@/lib/overview"
 import { useTimeRange } from "@/lib/time-range"
+import { cn } from "@/lib/utils"
+
+/** The line's speed as dashed levels: one when both directions match, else each label on the far side of its own line. */
+function lineLimits(down: number, up: number) {
+  if (down === up) return up > 0 ? [{ value: down, label: `Line ${formatBitsPerSecond(down)}` }] : []
+  const levels = [
+    { value: down, label: `Line down ${formatBitsPerSecond(down)}` },
+    { value: up, label: `Line up ${formatBitsPerSecond(up)}` },
+  ].filter((l) => l.value > 0)
+  const lowest = Math.min(...levels.map((l) => l.value))
+  return levels.map((l) => (levels.length > 1 && l.value === lowest ? { ...l, side: "below" as const } : l))
+}
+
+/** Download and upload over the range: the bytes transferred, the average rate, and the highest step. */
+function WANTotals({ wan }: { wan: WANLoad }) {
+  const { total, line } = wan
+  const peakName = wan.stepSeconds === 3600 ? "Peak hour" : "Peak minute"
+  const rows = [
+    {
+      label: "Download",
+      color: "var(--chart-1)",
+      bytes: total.inBytes,
+      peak: Math.max(0, ...wan.points.map((p) => p.inBps)),
+      lineBps: line.downBps,
+    },
+    {
+      label: "Upload",
+      color: "var(--chart-2)",
+      bytes: total.outBytes,
+      peak: Math.max(0, ...wan.points.map((p) => p.outBps)),
+      lineBps: line.upBps,
+    },
+  ]
+  const share = (bps: number, lineBps: number) =>
+    line.fromSetting && lineBps > 0 ? `${Math.round((100 * bps) / lineBps)} % of line` : undefined
+  return (
+    <div className="flex flex-col gap-4">
+      {rows.map((r) => (
+        <div key={r.label} className="flex flex-col gap-1">
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="size-2 rounded-full" style={{ background: r.color }} />
+            {r.label}
+          </span>
+          <span className="text-xl font-semibold tabular-nums">{formatBytes(r.bytes)}</span>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-xs tabular-nums">
+            <dt className="text-muted-foreground">Average</dt>
+            <dd className="text-right">
+              {total.seconds > 0 ? formatBitsPerSecond((r.bytes * 8) / total.seconds) : "No data"}
+            </dd>
+            <dt className="text-muted-foreground">{peakName}</dt>
+            <dd className="text-right">{formatBitsPerSecond(r.peak)}</dd>
+            {share(r.peak, r.lineBps) && (
+              <dd className="col-start-2 text-right text-muted-foreground">{share(r.peak, r.lineBps)}</dd>
+            )}
+          </dl>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** The WAN's load over the range, from the router's own counters, against the line. */
 export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number }) {
@@ -41,30 +101,26 @@ export function WANLoadCard({ wan, fetched }: { wan: WANLoad; fetched: number })
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-2">
-        <TrafficChart
-          fill
-          points={wan.points.map((p) => ({ t: p.t, down: p.inBps, up: p.outBps }))}
-          series={[
-            { key: "down", label: "Download", color: "var(--chart-1)" },
-            { key: "up", label: "Upload", color: "var(--chart-2)" },
-          ]}
-          stepSeconds={wan.stepSeconds}
-          rangeMs={preset.ms}
-          incompleteFrom={fetched - 60_000}
-          noun="counters"
-          limits={
-            wan.line.fromSetting
-              ? [
-                  { value: wan.line.downBps, label: `Line down ${formatBitsPerSecond(wan.line.downBps)}` },
-                  { value: wan.line.upBps, label: `Line up ${formatBitsPerSecond(wan.line.upBps)}` },
-                ].filter((l) => l.value > 0)
-              : []
-          }
-        />
-        <p className="text-xs text-muted-foreground">
-          The router's exact byte counts, so this includes traffic Flows miss, such as hardware-offloaded connections.
-        </p>
+      <CardContent className="grid flex-1 gap-4 lg:grid-cols-[10rem_minmax(0,1fr)]">
+        <WANTotals wan={wan} />
+        <div className="flex min-w-0 flex-col gap-2">
+          <TrafficChart
+            fill
+            points={wan.points.map((p) => ({ t: p.t, down: p.inBps, up: p.outBps }))}
+            series={[
+              { key: "down", label: "Download", color: "var(--chart-1)" },
+              { key: "up", label: "Upload", color: "var(--chart-2)" },
+            ]}
+            stepSeconds={wan.stepSeconds}
+            rangeMs={preset.ms}
+            incompleteFrom={fetched - 60_000}
+            noun="counters"
+            limits={wan.line.fromSetting ? lineLimits(wan.line.downBps, wan.line.upBps) : []}
+          />
+          <p className="text-xs text-muted-foreground">
+            The router's exact byte counts, so this includes traffic Flows miss, such as hardware-offloaded connections.
+          </p>
+        </div>
       </CardContent>
     </Card>
   )
@@ -155,15 +211,6 @@ export function UsageNowCard() {
 
 const percent = (v: number) => `${v.toFixed(0)} %`
 
-function Reading({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-lg bg-muted px-3 py-2">
-      <div className="truncate text-xs text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold tabular-nums">{value}</div>
-    </div>
-  )
-}
-
 /** The hottest temperature sensor a device reports, if any. */
 function hottest(metrics: Record<string, number>) {
   const temps = Object.entries(metrics).filter(([k]) => k.startsWith("temperature:"))
@@ -176,14 +223,12 @@ function uptime(seconds: number) {
   return `${Math.max(1, Math.floor(seconds / 60))} min`
 }
 
-/** Each SNMP device's CPU, memory and temperature, and restarts in the last day; the first in full. */
+/** Each SNMP device's CPU, memory and temperature, and restarts in the last day; the first one leads. */
 export function DeviceHealthCard({ devices, fetched }: { devices: DeviceHealthSummary[]; fetched: number }) {
   const { search } = useLocation()
   // The device that reports the most leads: usually the router.
   const ranked = [...devices].sort((a, b) => Object.keys(b.metrics).length - Object.keys(a.metrics).length)
   const [main, ...rest] = ranked
-  const m = main.metrics
-  const temp = hottest(m)
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -192,31 +237,13 @@ export function DeviceHealthCard({ devices, fetched }: { devices: DeviceHealthSu
           Device health
         </CardTitle>
         <CardDescription>What each SNMP device reports about itself, each minute.</CardDescription>
-        <CardAction>
-          <Link
-            to={{ pathname: `/snmp/${encodeURIComponent(main.source)}`, search }}
-            className="text-sm underline-offset-4 hover:underline"
-          >
-            {main.name}
-          </Link>
-        </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {Object.keys(m).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No readings from {main.name} yet.</p>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {m.cpu !== undefined && <Reading label="CPU" value={percent(m.cpu)} />}
-            {m.memory_total ? (
-              <Reading label="Memory" value={percent((100 * (m.memory_used ?? 0)) / m.memory_total)} />
-            ) : null}
-            {temp !== undefined && <Reading label="Temperature" value={`${temp.toFixed(0)} °C`} />}
-            {m.uptime !== undefined && m.cpu === undefined && <Reading label="Up for" value={uptime(m.uptime)} />}
-          </div>
-        )}
-        <DeviceLine d={main} fetched={fetched} />
-        {rest.map((d) => (
-          <div key={d.source} className="flex flex-wrap items-baseline justify-between gap-x-3 border-t pt-2 text-sm">
+      <CardContent className="flex flex-col gap-2 text-sm">
+        {[main, ...rest].map((d, i) => (
+          <div
+            key={d.source}
+            className={cn("flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1", i > 0 && "border-t pt-2")}
+          >
             <Link
               to={{ pathname: `/snmp/${encodeURIComponent(d.source)}`, search }}
               className="underline-offset-4 hover:underline"
@@ -231,25 +258,33 @@ export function DeviceHealthCard({ devices, fetched }: { devices: DeviceHealthSu
   )
 }
 
-/** A device's state in a line: polling problems, a recent restart, uptime and readings. */
+/** A device's state in a line: polling problems, a recent restart, then its readings, values stronger than labels. */
 function DeviceLine({ d, fetched }: { d: DeviceHealthSummary; fetched: number }) {
   const m = d.metrics
   const temp = hottest(m)
-  const parts = [
-    m.cpu !== undefined ? `CPU ${percent(m.cpu)}` : undefined,
-    temp !== undefined ? `${temp.toFixed(0)} °C` : undefined,
-    m.uptime !== undefined ? `up ${uptime(m.uptime)}` : undefined,
-    m.wifi_clients !== undefined ? `${formatNumber(m.wifi_clients)} Wi-Fi clients` : undefined,
-  ].filter(Boolean)
+  const memory = m.memory_total ? (100 * (m.memory_used ?? 0)) / m.memory_total : undefined
+  const parts: { label?: string; value: string }[] = []
+  if (m.cpu !== undefined) parts.push({ label: "CPU", value: percent(m.cpu) })
+  if (memory !== undefined) parts.push({ label: "Memory", value: percent(memory) })
+  if (temp !== undefined) parts.push({ value: `${temp.toFixed(0)} °C` })
+  if (m.uptime !== undefined) parts.push({ label: "up", value: uptime(m.uptime) })
+  if (m.wifi_clients !== undefined) parts.push({ value: `${formatNumber(m.wifi_clients)} Wi-Fi clients` })
   return (
-    <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums">
       {d.state === "failing" && <Badge variant="destructive">Not answering</Badge>}
       {d.restarts.length > 0 && (
         <Badge variant="warning">
           Restarted <TimeAgo iso={d.restarts[0]} now={fetched} />
         </Badge>
       )}
-      {parts.join(" · ")}
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && <span aria-hidden> · </span>}
+          {p.label && `${p.label} `}
+          <span className="font-medium text-foreground">{p.value}</span>
+        </span>
+      ))}
+      {parts.length === 0 && d.restarts.length === 0 && d.state !== "failing" && "No readings yet"}
     </span>
   )
 }
@@ -264,15 +299,11 @@ export function InterfaceProblemsCard({ problems }: { problems: InterfaceProblem
           <AreaChip area="exporters" icon={AlertTriangle} />
           Interface problems
         </CardTitle>
-        <CardDescription>
-          Named interfaces that are down, and errors and discards in the last hour, on every SNMP device.
-        </CardDescription>
+        <CardDescription>Down interfaces, and errors or discards in the last hour.</CardDescription>
       </CardHeader>
       <CardContent>
         {problems.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            None: every named interface is up, without errors or discards.
-          </p>
+          <p className="text-sm text-muted-foreground">None: every named interface is up and clean.</p>
         ) : (
           <ul className="flex flex-col divide-y text-sm">
             {problems.slice(0, 8).map((p) => (
@@ -321,13 +352,13 @@ export function DNSOverviewCard() {
           </Link>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent>
         {query.isPending ? (
           <SectionSkeleton rows={4} />
         ) : query.isError ? (
           <QueryError title="Couldn't load DNS" error={query.error} />
         ) : (
-          <>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <TrafficChart
               points={s!.points}
               series={[
@@ -340,24 +371,28 @@ export function DNSOverviewCard() {
               format={(v) => `${formatNumber(Math.round(v))}/min`}
               noun="lookups"
               note={false}
-              compact
             />
-            {s!.topBlocked.length > 0 && (
-              <BarList>
-                {s!.topBlocked.slice(0, 3).map((n) => (
-                  <BarRow
-                    key={n.name}
-                    label={<span className="truncate font-mono text-ident">{n.name}</span>}
-                    total={n.blocked}
-                    received={0}
-                    sent={n.blocked}
-                    max={s!.topBlocked[0].blocked}
-                    format={(v) => `${formatNumber(v)} blocked`}
-                  />
-                ))}
-              </BarList>
-            )}
-          </>
+            <div className="flex min-w-0 flex-col gap-3">
+              <h3 className="text-xs font-medium text-muted-foreground">Most blocked</h3>
+              {s!.topBlocked.length > 0 ? (
+                <BarList>
+                  {s!.topBlocked.slice(0, 8).map((n) => (
+                    <BarRow
+                      key={n.name}
+                      label={<span className="truncate font-mono text-ident">{n.name}</span>}
+                      total={n.blocked}
+                      received={0}
+                      sent={n.blocked}
+                      max={s!.topBlocked[0].blocked}
+                      format={(v) => `${formatNumber(v)} blocked`}
+                    />
+                  ))}
+                </BarList>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nothing was blocked in this time range.</p>
+              )}
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

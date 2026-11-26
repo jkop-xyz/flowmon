@@ -85,7 +85,6 @@ export function OverviewPage() {
   const wan = network.data?.wan
   const devices = network.data?.devices ?? []
   const dnsOn = (dns.data?.dnsSources ?? 0) > 0
-  const healthCards = (devices.length > 0 ? 2 : 0) + (dnsOn ? 1 : 0)
 
   return (
     <Page>
@@ -96,13 +95,7 @@ export function OverviewPage() {
         <UsageNowCard />
       </div>
 
-      {healthCards > 0 && (
-        <div className={cn("grid gap-6", healthCards === 1 ? "" : healthCards === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
-          {devices.length > 0 && <DeviceHealthCard devices={devices} fetched={network.dataUpdatedAt} />}
-          {devices.length > 0 && <InterfaceProblemsCard problems={network.data?.problems ?? []} />}
-          {dnsOn && <DNSOverviewCard />}
-        </div>
-      )}
+      {dnsOn && <DNSOverviewCard />}
 
       <div className="flex flex-col gap-2">
         <div className={cn("grid gap-6", showDomains ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
@@ -169,6 +162,13 @@ export function OverviewPage() {
           </p>
         )}
       </div>
+
+      {devices.length > 0 && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <DeviceHealthCard devices={devices} fetched={network.dataUpdatedAt} />
+          <InterfaceProblemsCard problems={network.data?.problems ?? []} />
+        </div>
+      )}
     </Page>
   )
 }
