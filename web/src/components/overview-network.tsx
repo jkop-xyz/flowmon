@@ -49,23 +49,27 @@ function WANTotals({ wan }: { wan: WANLoad }) {
     },
   ]
   const share = (bps: number, lineBps: number) =>
-    line.fromSetting && lineBps > 0 ? ` · ${Math.round((100 * bps) / lineBps)} % of line` : ""
+    line.fromSetting && lineBps > 0 ? `${Math.round((100 * bps) / lineBps)} % of line` : undefined
   return (
     <div className="flex flex-col gap-4">
       {rows.map((r) => (
-        <div key={r.label} className="flex flex-col gap-0.5">
+        <div key={r.label} className="flex flex-col gap-1">
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-2 rounded-full" style={{ background: r.color }} />
             {r.label}
           </span>
           <span className="text-xl font-semibold tabular-nums">{formatBytes(r.bytes)}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            Average {total.seconds > 0 ? formatBitsPerSecond((r.bytes * 8) / total.seconds) : "no data"}
-          </span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {peakName} {formatBitsPerSecond(r.peak)}
-            {share(r.peak, r.lineBps)}
-          </span>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-xs tabular-nums">
+            <dt className="text-muted-foreground">Average</dt>
+            <dd className="text-right">
+              {total.seconds > 0 ? formatBitsPerSecond((r.bytes * 8) / total.seconds) : "No data"}
+            </dd>
+            <dt className="text-muted-foreground">{peakName}</dt>
+            <dd className="text-right">{formatBitsPerSecond(r.peak)}</dd>
+            {share(r.peak, r.lineBps) && (
+              <dd className="col-start-2 text-right text-muted-foreground">{share(r.peak, r.lineBps)}</dd>
+            )}
+          </dl>
         </div>
       ))}
     </div>
