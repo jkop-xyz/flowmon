@@ -127,6 +127,7 @@ func New(opts Options) http.Handler {
 	registerDevices(mux, opts)
 	registerSNMPDevices(mux, opts)
 	registerOverview(mux, opts)
+	registerOverviewLayout(mux, opts)
 	registerServices(mux, opts)
 	registerFlows(mux, opts)
 	registerSettings(mux, opts)

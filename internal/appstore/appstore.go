@@ -278,6 +278,15 @@ var migrations = []string{
 		name TEXT NOT NULL,
 		updated_at BIGINT NOT NULL
 	)`,
+	// 6: per-user preferences, a key/value table so later ones can share it. The
+	// Overview layout is stored under the name 'overview-layout'.
+	`CREATE TABLE user_preferences (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		value TEXT NOT NULL,
+		updated_at BIGINT NOT NULL,
+		PRIMARY KEY (user_id, name)
+	)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
