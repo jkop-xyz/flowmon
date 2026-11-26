@@ -20,6 +20,7 @@ export function BarRow({
   max,
   estimated,
   format = formatBytes,
+  parts = ["Received", "Sent"],
 }: {
   label: ReactNode
   total: number
@@ -30,6 +31,8 @@ export function BarRow({
   estimated?: number
   /** How the numbers read: bytes by default. */
   format?: (n: number) => string
+  /** The names of the bar's two parts, for their tooltips. */
+  parts?: [string, string]
 }) {
   const width = max > 0 ? Math.max(2, (total / max) * 100) : 0
   return (
@@ -45,8 +48,8 @@ export function BarRow({
         </span>
       </div>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted" style={{ width: `${width}%` }}>
-        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`Received ${format(received)}`} />
-        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`Sent ${format(sent)}`} />
+        <div className="h-full bg-chart-1" style={{ flexGrow: received }} title={`${parts[0]} ${format(received)}`} />
+        <div className="h-full bg-chart-2" style={{ flexGrow: sent }} title={`${parts[1]} ${format(sent)}`} />
       </div>
     </li>
   )

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle, Cpu, Signpost, Users } from "lucide-react"
+import { useState } from "react"
 import { Link, useLocation } from "react-router"
 
 import { AreaChip } from "@/components/area-chip"
@@ -8,8 +9,9 @@ import { HostLink } from "@/components/host"
 import { QueryError, SectionSkeleton, TimeAgo } from "@/components/page"
 import { TrafficChart } from "@/components/traffic-chart"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { type DeviceHealthSummary, type InterfaceProblem } from "@/lib/api"
+import { type DeviceHealthSummary, type DNSName, type InterfaceProblem } from "@/lib/api"
 import { useDeviceLabels } from "@/lib/devices"
 import { formatBitsPerSecond, formatNumber } from "@/lib/format"
 import { useHostNames } from "@/lib/hosts"
@@ -225,10 +227,74 @@ export function InterfaceProblemsCard({ problems }: { problems: InterfaceProblem
 }
 
 /** Lookups and blocks in the range, and the most blocked names. */
+type DNSTop = "queried" | "blocked"
+
+const dnsTopKey = "flowmon-dns-top"
+
+function readDNSTop(): DNSTop {
+  try {
+    const stored = localStorage.getItem(dnsTopKey)
+    if (stored === "queried" || stored === "blocked") return stored
+  } catch {
+    // Storage can be unavailable (private mode, blocked cookies); fall back to Most blocked.
+  }
+  return "blocked"
+}
+
+/** The DNS card's top domains: the most looked up, split into answered and blocked, or the most blocked. */
+function DNSTopList({ top, names, blocked }: { top: DNSTop; names: DNSName[]; blocked: DNSName[] }) {
+  if (top === "queried") {
+    return names.length > 0 ? (
+      <BarList>
+        {names.slice(0, 8).map((n) => (
+          <BarRow
+            key={n.name}
+            label={<span className="truncate font-mono text-ident">{n.name}</span>}
+            total={n.queries}
+            received={n.queries - n.blocked}
+            sent={n.blocked}
+            max={names[0].queries}
+            format={(v) => `${formatNumber(v)} lookups`}
+            parts={["Answered", "Blocked"]}
+          />
+        ))}
+      </BarList>
+    ) : (
+      <p className="text-sm text-muted-foreground">No lookups in this time range.</p>
+    )
+  }
+  return blocked.length > 0 ? (
+    <BarList>
+      {blocked.slice(0, 8).map((n) => (
+        <BarRow
+          key={n.name}
+          label={<span className="truncate font-mono text-ident">{n.name}</span>}
+          total={n.blocked}
+          received={0}
+          sent={n.blocked}
+          max={blocked[0].blocked}
+          format={(v) => `${formatNumber(v)} blocked`}
+        />
+      ))}
+    </BarList>
+  ) : (
+    <p className="text-sm text-muted-foreground">Nothing was blocked in this time range.</p>
+  )
+}
+
 export function DNSOverviewCard() {
   const { preset } = useTimeRange()
   const query = useQuery(dnsQuery(preset))
   const s = query.data?.result
+  const [top, setTopState] = useState<DNSTop>(readDNSTop)
+  const setTop = (next: DNSTop) => {
+    try {
+      localStorage.setItem(dnsTopKey, next)
+    } catch {
+      // Not remembered; the choice still applies until the page reloads.
+    }
+    setTopState(next)
+  }
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -264,24 +330,21 @@ export function DNSOverviewCard() {
               note={false}
             />
             <div className="flex min-w-0 flex-col gap-3">
-              <h3 className="text-xs font-medium text-muted-foreground">Most blocked</h3>
-              {s!.topBlocked.length > 0 ? (
-                <BarList>
-                  {s!.topBlocked.slice(0, 8).map((n) => (
-                    <BarRow
-                      key={n.name}
-                      label={<span className="truncate font-mono text-ident">{n.name}</span>}
-                      total={n.blocked}
-                      received={0}
-                      sent={n.blocked}
-                      max={s!.topBlocked[0].blocked}
-                      format={(v) => `${formatNumber(v)} blocked`}
-                    />
-                  ))}
-                </BarList>
-              ) : (
-                <p className="text-sm text-muted-foreground">Nothing was blocked in this time range.</p>
-              )}
+              <div className="flex self-start rounded-md border p-0.5" role="group" aria-label="Top domains">
+                {(["queried", "blocked"] as const).map((v) => (
+                  <Button
+                    key={v}
+                    size="sm"
+                    variant={v === top ? "secondary" : "ghost"}
+                    className="h-7"
+                    aria-pressed={v === top}
+                    onClick={() => setTop(v)}
+                  >
+                    {v === "queried" ? "Most queried" : "Most blocked"}
+                  </Button>
+                ))}
+              </div>
+              <DNSTopList top={top} names={s!.topNames} blocked={s!.topBlocked} />
             </div>
           </div>
         )}
