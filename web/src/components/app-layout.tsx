@@ -38,7 +38,14 @@ function AppFooter() {
   const driver = status.data?.appStore?.driver
   return (
     <footer className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
-      <span>Flowmon {version ? (/^\d/.test(version) ? `v${version}` : version) : ""}</span>
+      <a
+        href="https://github.com/jkop-xyz/flowmon"
+        target="_blank"
+        rel="noreferrer"
+        className="underline-offset-4 hover:underline"
+      >
+        Flowmon {version ? (/^\d/.test(version) ? `v${version}` : version) : ""}
+      </a>
       {driver && (
         <>
           <span aria-hidden>·</span>
