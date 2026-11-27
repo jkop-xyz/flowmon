@@ -155,7 +155,7 @@ The Flow Store holds Flows, Rollups, DNS Queries and Interface Counters on the `
 | [Internal Exporters](docs/internal-exporters.md) | Adding a hypervisor's traffic without counting anything twice |
 | [Glossary](GLOSSARY.md) | What Flow, Exporter, Local Host, Device and the other terms mean here |
 
-IPFIX over TCP and SCTP, and RFC 6313 structured lists, come later. [Issue #1](https://github.com/jkop-xyz/flowmon/issues/1) tracks them.
+Flowmon receives flows over UDP only. IPFIX over SCTP may come later ([#28](https://github.com/jkop-xyz/flowmon/issues/28)). IPFIX over TCP and RFC 6313 structured lists aren't planned.
 
 ## Develop
 
